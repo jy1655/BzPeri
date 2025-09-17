@@ -7,13 +7,13 @@ Original Work:
 --------------
 Gobbledegook - Bluetooth LE GATT Server Framework
 Copyright (c) 2017-2019 Paul Nettle
-Licensed under BSD-style license (see LICENSE file)
+Licensed under BSD-style license (see LICENSE.original file)
 
 Derived Work:
 -------------
 BzPeri - Modern Bluetooth LE GATT Server Library
 Copyright (c) 2025 BzPeri Contributors
-Licensed under MIT License (see LICENSE-MIT file)
+Licensed under MIT License (see LICENSE file)
 
 Contributor Information:
 ------------------------
@@ -36,8 +36,8 @@ MIT License to provide maximum flexibility for users while maintaining proper
 attribution to the original work.
 
 Both licenses are preserved in this repository:
-- LICENSE: Original BSD-style license from Gobbledegook
-- LICENSE-MIT: New MIT license for BzPeri
+- LICENSE.original: Original BSD-style license from Gobbledegook
+- LICENSE: MIT license for BzPeri
 
 All derivative work respects and acknowledges the original copyright and
 licensing terms established by Paul Nettle.
