@@ -37,13 +37,35 @@
 #include <string.h>
 #include <string>
 #include <thread>
+#include <atomic>
+#include <condition_variable>
+#include <chrono>
 #include <memory>
 #include <deque>
 #include <mutex>
+#include <exception>
 
 #include "Init.h"
 #include "Logger.h"
 #include "Server.h"
+
+// Macro for safe C API functions that catch C++ exceptions
+#define GGK_C_API_GUARD_BEGIN() try {
+#define GGK_C_API_GUARD_END_RETURN_INT(default_value) \
+	} catch (const std::exception& e) { \
+		Logger::error(SSTR << "C API exception: " << e.what()); \
+		return default_value; \
+	} catch (...) { \
+		Logger::error("C API unknown exception"); \
+		return default_value; \
+	}
+
+#define GGK_C_API_GUARD_END_RETURN_VOID() \
+	} catch (const std::exception& e) { \
+		Logger::error(SSTR << "C API exception: " << e.what()); \
+	} catch (...) { \
+		Logger::error("C API unknown exception"); \
+	}
 
 namespace ggk
 {
@@ -53,11 +75,15 @@ namespace ggk
 	// Our server thread
 	static std::thread serverThread;
 
-	// The current server state
-	volatile static GGKServerRunState serverRunState = EUninitialized;
+	// The current server state (thread-safe atomic)
+	static std::atomic<GGKServerRunState> serverRunState{EUninitialized};
 
-	// The current server health
-	volatile static GGKServerHealth serverHealth = EOk;
+	// The current server health (thread-safe atomic)
+	static std::atomic<GGKServerHealth> serverHealth{EOk};
+
+	// Condition variable for state transitions
+	static std::condition_variable stateChangedCV;
+	static std::mutex stateChangedMutex;
 
 	// We store the old GLib print handler and error print handler so we can restore if
 	static GPrintFunc printHandlerGLib;
@@ -72,15 +98,24 @@ namespace ggk
 	// Internal method to set the run state of the server
 	void setServerRunState(GGKServerRunState newState)
 	{
-		Logger::status(SSTR << "** SERVER RUN STATE CHANGED: " << ggkGetServerRunStateString(serverRunState) << " -> " << ggkGetServerRunStateString(newState));
-		serverRunState = newState;
+		GGKServerRunState oldState = serverRunState.load(std::memory_order_acquire);
+		Logger::status(SSTR << "** SERVER RUN STATE CHANGED: " << ggkGetServerRunStateString(oldState) << " -> " << ggkGetServerRunStateString(newState));
+
+		// Store with release ordering and notify
+		serverRunState.store(newState, std::memory_order_release);
+
+		// Notify waiting threads about state change
+		stateChangedCV.notify_all();
 	}
 
 	// Internal method to set the health of the server
 	void setServerHealth(GGKServerHealth newHealth)
 	{
-		Logger::status(SSTR << "** SERVER HEALTH CHANGED: " << ggkGetServerHealthString(serverHealth) << " -> " << ggkGetServerHealthString(newHealth));
-		serverHealth = newHealth;
+		GGKServerHealth oldHealth = serverHealth.load(std::memory_order_acquire);
+		Logger::status(SSTR << "** SERVER HEALTH CHANGED: " << ggkGetServerHealthString(oldHealth) << " -> " << ggkGetServerHealthString(newHealth));
+
+		// Store with release ordering
+		serverHealth.store(newHealth, std::memory_order_release);
 	}
 }; // namespace ggk
 
@@ -96,14 +131,46 @@ using namespace ggk;
 //
 // ---------------------------------------------------------------------------------------------------------------------------------
 
-void ggkLogRegisterDebug(GGKLogReceiver receiver) { Logger::registerDebugReceiver(receiver); }
-void ggkLogRegisterInfo(GGKLogReceiver receiver) { Logger::registerInfoReceiver(receiver); }
-void ggkLogRegisterStatus(GGKLogReceiver receiver) { Logger::registerStatusReceiver(receiver); }
-void ggkLogRegisterWarn(GGKLogReceiver receiver) { Logger::registerWarnReceiver(receiver); }
-void ggkLogRegisterError(GGKLogReceiver receiver) { Logger::registerErrorReceiver(receiver); }
-void ggkLogRegisterFatal(GGKLogReceiver receiver) { Logger::registerFatalReceiver(receiver); }
-void ggkLogRegisterTrace(GGKLogReceiver receiver) { Logger::registerTraceReceiver(receiver); }
-void ggkLogRegisterAlways(GGKLogReceiver receiver) { Logger::registerAlwaysReceiver(receiver); }
+void ggkLogRegisterDebug(GGKLogReceiver receiver) {
+	GGK_C_API_GUARD_BEGIN()
+	Logger::registerDebugReceiver(receiver);
+	GGK_C_API_GUARD_END_RETURN_VOID()
+}
+void ggkLogRegisterInfo(GGKLogReceiver receiver) {
+	GGK_C_API_GUARD_BEGIN()
+	Logger::registerInfoReceiver(receiver);
+	GGK_C_API_GUARD_END_RETURN_VOID()
+}
+void ggkLogRegisterStatus(GGKLogReceiver receiver) {
+	GGK_C_API_GUARD_BEGIN()
+	Logger::registerStatusReceiver(receiver);
+	GGK_C_API_GUARD_END_RETURN_VOID()
+}
+void ggkLogRegisterWarn(GGKLogReceiver receiver) {
+	GGK_C_API_GUARD_BEGIN()
+	Logger::registerWarnReceiver(receiver);
+	GGK_C_API_GUARD_END_RETURN_VOID()
+}
+void ggkLogRegisterError(GGKLogReceiver receiver) {
+	GGK_C_API_GUARD_BEGIN()
+	Logger::registerErrorReceiver(receiver);
+	GGK_C_API_GUARD_END_RETURN_VOID()
+}
+void ggkLogRegisterFatal(GGKLogReceiver receiver) {
+	GGK_C_API_GUARD_BEGIN()
+	Logger::registerFatalReceiver(receiver);
+	GGK_C_API_GUARD_END_RETURN_VOID()
+}
+void ggkLogRegisterTrace(GGKLogReceiver receiver) {
+	GGK_C_API_GUARD_BEGIN()
+	Logger::registerTraceReceiver(receiver);
+	GGK_C_API_GUARD_END_RETURN_VOID()
+}
+void ggkLogRegisterAlways(GGKLogReceiver receiver) {
+	GGK_C_API_GUARD_BEGIN()
+	Logger::registerAlwaysReceiver(receiver);
+	GGK_C_API_GUARD_END_RETURN_VOID()
+}
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 //  _   _           _       _                                                                                                     _
@@ -122,7 +189,10 @@ void ggkLogRegisterAlways(GGKLogReceiver receiver) { Logger::registerAlwaysRecei
 // Returns non-zero value on success or 0 on failure.
 int ggkNofifyUpdatedCharacteristic(const char *pObjectPath)
 {
+	GGK_C_API_GUARD_BEGIN()
+	if (!pObjectPath) return 0;
 	return ggkPushUpdateQueue(pObjectPath, "org.bluez.GattCharacteristic1") != 0;
+	GGK_C_API_GUARD_END_RETURN_INT(0)
 }
 
 // Adds an update to the front of the queue for a descriptor at the given object path
@@ -130,7 +200,10 @@ int ggkNofifyUpdatedCharacteristic(const char *pObjectPath)
 // Returns non-zero value on success or 0 on failure.
 int ggkNofifyUpdatedDescriptor(const char *pObjectPath)
 {
+	GGK_C_API_GUARD_BEGIN()
+	if (!pObjectPath) return 0;
 	return ggkPushUpdateQueue(pObjectPath, "org.bluez.GattDescriptor1") != 0;
+	GGK_C_API_GUARD_END_RETURN_INT(0)
 }
 
 // Adds a named update to the front of the queue. Generally, this routine should not be used directly. Instead, use the
@@ -139,11 +212,15 @@ int ggkNofifyUpdatedDescriptor(const char *pObjectPath)
 // Returns non-zero value on success or 0 on failure.
 int ggkPushUpdateQueue(const char *pObjectPath, const char *pInterfaceName)
 {
+	GGK_C_API_GUARD_BEGIN()
+	if (!pObjectPath || !pInterfaceName) return 0;
+
 	QueueEntry t(pObjectPath, pInterfaceName);
 
 	std::lock_guard<std::mutex> guard(updateQueueMutex);
 	updateQueue.push_front(t);
 	return 1;
+	GGK_C_API_GUARD_END_RETURN_INT(0)
 }
 
 // Get the next update from the back of the queue and returns the element in `element` as a string in the format:
@@ -161,6 +238,9 @@ int ggkPushUpdateQueue(const char *pObjectPath, const char *pInterfaceName)
 // Returns 1 on success, 0 if the queue is empty, -1 on error (such as the length too small to store the element)
 int ggkPopUpdateQueue(char *pElementBuffer, int elementLen, int keep)
 {
+	GGK_C_API_GUARD_BEGIN()
+	if (!pElementBuffer || elementLen <= 0) return -1;
+
 	std::string result;
 
 	{
@@ -184,31 +264,39 @@ int ggkPopUpdateQueue(char *pElementBuffer, int elementLen, int keep)
 		}
 	}
 
-	// Copy the element string
-	memcpy(pElementBuffer, result.c_str(), result.length() + 1);
+	// Copy the element string safely
+	strncpy(pElementBuffer, result.c_str(), elementLen - 1);
+	pElementBuffer[elementLen - 1] = '\0';
 
 	return 1;
+	GGK_C_API_GUARD_END_RETURN_INT(-1)
 }
 
 // Returns 1 if the queue is empty, otherwise 0
 int ggkUpdateQueueIsEmpty()
 {
+	GGK_C_API_GUARD_BEGIN()
 	std::lock_guard<std::mutex> guard(updateQueueMutex);
 	return updateQueue.empty() ? 1 : 0;
+	GGK_C_API_GUARD_END_RETURN_INT(1)
 }
 
 // Returns the number of entries waiting in the queue
 int ggkUpdateQueueSize()
 {
+	GGK_C_API_GUARD_BEGIN()
 	std::lock_guard<std::mutex> guard(updateQueueMutex);
-	return updateQueue.size();
+	return static_cast<int>(updateQueue.size());
+	GGK_C_API_GUARD_END_RETURN_INT(0)
 }
 
 // Removes all entries from the queue
 void ggkUpdateQueueClear()
 {
+	GGK_C_API_GUARD_BEGIN()
 	std::lock_guard<std::mutex> guard(updateQueueMutex);
 	updateQueue.clear();
+	GGK_C_API_GUARD_END_RETURN_VOID()
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -352,21 +440,20 @@ int ggkWait()
 	}
 	catch(std::system_error &ex)
 	{
-		if (ex.code() == std::errc::invalid_argument)
+		switch (ex.code().value())
 		{
-			Logger::warn(SSTR << "Server thread was not joinable during ggkWait(): " << ex.what());
-		}
-		else if (ex.code() == std::errc::no_such_process)
-		{
-			Logger::warn(SSTR << "Server thread was not valid during ggkWait(): " << ex.what());
-		}
-		else if (ex.code() == std::errc::resource_deadlock_would_occur)
-		{
-			Logger::warn(SSTR << "Deadlock avoided in call to ggkWait() (did the server thread try to stop itself?): " << ex.what());
-		}
-		else
-		{
-			Logger::warn(SSTR << "Unknown system_error code (" << ex.code() << ") during ggkWait(): " << ex.what());
+			case static_cast<int>(std::errc::invalid_argument):
+				Logger::warn(SSTR << "Server thread was not joinable during ggkWait(): " << ex.what());
+				break;
+			case static_cast<int>(std::errc::no_such_process):
+				Logger::warn(SSTR << "Server thread was not valid during ggkWait(): " << ex.what());
+				break;
+			case static_cast<int>(std::errc::resource_deadlock_would_occur):
+				Logger::warn(SSTR << "Deadlock avoided in call to ggkWait() (did the server thread try to stop itself?): " << ex.what());
+				break;
+			default:
+				Logger::warn(SSTR << "Unknown system_error code (" << ex.code() << ") during ggkWait(): " << ex.what());
+				break;
 		}
 	}
 
@@ -438,11 +525,50 @@ int ggkWait()
 //
 //     Retrieve this value using the `getAdvertisingShortName()` method
 //
-int ggkStart(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName, 
-	GGKServerDataGetter getter, GGKServerDataSetter setter, int maxAsyncInitTimeoutMS)
+int ggkStartWithBondable(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	GGKServerDataGetter getter, GGKServerDataSetter setter, int maxAsyncInitTimeoutMS, int enableBondable)
 {
 	try
 	{
+		// Input validation
+		if (!pServiceName || strlen(pServiceName) == 0)
+		{
+			Logger::error("ggkStart: pServiceName cannot be null or empty");
+			return 0;
+		}
+		if (!pAdvertisingName)
+		{
+			Logger::error("ggkStart: pAdvertisingName cannot be null");
+			return 0;
+		}
+		if (!pAdvertisingShortName)
+		{
+			Logger::error("ggkStart: pAdvertisingShortName cannot be null");
+			return 0;
+		}
+		if (!getter)
+		{
+			Logger::error("ggkStart: getter delegate cannot be null");
+			return 0;
+		}
+		if (!setter)
+		{
+			Logger::error("ggkStart: setter delegate cannot be null");
+			return 0;
+		}
+		if (maxAsyncInitTimeoutMS < 100 || maxAsyncInitTimeoutMS > 60000)
+		{
+			Logger::error(SSTR << "ggkStart: maxAsyncInitTimeoutMS (" << maxAsyncInitTimeoutMS << ") must be between 100 and 60000 milliseconds");
+			return 0;
+		}
+
+		// Validate service name length (reasonable limits)
+		if (strlen(pServiceName) > 255)
+		{
+			Logger::error(SSTR << "ggkStart: pServiceName too long (" << strlen(pServiceName) << " > 255)");
+			return 0;
+		}
+
 		//
 		// Start by capturing the GLib output
 		//
@@ -484,7 +610,7 @@ int ggkStart(const char *pServiceName, const char *pAdvertisingName, const char 
 		Logger::info(SSTR << "Starting GGK server '" << pAdvertisingName << "'");
 
 		// Allocate our server
-		TheServer = std::make_shared<Server>(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter);
+		TheServer = std::make_shared<Server>(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, enableBondable != 0);
 
 		// Start our server thread
 		try
@@ -499,16 +625,15 @@ int ggkStart(const char *pServiceName, const char *pAdvertisingName, const char 
 			return 0;
 		}
 
-		// Waits for the server to pass the EInitializing state
-		int retryTimeMS = 0;
-		while (retryTimeMS < maxAsyncInitTimeoutMS && ggkGetServerRunState() <= EInitializing)
-		{
-			std::this_thread::sleep_for(std::chrono::milliseconds(kMaxAsyncInitCheckIntervalMS));
-			retryTimeMS += kMaxAsyncInitCheckIntervalMS;
-		}
+		// Wait for the server to complete initialization using condition variable
+		// Create local lock to avoid lock lifetime issues
+		std::unique_lock<std::mutex> lock(stateChangedMutex);
+		bool initCompleted = stateChangedCV.wait_for(lock, std::chrono::milliseconds(maxAsyncInitTimeoutMS),
+			[]() { return serverRunState.load(std::memory_order_acquire) > EInitializing; });
+		lock.unlock();
 
 		// If something went wrong, shut down
-		if (retryTimeMS >= maxAsyncInitTimeoutMS)
+		if (!initCompleted)
 		{
 			Logger::error("GGK server initialization timed out");
 
@@ -534,7 +659,14 @@ int ggkStart(const char *pServiceName, const char *pAdvertisingName, const char 
 	}
 	catch(...)
 	{
-		Logger::error(SSTR << "Unknown exception during ggkStart()");
+		Logger::error(SSTR << "Unknown exception during ggkStartWithBondable()");
 		return 0;
 	}
+}
+
+// Backward compatibility wrapper - calls ggkStartWithBondable with enableBondable=1 (true)
+int ggkStart(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	GGKServerDataGetter getter, GGKServerDataSetter setter, int maxAsyncInitTimeoutMS)
+{
+	return ggkStartWithBondable(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, maxAsyncInitTimeoutMS, 1);
 }

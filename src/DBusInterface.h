@@ -26,7 +26,6 @@
 #include <string>
 #include <list>
 
-#include "TickEvent.h"
 #include "DBusMethod.h"
 
 namespace ggk {
@@ -74,7 +73,6 @@ struct DBusInterface
 	static constexpr const char *kInterfaceType = "DBusInterface";
 
 	typedef void (*MethodCallback)(const DBusInterface &self, GDBusConnection *pConnection, const std::string &methodName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData);
-	typedef void (*EventCallback)(const DBusInterface &self, const TickEvent &event, GDBusConnection *pConnection, void *pUserData);
 
 	// Standard constructor
 	DBusInterface(DBusObject &owner, const std::string &name);
@@ -108,19 +106,6 @@ struct DBusInterface
 	// their subclass type.
 	virtual bool callMethod(const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const;
 
-	//
-	// Interface events (our home-grown poor-mans's method of allowing interfaces to do things periodically)
-	//
-
-	// NOTE: Subclasses are encouraged to overload this method in order to support different callback types that are specific to
-	// their subclass type. In addition, they should return their own type. This simplifies the server description by allowing
-	// calls to chain.
-	DBusInterface &onEvent(int tickFrequency, void *pUserData, TickEvent::Callback callback);
-
-	// NOTE: Subclasses are encouraged to override this method in order to support different callback types that are specific to
-	// their subclass type.
-	virtual void tickEvents(GDBusConnection *pConnection, void *pUserData) const;
-
 	// Internal method used to generate introspection XML used to describe our services on D-Bus
 	virtual std::string generateIntrospectionXML(int depth) const;
 
@@ -128,7 +113,6 @@ protected:
 	DBusObject &owner;
 	std::string name;
 	std::list<DBusMethod> methods;
-	std::list<TickEvent> events;
 };
 
 }; // namespace ggk

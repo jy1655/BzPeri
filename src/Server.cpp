@@ -216,8 +216,19 @@ std::shared_ptr<Server> TheServer = nullptr;
 //
 //     Retrieve this value using the `getAdvertisingShortName()` method.
 //
-Server::Server(const std::string &serviceName, const std::string &advertisingName, const std::string &advertisingShortName, 
-	GGKServerDataGetter getter, GGKServerDataSetter setter)
+// enableBondable: Enable or disable device bonding/pairing capability
+//
+//     When true (default), the adapter will accept pairing requests from client devices and allow them to bond.
+//     When false, pairing requests will be rejected, which may cause immediate disconnection for devices that
+//     require security/authentication.
+//
+//     Modern BLE applications typically require bonding for security, so this should generally be left as true
+//     unless you specifically need an open, non-authenticated connection.
+//
+//     Retrieve this value using the `getEnableBondable()` method.
+//
+Server::Server(const std::string &serviceName, const std::string &advertisingName, const std::string &advertisingShortName,
+	GGKServerDataGetter getter, GGKServerDataSetter setter, bool enableBondable)
 {
 	// Save our names
 	this->serviceName = serviceName;
@@ -235,7 +246,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 	enableConnectable = true;
 	enableDiscoverable = true;
 	enableAdvertising = true;
-	enableBondable = false;
+	this->enableBondable = enableBondable;  // Use parameter value instead of hardcoded false
 
 	//
 	// Define the server
@@ -259,8 +270,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 		.gattCharacteristicBegin("mfgr_name", "2A29", {"read"})
 
 			// Standard characteristic "ReadValue" method call
-			.onReadValue(CHARACTERISTIC_METHOD_CALLBACK_LAMBDA
-			{
+			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 				self.methodReturnValue(pInvocation, "Acme Inc.", true);
 			})
 
@@ -272,8 +282,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 		.gattCharacteristicBegin("model_num", "2A24", {"read"})
 
 			// Standard characteristic "ReadValue" method call
-			.onReadValue(CHARACTERISTIC_METHOD_CALLBACK_LAMBDA
-			{
+			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 				self.methodReturnValue(pInvocation, "Marvin-PA", true);
 			})
 
@@ -299,8 +308,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 		.gattCharacteristicBegin("level", "2A19", {"read", "notify"})
 
 			// Standard characteristic "ReadValue" method call
-			.onReadValue(CHARACTERISTIC_METHOD_CALLBACK_LAMBDA
-			{
+			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 				uint8_t batteryLevel = self.getDataValue<uint8_t>("battery/level", 0);
 				self.methodReturnValue(pInvocation, batteryLevel, true);
 			})
@@ -311,8 +319,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 			// updates to our value. These updates may have come from our own server or some other source.
 			//
 			// We can handle updates in any way we wish, but the most common use is to send a change notification.
-			.onUpdatedValue(CHARACTERISTIC_UPDATED_VALUE_CALLBACK_LAMBDA
-			{
+			.onUpdatedValue([](const GattCharacteristic& self, GDBusConnection* pConnection, void* pUserData) {
 				uint8_t batteryLevel = self.getDataValue<uint8_t>("battery/level", 0);
 				self.sendChangeNotificationValue(pConnection, batteryLevel);
 				return true;
@@ -327,11 +334,9 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 	//
 	//    https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.service.current_time.xml
 	//
-	// Like the battery service, this also makes use of events. This one updates the time every tick.
-	//
-	// This showcases the use of events (see the call to .onEvent() below) for periodic actions. In this case, the action
-	// taken is to update time every tick. This probably isn't a good idea for a production service, but it has been quite
-	// useful for testing to ensure we're connected and updating.
+	// Note: The old TickEvent system has been removed in modernization. For periodic updates,
+	// use GLib timers (g_timeout_add) directly. This example now shows only the read operation;
+	// periodic notifications would be implemented separately using modern timer patterns.
 	.gattServiceBegin("time", "1805")
 
 		// Characteristic: Current Time (0x2A2B)
@@ -340,18 +345,16 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 		.gattCharacteristicBegin("current", "2A2B", {"read", "notify"})
 
 			// Standard characteristic "ReadValue" method call
-			.onReadValue(CHARACTERISTIC_METHOD_CALLBACK_LAMBDA
-			{
+			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 				self.methodReturnVariant(pInvocation, ServerUtils::gvariantCurrentTime(), true);
 			})
 
-			// Update the time every tick of the periodic timer
-			//
-			// We'll send an change notification to any subscribed clients with the latest value
-			.onEvent(1, nullptr, CHARACTERISTIC_EVENT_CALLBACK_LAMBDA
-			{
-				self.sendChangeNotificationVariant(pConnection, ServerUtils::gvariantCurrentTime());
-			})
+			// Note: TickEvent system removed in modernization
+			// For periodic notifications, use g_timeout_add() to create a GLib timer:
+			// g_timeout_add_seconds(1, [](gpointer data) -> gboolean {
+			//     // Send time notifications to subscribed clients
+			//     return G_SOURCE_CONTINUE; // or G_SOURCE_REMOVE to stop
+			// }, nullptr);
 
 		.gattCharacteristicEnd()
 
@@ -361,8 +364,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 		.gattCharacteristicBegin("local", "2A0F", {"read"})
 
 			// Standard characteristic "ReadValue" method call
-			.onReadValue(CHARACTERISTIC_METHOD_CALLBACK_LAMBDA
-			{
+			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 				self.methodReturnVariant(pInvocation, ServerUtils::gvariantLocalTime(), true);
 			})
 
@@ -379,15 +381,13 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 		.gattCharacteristicBegin("string", "00000002-1E3C-FAD4-74E2-97A033F1BFAA", {"read", "write", "notify"})
 
 			// Standard characteristic "ReadValue" method call
-			.onReadValue(CHARACTERISTIC_METHOD_CALLBACK_LAMBDA
-			{
+			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 				const char *pTextString = self.getDataPointer<const char *>("text/string", "");
 				self.methodReturnValue(pInvocation, pTextString, true);
 			})
 
 			// Standard characteristic "WriteValue" method call
-			.onWriteValue(CHARACTERISTIC_METHOD_CALLBACK_LAMBDA
-			{
+			.onWriteValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 				// Update the text string value
 				GVariant *pAyBuffer = g_variant_get_child_value(pParameters, 0);
 				self.setDataPointer("text/string", Utils::stringFromGVariantByteArray(pAyBuffer).c_str());
@@ -407,8 +407,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 			// updates to our value. These updates may have come from our own server or some other source.
 			//
 			// We can handle updates in any way we wish, but the most common use is to send a change notification.
-			.onUpdatedValue(CHARACTERISTIC_UPDATED_VALUE_CALLBACK_LAMBDA
-			{
+			.onUpdatedValue([](const GattCharacteristic& self, GDBusConnection* pConnection, void* pUserData) {
 				const char *pTextString = self.getDataPointer<const char *>("text/string", "");
 				self.sendChangeNotificationValue(pConnection, pTextString);
 				return true;
@@ -420,8 +419,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 			.gattDescriptorBegin("description", "2901", {"read"})
 
 				// Standard descriptor "ReadValue" method call
-				.onReadValue(DESCRIPTOR_METHOD_CALLBACK_LAMBDA
-				{
+				.onReadValue([](const GattDescriptor& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 					const char *pDescription = "A mutable text string used for testing. Read and write to me, it tickles!";
 					self.methodReturnValue(pInvocation, pDescription, true);
 				})
@@ -443,8 +441,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 		.gattCharacteristicBegin("string", "00000002-1E3D-FAD4-74E2-97A033F1BFEE", {"read"})
 
 			// Standard characteristic "ReadValue" method call
-			.onReadValue(CHARACTERISTIC_METHOD_CALLBACK_LAMBDA
-			{
+			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 				// Get our local time string using asctime()
 				time_t timeVal = time(nullptr);
 				struct tm *pTimeStruct = localtime(&timeVal);
@@ -459,8 +456,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 			.gattDescriptorBegin("description", "2901", {"read"})
 
 				// Standard descriptor "ReadValue" method call
-				.onReadValue(DESCRIPTOR_METHOD_CALLBACK_LAMBDA
-				{
+				.onReadValue([](const GattDescriptor& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 					const char *pDescription = "Returns the local time (as reported by POSIX asctime()) each time it is read";
 					self.methodReturnValue(pInvocation, pDescription, true);
 				})
@@ -482,8 +478,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 		.gattCharacteristicBegin("count", "0000B002-1E3D-FAD4-74E2-97A033F1BFEE", {"read"})
 
 			// Standard characteristic "ReadValue" method call
-			.onReadValue(CHARACTERISTIC_METHOD_CALLBACK_LAMBDA
-			{
+			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 				int16_t cpuCount = 0;
 				ServerUtils::getCpuInfo(cpuCount);
 				self.methodReturnValue(pInvocation, cpuCount, true);
@@ -495,8 +490,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 			.gattDescriptorBegin("description", "2901", {"read"})
 
 				// Standard descriptor "ReadValue" method call
-				.onReadValue(DESCRIPTOR_METHOD_CALLBACK_LAMBDA
-				{
+				.onReadValue([](const GattDescriptor& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 					const char *pDescription = "This might represent the number of CPUs in the system";
 					self.methodReturnValue(pInvocation, pDescription, true);
 				})
@@ -509,8 +503,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 		.gattCharacteristicBegin("model", "0000B003-1E3D-FAD4-74E2-97A033F1BFEE", {"read"})
 
 			// Standard characteristic "ReadValue" method call
-			.onReadValue(CHARACTERISTIC_METHOD_CALLBACK_LAMBDA
-			{
+			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 				int16_t cpuCount = 0;
 				self.methodReturnValue(pInvocation, ServerUtils::getCpuInfo(cpuCount), true);
 			})
@@ -521,8 +514,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 			.gattDescriptorBegin("description", "2901", {"read"})
 
 				// Standard descriptor "ReadValue" method call
-				.onReadValue(DESCRIPTOR_METHOD_CALLBACK_LAMBDA
-				{
+				.onReadValue([](const GattDescriptor& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 					const char *pDescription = "Possibly the model of the CPU in the system";
 					self.methodReturnValue(pInvocation, pDescription, true);
 				})
@@ -583,8 +575,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 	// 'org.freedesktop.DBus.ObjectManager' interface.
 	const char *pInArgs[] = { nullptr };
 	const char *pOutArgs = "a{oa{sa{sv}}}";
-	omInterface->addMethod("GetManagedObjects", pInArgs, pOutArgs, INTERFACE_METHOD_CALLBACK_LAMBDA
-	{
+	omInterface->addMethod("GetManagedObjects", pInArgs, pOutArgs, [](const DBusInterface& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 		ServerUtils::getManagedObjects(pInvocation);
 	});
 }
@@ -596,11 +587,11 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 // Find a D-Bus interface within the given D-Bus object
 //
 // If the interface was found, it is returned, otherwise nullptr is returned
-std::shared_ptr<const DBusInterface> Server::findInterface(const DBusObjectPath &objectPath, const std::string &interfaceName) const
+std::shared_ptr<const DBusInterface> Server::findInterface(const DBusObjectPath &objectPath, std::string_view interfaceName) const
 {
 	for (const DBusObject &object : objects)
 	{
-		std::shared_ptr<const DBusInterface> pInterface = object.findInterface(objectPath, interfaceName);
+		std::shared_ptr<const DBusInterface> pInterface = object.findInterface(objectPath, std::string(interfaceName));
 		if (pInterface != nullptr)
 		{
 			return pInterface;
@@ -613,11 +604,11 @@ std::shared_ptr<const DBusInterface> Server::findInterface(const DBusObjectPath 
 // Find and call a D-Bus method within the given D-Bus object on the given D-Bus interface
 //
 // If the method was called, this method returns true, otherwise false. There is no result from the method call itself.
-bool Server::callMethod(const DBusObjectPath &objectPath, const std::string &interfaceName, const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const
+bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view interfaceName, std::string_view methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const
 {
 	for (const DBusObject &object : objects)
 	{
-		if (object.callMethod(objectPath, interfaceName, methodName, pConnection, pParameters, pInvocation, pUserData))
+		if (object.callMethod(objectPath, std::string(interfaceName), std::string(methodName), pConnection, pParameters, pInvocation, pUserData))
 		{
 			return true;
 		}
@@ -629,22 +620,22 @@ bool Server::callMethod(const DBusObjectPath &objectPath, const std::string &int
 // Find a GATT Property within the given D-Bus object on the given D-Bus interface
 //
 // If the property was found, it is returned, otherwise nullptr is returned
-const GattProperty *Server::findProperty(const DBusObjectPath &objectPath, const std::string &interfaceName, const std::string &propertyName) const
+const GattProperty *Server::findProperty(const DBusObjectPath &objectPath, std::string_view interfaceName, std::string_view propertyName) const
 {
 	std::shared_ptr<const DBusInterface> pInterface = findInterface(objectPath, interfaceName);
 
 	// Try each of the GattInterface types that support properties?
 	if (std::shared_ptr<const GattInterface> pGattInterface = TRY_GET_CONST_INTERFACE_OF_TYPE(pInterface, GattInterface))
 	{
-		return pGattInterface->findProperty(propertyName);
+		return pGattInterface->findProperty(std::string(propertyName));
 	}
 	else if (std::shared_ptr<const GattService> pGattInterface = TRY_GET_CONST_INTERFACE_OF_TYPE(pInterface, GattService))
 	{
-		return pGattInterface->findProperty(propertyName);
+		return pGattInterface->findProperty(std::string(propertyName));
 	}
 	else if (std::shared_ptr<const GattCharacteristic> pGattInterface = TRY_GET_CONST_INTERFACE_OF_TYPE(pInterface, GattCharacteristic))
 	{
-		return pGattInterface->findProperty(propertyName);
+		return pGattInterface->findProperty(std::string(propertyName));
 	}
 
 	return nullptr;

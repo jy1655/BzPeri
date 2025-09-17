@@ -210,8 +210,25 @@ extern "C"
 	//
 	//     Retrieve this value using the `getAdvertisingShortName()` method
 	//
-	int ggkStart(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName, 
+	// enableBondable: Enable or disable device bonding/pairing capability (default: 1/true)
+	//
+	//     When non-zero (default), the adapter will accept pairing requests from client devices and allow them to bond.
+	//     When zero, pairing requests will be rejected, which may cause immediate disconnection for devices that
+	//     require security/authentication.
+	//
+	//     Modern BLE applications typically require bonding for security, so this should generally be left as non-zero
+	//     unless you specifically need an open, non-authenticated connection.
+	//
+	int ggkStart(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 		GGKServerDataGetter getter, GGKServerDataSetter setter, int maxAsyncInitTimeoutMS);
+
+	// Extended version of ggkStart with bondable configuration
+	//
+	// This is the preferred API for new applications. The basic ggkStart() function above calls this with
+	// enableBondable=1 for backward compatibility.
+	//
+	int ggkStartWithBondable(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+		GGKServerDataGetter getter, GGKServerDataSetter setter, int maxAsyncInitTimeoutMS, int enableBondable);
 
 	// Blocks for up to maxAsyncInitTimeoutMS milliseconds until the server shuts down.
 	//

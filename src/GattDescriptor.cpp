@@ -70,26 +70,8 @@ bool GattDescriptor::callMethod(const std::string &methodName, GDBusConnection *
 	return false;
 }
 
-// Adds an event to the descriptor and returns a refereence to 'this` to enable method chaining in the server description
-//
-// NOTE: We specifically overload this method in order to accept our custom EventCallback type and transform it into a
-// TickEvent::Callback type. We also return our own type. This simplifies the server description by allowing call to chain.
-GattDescriptor &GattDescriptor::onEvent(int tickFrequency, void *pUserData, EventCallback callback)
-{
-	events.push_back(TickEvent(this, tickFrequency, reinterpret_cast<TickEvent::Callback>(callback), pUserData));
-	return *this;
-}
-
-// Ticks events within this descriptor
-//
-// Note: we specifically override this method in order to translate the generic TickEvent::Callback into our own EventCallback
-void GattDescriptor::tickEvents(GDBusConnection *pConnection, void *pUserData) const
-{
-	for (const TickEvent &event : events)
-	{
-		event.tick<GattDescriptor>(getPath(), pConnection, pUserData);
-	}
-}
+// Modern approach: Use GLib timers directly for periodic updates
+// Applications should use g_timeout_add_seconds() or g_timeout_add() for periodic operations
 
 // Specialized support for ReadlValue method
 //
@@ -103,7 +85,9 @@ GattDescriptor &GattDescriptor::onReadValue(MethodCallback callback)
 {
 	// array{byte} ReadValue(dict options)
 	const char *inArgs[] = {"a{sv}", nullptr};
-	addMethod("ReadValue", inArgs, "ay", reinterpret_cast<DBusMethod::Callback>(callback));
+	// Store callback and use static thunk
+	this->readCallback_ = callback;
+	addMethod("ReadValue", inArgs, "ay", &GattDescriptor::ReadThunk);
 	return *this;
 }
 
@@ -119,7 +103,9 @@ GattDescriptor &GattDescriptor::onReadValue(MethodCallback callback)
 GattDescriptor &GattDescriptor::onWriteValue(MethodCallback callback)
 {
 	const char *inArgs[] = {"ay", "a{sv}", nullptr};
-	addMethod("WriteValue", inArgs, nullptr, reinterpret_cast<DBusMethod::Callback>(callback));
+	// Store callback and use static thunk
+	this->writeCallback_ = callback;
+	addMethod("WriteValue", inArgs, nullptr, &GattDescriptor::WriteThunk);
 	return *this;
 }
 
@@ -166,5 +152,24 @@ bool GattDescriptor::callOnUpdatedValue(GDBusConnection *pConnection, void *pUse
 	Logger::debug(SSTR << "Calling OnUpdatedValue function for interface at path '" << getPath() << "'");
 	return pOnUpdatedValueFunc(*this, pConnection, pUserData);
 }
+
+// Static thunk implementations for function pointer compatibility
+
+void GattDescriptor::ReadThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u)
+{
+	auto& desc = static_cast<const GattDescriptor&>(self);
+	if (desc.readCallback_) {
+		desc.readCallback_(desc, c, mn, p, inv, u);
+	}
+}
+
+void GattDescriptor::WriteThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u)
+{
+	auto& desc = static_cast<const GattDescriptor&>(self);
+	if (desc.writeCallback_) {
+		desc.writeCallback_(desc, c, mn, p, inv, u);
+	}
+}
+
 
 }; // namespace ggk

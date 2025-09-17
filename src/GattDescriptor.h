@@ -26,7 +26,6 @@
 #include <string>
 #include <list>
 
-#include "TickEvent.h"
 #include "Utils.h"
 #include "GattInterface.h"
 
@@ -42,33 +41,16 @@ struct GattProperty;
 struct DBusObject;
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// Useful Lambdas
+// Modern C++ Callback Types
 // ---------------------------------------------------------------------------------------------------------------------------------
 
-#define DESCRIPTOR_UPDATED_VALUE_CALLBACK_LAMBDA [] \
-( \
-	const GattDescriptor &self, \
-	GDBusConnection *pConnection, \
-	void *pUserData \
-) -> bool
+#include <functional>
 
-#define DESCRIPTOR_EVENT_CALLBACK_LAMBDA [] \
-( \
-	const GattDescriptor &self, \
-	const TickEvent &event, \
-	GDBusConnection *pConnection, \
-	void *pUserData \
-)
-
-#define DESCRIPTOR_METHOD_CALLBACK_LAMBDA [] \
-( \
-       const GattDescriptor &self, \
-       GDBusConnection *pConnection, \
-       const std::string &methodName, \
-       GVariant *pParameters, \
-       GDBusMethodInvocation *pInvocation, \
-       void *pUserData \
-)
+namespace ggk::callbacks {
+	// Modern typed callback helpers - no more macro magic
+	using DescriptorMethodFunc = std::function<void(const GattDescriptor&, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation*, void*)>;
+	using DescriptorUpdateFunc = std::function<bool(const GattDescriptor&, GDBusConnection*, void*)>;
+}
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Representation of a Bluetooth GATT Descriptor
@@ -80,7 +62,6 @@ struct GattDescriptor : GattInterface
 	static constexpr const char *kInterfaceType = "GattDescriptor";
 
 	typedef void (*MethodCallback)(const GattDescriptor &self, GDBusConnection *pConnection, const std::string &methodName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData);
-	typedef void (*EventCallback)(const GattDescriptor &self, const TickEvent &event, GDBusConnection *pConnection, void *pUserData);
 	typedef bool (*UpdatedValueCallback)(const GattDescriptor &self, GDBusConnection *pConnection, void *pUserData);
 
 	//
@@ -105,16 +86,8 @@ struct GattDescriptor : GattInterface
 	// Locates a D-Bus method within this D-Bus interface and invokes the method
 	virtual bool callMethod(const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const;
 
-	// Adds an event to the descriptor and returns a refereence to 'this` to enable method chaining in the server description
-	//
-	// NOTE: We specifically overload this method in order to accept our custom EventCallback type and transform it into a
-	// TickEvent::Callback type. We also return our own type. This simplifies the server description by allowing call to chain.
-	GattDescriptor &onEvent(int tickFrequency, void *pUserData, EventCallback callback);
-
-	// Ticks events within this descriptor
-	//
-	// Note: we specifically override this method in order to translate the generic TickEvent::Callback into our own EventCallback
-	virtual void tickEvents(GDBusConnection *pConnection, void *pUserData) const;
+	// Modern periodic updates: Use GLib timers directly
+	// Example: g_timeout_add_seconds(interval, callback, userData)
 
 	// Specialized support for Descriptor ReadlValue method
 	//
@@ -172,6 +145,16 @@ protected:
 
 	GattCharacteristic &characteristic;
 	UpdatedValueCallback pOnUpdatedValueFunc;
+
+private:
+
+	// Stored callbacks for static thunk pattern
+	MethodCallback readCallback_ = nullptr;
+	MethodCallback writeCallback_ = nullptr;
+
+	// Static thunks for function pointer compatibility
+	static void ReadThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u);
+	static void WriteThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u);
 };
 
 }; // namespace ggk

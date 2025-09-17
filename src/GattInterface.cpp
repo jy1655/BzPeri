@@ -26,6 +26,10 @@
 #include "DBusObject.h"
 #include "Logger.h"
 
+#ifdef BLUEZ_ADVANCED_FEATURES
+#include "BluezModern.h"
+#endif
+
 namespace ggk {
 
 //

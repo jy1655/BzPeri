@@ -37,10 +37,8 @@
 //
 //     https://git.kernel.org/pub/scm/bluetooth/bluez.git/plain/doc/gatt-api.txt
 //
-// Our interfaces also store a collection of events. Here, an event is much like a timer in modern UIs, which repeatedly fires
-// after a defined time. A practical example of an event would be a BLE server that provides a Battery service. By adding a timer
-// to the interface for this service, the server could wake up every minute to check the battery level and if it has changed, send
-// a notifications to clients over BLE with the new battery level. This saves a lot of additional code on the server's part.
+// Our interfaces provide a collection of D-Bus methods that can be called by clients. For periodic operations,
+// modern implementations should use GLib timers (g_timeout_add) directly rather than the old event system.
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #include "DBusInterface.h"
@@ -134,35 +132,6 @@ bool DBusInterface::callMethod(const std::string &methodName, GDBusConnection *p
 	}
 
 	return false;
-}
-
-// Add an event to this interface
-//
-// For details on events, see TickEvent.cpp.
-//
-// This method returns a reference to `this` in order to enable chaining inside the server description.
-//
-// NOTE: Subclasses are encouraged to overload this method in order to support different callback types that are specific to
-// their subclass type. In addition, they should return their own type. This simplifies the server description by allowing
-// calls to chain.
-DBusInterface &DBusInterface::onEvent(int tickFrequency, void *pUserData, TickEvent::Callback callback)
-{
-	events.push_back(TickEvent(this, tickFrequency, callback, pUserData));
-	return *this;
-}
-
-// Ticks each event within this interface
-//
-// For details on events, see TickEvent.cpp.
-//
-// NOTE: Subclasses are encouraged to override this method in order to support different callback types that are specific to
-// their subclass type.
-void DBusInterface::tickEvents(GDBusConnection *pConnection, void *pUserData) const
-{
-	for (const TickEvent &event : events)
-	{
-		event.tick<DBusInterface>(getPath(), pConnection, pUserData);
-	}
 }
 
 // Internal method used to generate introspection XML used to describe our services on D-Bus

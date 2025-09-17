@@ -1,0 +1,20 @@
+/* Configuration header for Gobbledegook */
+
+#ifndef CONFIG_H
+#define CONFIG_H
+
+/* Project version */
+#cmakedefine PROJECT_VERSION "@PROJECT_VERSION@"
+
+/* Define if std::format is available */
+#cmakedefine HAS_STD_FORMAT @HAS_STD_FORMAT@
+
+/* Platform definitions */
+#cmakedefine PLATFORM_LINUX
+#cmakedefine PLATFORM_MACOS
+#cmakedefine NO_GLIB
+
+/* Debug mode */
+#cmakedefine DEBUG
+
+#endif /* CONFIG_H */

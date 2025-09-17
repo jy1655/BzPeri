@@ -16,6 +16,26 @@ This author has deciced that this software should be free. Furthermore, this aut
 
 Gobbledegook's license changed from GPL to LGPL in hopes that it would be found useful to more developers.
 
+## Modernization 2025: Build & Run
+
+Gobbledegook has been updated for modern Linux and BlueZ (5.77–5.79) while keeping the C API stable.
+
+- Requirements (runtime): Linux with BlueZ ≥ 5.77, GLib/GIO/GObject, D-Bus; root or proper capabilities for HCI/D-Bus.
+- Development on macOS is supported for editing and building, but runtime is Linux-only.
+- CMake (recommended):
+  - `mkdir build && cd build && cmake .. -DENABLE_BLUEZ_ADVANCED=ON && make -j$(nproc)`
+  - Tests: `ctest -V` (see `BUILD.md` for sanitizers)
+- Autotools (compatible): `./configure && make`
+- Run: `sudo ./src/standalone -d` (use `-e|-v|-d` for log levels)
+
+### Troubleshooting BlueZ
+If BLE advertising fails or advanced features don't work:
+- **--experimental**: Some distros require this flag for LEAdvertisingManager: `sudo systemctl edit bluetooth` and add `ExecStart=/usr/libexec/bluetooth/bluetoothd --experimental`
+- **--debug**: Enable verbose daemon logs for troubleshooting: add `--debug` to ExecStart
+- **Restart**: `sudo systemctl restart bluetooth` after configuration changes
+
+See `BUILD.md` for full setup, `MODERNIZATION.md` for migration notes, and `AGENTS.md` for contributor guidelines.
+
 # What is Gobbledegook?
 
 _Gobbledegook_ is a C/C++ standalone Linux [Bluetooth LE](https://en.wikipedia.org/wiki/Bluetooth_Low_Energy) [GATT](https://www.bluetooth.com/specifications/gatt/generic-attributes-overview) server using [BlueZ](http://www.bluez.org/about/) over [D-Bus](https://www.freedesktop.org/wiki/Software/dbus/#index1h1) with [Bluetooth Management API](https://git.kernel.org/pub/scm/bluetooth/bluez.git/tree/doc/mgmt-api.txt) support built in. That's a lot of words, so I shortened it to _Gobbledegook_. Then I shortened it again to _GGK_ because let's be honest, it's a pain to type.
@@ -32,7 +52,7 @@ For the impatient folks in a hurry (or really just have to pee) skip down to the
 * Timer events allow services to perform periodic updates
 * Application-managed server data
 * Comment blocks at the top of each source file with deep explanations of critical concepts
-* Written in C++14 (gcc & clang) with a standard C public interface
+* Written in C++20 (gcc & clang) with a stable C public interface
 * Tested on Ubuntu 16.04 on x86 and Raspberry Pi
 
 # Server description

@@ -195,20 +195,6 @@ bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &inter
 	return false;
 }
 
-// Periodic timer tick propagation
-void DBusObject::tickEvents(GDBusConnection *pConnection, void *pUserData) const
-{
-	for (std::shared_ptr<const DBusInterface> interface : interfaces)
-	{
-		interface->tickEvents(pConnection, pUserData);
-	}
-
-	for (const DBusObject &child : getChildren())
-	{
-		child.tickEvents(pConnection, pUserData);
-	}
-}
-
 // ---------------------------------------------------------------------------------------------------------------------------------
 // XML generation for a D-Bus introspection
 // ---------------------------------------------------------------------------------------------------------------------------------

@@ -26,7 +26,6 @@
 #include <string>
 #include <list>
 
-#include "TickEvent.h"
 #include "DBusInterface.h"
 #include "GattProperty.h"
 #include "GattUuid.h"

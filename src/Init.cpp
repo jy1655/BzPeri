@@ -41,8 +41,8 @@
 
 #include "Server.h"
 #include "Globals.h"
-#include "Mgmt.h"
-#include "HciAdapter.h"
+#include "BluezAdapter.h"
+// Mgmt.h removed - replaced with modern BlueZ D-Bus interface
 #include "DBusObject.h"
 #include "DBusInterface.h"
 #include "GattCharacteristic.h"
@@ -73,6 +73,7 @@ static time_t retryTimeStart = 0;
 GDBusConnection *pBusConnection = nullptr;
 static guint ownedNameId = 0;
 static guint periodicTimeoutId = 0;
+static guint updateProcessorSourceId = 0;
 static std::vector<guint> registeredObjectIds;
 static std::atomic<GMainLoop *> pMainLoop(nullptr);
 static GDBusObjectManager *pBluezObjectManager = nullptr;
@@ -291,8 +292,8 @@ void shutdown()
 	// Our new state: shutting down
 	setServerRunState(EStopping);
 
-	// Stop our HciAdapter
-	HciAdapter::getInstance().stop();
+	// Shutdown our BluezAdapter
+	BluezAdapter::getInstance().shutdown();
 
 	// If we still have a main loop, ask it to quit
 	if (nullptr != pMainLoop)
@@ -313,9 +314,10 @@ void shutdown()
 // Periodic timer handler
 //
 // A periodic timer is a timer fires every so often (see kPeriodicTimerFrequencySeconds.) This is used for our initialization
-// failure retries, but custom code can also be added to a server description (see `onEvent()`)
+// failure retries. TickEvent system removed - use g_timeout_add() for periodic operations.
 gboolean onPeriodicTimer(gpointer pUserData)
 {
+	(void)pUserData; // Suppress unused parameter warning
 	// If we're shutting down, don't do anything and stop the periodic timer
 	if (ggkGetServerRunState() > ERunning)
 	{
@@ -336,21 +338,7 @@ gboolean onPeriodicTimer(gpointer pUserData)
 		}
 	}
 
-	// If we're registered, then go ahead and emit signals
-	if (bApplicationRegistered)
-	{
-		// Tick the object hierarchy
-		//
-		// The real goal here is to have the objects tick their interfaces (see `onEvent()` method when adding interfaces inside
-		// 'Server::Server()'
-		for (const DBusObject &object : TheServer->getObjects())
-		{
-			if (object.isPublished())
-			{
-				object.tickEvents(pBusConnection, pUserData);
-			}
-		}
-	}
+	// Note: TickEvent system removed in modernization - periodic operations should use g_timeout_add directly
 
 	return TRUE;
 }
@@ -669,100 +657,111 @@ void registerObjects()
 // See also: https://git.kernel.org/pub/scm/bluetooth/bluez.git/tree/doc/mgmt-api.txt
 void configureAdapter()
 {
-	Mgmt mgmt;
+	// Check for environment variables from standalone app
+	const char* preferredAdapter = std::getenv("BLUEZ_ADAPTER");
+	const char* listAdapters = std::getenv("BLUEZ_LIST_ADAPTERS");
 
-	// Get our properly truncated advertising names
-	std::string advertisingName = Mgmt::truncateName(TheServer->getAdvertisingName());
-	std::string advertisingShortName = Mgmt::truncateShortName(TheServer->getAdvertisingShortName());
+	std::string adapterName = preferredAdapter ? preferredAdapter : "";
 
-	// Find out what our current settings are
-	HciAdapter::ControllerInformation info = HciAdapter::getInstance().getControllerInformation();
-
-	// Are all of our settings the way we want them?
-	bool pwFlag = info.currentSettings.isSet(HciAdapter::EHciPowered) == true;
-	bool leFlag = info.currentSettings.isSet(HciAdapter::EHciLowEnergy) == true;
-	bool brFlag = info.currentSettings.isSet(HciAdapter::EHciBasicRate_EnhancedDataRate) == TheServer->getEnableBREDR();
-	bool scFlag = info.currentSettings.isSet(HciAdapter::EHciSecureConnections) == TheServer->getEnableSecureConnection();
-	bool bnFlag = info.currentSettings.isSet(HciAdapter::EHciBondable) == TheServer->getEnableBondable();
-	bool cnFlag = info.currentSettings.isSet(HciAdapter::EHciConnectable) == TheServer->getEnableConnectable();
-	bool diFlag = info.currentSettings.isSet(HciAdapter::EHciDiscoverable) == TheServer->getEnableDiscoverable();
-	bool adFlag = info.currentSettings.isSet(HciAdapter::EHciAdvertising) == TheServer->getEnableAdvertising();
-	bool anFlag = (advertisingName.length() == 0 || advertisingName == info.name) && (advertisingShortName.length() == 0 || advertisingShortName == info.shortName);
-
-	// If everything is setup already, we're done
-	if (!pwFlag || !leFlag || !brFlag || !scFlag || !bnFlag || !cnFlag || !diFlag || !adFlag || !anFlag)
+	// Initialize the modern BlueZ adapter with discovery
+	auto result = BluezAdapter::getInstance().initialize(adapterName);
+	if (result.hasError())
 	{
-		// We need it off to start with
-		if (pwFlag)
+		Logger::error(SSTR << "Failed to initialize BluezAdapter: " << result.errorMessage());
+
+		// If adapter listing was requested, try to show available adapters anyway
+		if (listAdapters)
 		{
-			Logger::debug("Powering off");
-			if (!mgmt.setPowered(false)) { setRetry(); return; }
+			auto adapters = BluezAdapter::getInstance().discoverAdapters();
+			if (adapters.isSuccess())
+			{
+				Logger::info("Available BlueZ adapters:");
+				for (const auto& adapter : adapters.value())
+				{
+					Logger::info(SSTR << "  " << adapter.path << " (" << adapter.address << ") - Powered: " << adapter.powered);
+				}
+			}
 		}
 
-		// Enable the LE state (we always set this state if it's not set)
-		if (!leFlag)
-		{
-			Logger::debug("Enabling LE");
-			if (!mgmt.setLE(true)) { setRetry(); return; }
-		}
-
-		// Change the Br/Edr state?
-		//
-		// Note that enabling this requries LE to already be enabled or this command will receive a 'rejected' result
-		if (!brFlag)
-		{
-			Logger::debug(SSTR << (TheServer->getEnableBREDR() ? "Enabling":"Disabling") << " BR/EDR");
-			if (!mgmt.setBredr(TheServer->getEnableBREDR())) { setRetry(); return; }
-		}
-
-		// Change the Secure Connectinos state?
-		if (!scFlag)
-		{
-			Logger::debug(SSTR << (TheServer->getEnableSecureConnection() ? "Enabling":"Disabling") << " Secure Connections");
-			if (!mgmt.setSecureConnections(TheServer->getEnableSecureConnection() ? 1 : 0)) { setRetry(); return; }
-		}
-
-		// Change the Bondable state?
-		if (!bnFlag)
-		{
-			Logger::debug(SSTR << (TheServer->getEnableBondable() ? "Enabling":"Disabling") << " Bondable");
-			if (!mgmt.setBondable(TheServer->getEnableBondable())) { setRetry(); return; }
-		}
-
-		// Change the Connectable state?
-		if (!cnFlag)
-		{
-			Logger::debug(SSTR << (TheServer->getEnableConnectable() ? "Enabling":"Disabling") << " Connectable");
-			if (!mgmt.setConnectable(TheServer->getEnableConnectable())) { setRetry(); return; }
-		}
-
-		// Change the Discoverable state?
-		if (!diFlag)
-		{
-			Logger::debug(SSTR << (TheServer->getEnableDiscoverable() ? "Enabling":"Disabling") << " Discoverable");
-			if (!mgmt.setDiscoverable(TheServer->getEnableDiscoverable() ? 1 : 0, 0)) { setRetry(); return; }
-		}
-
-		// Change the Advertising state?
-		if (!adFlag)
-		{
-			Logger::debug(SSTR << (TheServer->getEnableAdvertising() ? "Enabling":"Disabling") << " Advertising");
-			if (!mgmt.setAdvertising(TheServer->getEnableAdvertising() ? 1 : 0)) { setRetry(); return; }
-		}
-
-		// Set the name?
-		if (!anFlag)
-		{
-			Logger::info(SSTR << "Setting advertising name to '" << advertisingName << "' (with short name: '" << advertisingShortName << "')");
-			if (!mgmt.setName(advertisingName.c_str(), advertisingShortName.c_str())) { setRetry(); return; }
-		}
-
-		// Turn it back on
-		Logger::debug("Powering on");
-		if (!mgmt.setPowered(true)) { setRetry(); return; }
+		setRetry();
+		return;
 	}
 
-	Logger::info("The Bluetooth adapter is fully configured");
+	// List adapters if requested
+	if (listAdapters)
+	{
+		auto adapters = BluezAdapter::getInstance().discoverAdapters();
+		if (adapters.isSuccess())
+		{
+			Logger::info("Available BlueZ adapters:");
+			for (const auto& adapter : adapters.value())
+			{
+				Logger::info(SSTR << "  " << adapter.path << " (" << adapter.address << ") - Powered: " << adapter.powered);
+			}
+		}
+	}
+
+	// Get our properly truncated advertising names
+	// Note: Using Mgmt for now, but these could be moved to Utils
+	std::string advertisingName = Utils::truncateName(TheServer->getAdvertisingName());
+	std::string advertisingShortName = Utils::truncateShortName(TheServer->getAdvertisingShortName());
+
+	BluezAdapter& adapter = BluezAdapter::getInstance();
+
+	// Configure adapter settings using modern D-Bus API
+	// Note: Modern BlueZ automatically handles LE when needed, no explicit LE enabling required
+
+	// Set adapter name first (if specified)
+	if (!advertisingName.empty())
+	{
+		Logger::info(SSTR << "Setting adapter name to '" << advertisingName << "' (with short name: '" << advertisingShortName << "')");
+		auto nameResult = adapter.setName(advertisingName, advertisingShortName);
+		if (nameResult.hasError())
+		{
+			Logger::warn(SSTR << "Failed to set adapter name: " << nameResult.errorMessage());
+		}
+	}
+
+	// Set bondable state
+	auto bondableResult = adapter.setBondable(TheServer->getEnableBondable());
+	if (bondableResult.hasError())
+	{
+		Logger::warn(SSTR << "Failed to set bondable state: " << bondableResult.errorMessage());
+	}
+
+	// Note: Connectable property removed - not supported in modern BlueZ for LE
+	// BLE advertising handles connectable state automatically
+
+	// Set discoverable state
+	if (TheServer->getEnableDiscoverable())
+	{
+		auto discoverableResult = adapter.setDiscoverable(true);
+		if (discoverableResult.hasError())
+		{
+			Logger::warn(SSTR << "Failed to set discoverable state: " << discoverableResult.errorMessage());
+		}
+	}
+
+	// Enable advertising (this also ensures the adapter is powered and connectable)
+	if (TheServer->getEnableAdvertising())
+	{
+		auto advertisingResult = adapter.setAdvertising(true);
+		if (advertisingResult.hasError())
+		{
+			Logger::warn(SSTR << "Failed to enable advertising: " << advertisingResult.errorMessage());
+		}
+	}
+
+	// Finally, ensure the adapter is powered on
+	auto poweredResult = adapter.setPowered(true);
+	if (poweredResult.hasError())
+	{
+		Logger::error(SSTR << "Failed to power on adapter: " << poweredResult.errorMessage());
+		setRetry();
+		return;
+	}
+
+	Logger::info("The Bluetooth adapter is fully configured using modern BlueZ D-Bus API");
 
 	// We're all set, nothing to do!
 	bAdapterConfigured = true;
@@ -1158,29 +1157,32 @@ void runServerThread()
 	Logger::debug(SSTR << "Creating GLib main loop");
 	pMainLoop = g_main_loop_new(NULL, FALSE);
 
-	// Add the idle function
+	// Add the update processing timer instead of idle function to avoid blocking the main loop
 	//
-	// Note that we actually run the idle function from a lambda. This allows us to manage the inter-idle sleep so we don't
-	// soak up 100% of our CPU.
-	guint res = g_idle_add
+	// This timer processes queued updates without blocking the GLib main loop
+	updateProcessorSourceId = g_timeout_add
 	(
+		kIdleFrequencyMS,
 		[](gpointer pUserData) -> gboolean
 		{
-			// Try to process some data and if no data is processed, sleep for the requested frequency
-			if (!idleFunc(pUserData))
+			// Check if we should continue running
+			if (ggkGetServerRunState() > ERunning)
 			{
-				std::this_thread::sleep_for(std::chrono::milliseconds(kIdleFrequencyMS));
+				return G_SOURCE_REMOVE;
 			}
 
-			// Always return TRUE so our idle remains in tact
-			return TRUE;
+			// Process data updates - no sleep needed as timer handles frequency
+			idleFunc(pUserData);
+
+			// Continue the timer
+			return G_SOURCE_CONTINUE;
 		},
 		nullptr
 	);
 
-	if (res == 0)
+	if (updateProcessorSourceId == 0)
 	{
-		Logger::error(SSTR << "Unable to add idle to main loop");
+		Logger::error(SSTR << "Unable to add update timer to main loop");
 	}
 
 	Logger::trace(SSTR << "Starting GLib main loop");

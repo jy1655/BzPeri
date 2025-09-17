@@ -1,0 +1,12 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: Gobbledegook
+Description: C/C++ Bluetooth LE GATT server using BlueZ over D-Bus
+Version: @PROJECT_VERSION@
+URL: https://github.com/nettlep/gobbledegook
+Requires: glib-2.0 >= 2.50, gio-2.0 >= 2.50, gobject-2.0 >= 2.50
+Libs: -L${libdir} -lggk -lpthread
+Cflags: -I${includedir}

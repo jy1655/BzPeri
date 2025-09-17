@@ -108,9 +108,6 @@ struct DBusObject
 	// Finds a BlueZ method by name within the specified D-Bus interface
 	bool callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData, const DBusObjectPath &basePath = DBusObjectPath()) const;
 
-	// Periodic timer tick propagation
-	void tickEvents(GDBusConnection *pConnection, void *pUserData = nullptr) const;
-
 	// -----------------------------------------------------------------------------------------------------------------------------
 	// D-Bus signals
 	// -----------------------------------------------------------------------------------------------------------------------------

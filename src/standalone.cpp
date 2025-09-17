@@ -96,6 +96,7 @@
 #include <iostream>
 #include <thread>
 #include <sstream>
+#include <cstdlib>
 
 #include "../include/Gobbledegook.h"
 
@@ -257,11 +258,41 @@ int main(int argc, char **ppArgv)
 		{
 			logLevel = Debug;
 		}
+		else if (arg.substr(0, 10) == "--adapter=")
+		{
+			std::string adapterName = arg.substr(10);
+			// Set environment variable for BluezAdapter to use
+			setenv("BLUEZ_ADAPTER", adapterName.c_str(), 1);
+			LogStatus((std::string("Using BlueZ adapter: ") + adapterName).c_str());
+		}
+		else if (arg == "--list-adapters")
+		{
+			LogStatus("Available BlueZ adapters will be listed during startup");
+			setenv("BLUEZ_LIST_ADAPTERS", "1", 1);
+		}
+		else if (arg == "--help" || arg == "-h")
+		{
+			LogAlways("Usage: standalone [options]");
+			LogAlways("");
+			LogAlways("Logging options:");
+			LogAlways("  -q              Quiet mode (errors only)");
+			LogAlways("  -v              Verbose mode");
+			LogAlways("  -d              Debug mode");
+			LogAlways("");
+			LogAlways("BlueZ options:");
+			LogAlways("  --adapter=NAME  Use specific adapter (e.g. hci0, hci1)");
+			LogAlways("  --list-adapters List available adapters and exit");
+			LogAlways("");
+			LogAlways("General options:");
+			LogAlways("  --help, -h      Show this help message");
+			return 0;
+		}
 		else
 		{
 			LogFatal((std::string("Unknown parameter: '") + arg + "'").c_str());
 			LogFatal("");
-			LogFatal("Usage: standalone [-q | -v | -d]");
+			LogFatal("Usage: standalone [options]");
+			LogFatal("Use --help for detailed options");
 			return -1;
 		}
 	}
@@ -289,7 +320,10 @@ int main(int argc, char **ppArgv)
 	//     This first parameter (the service name) must match tha name configured in the D-Bus permissions. See the Readme.md file
 	//     for more information.
 	//
-	if (!ggkStart("gobbledegook", "Gobbledegook", "Gobbledegook", dataGetter, dataSetter, kMaxAsyncInitTimeoutMS))
+	//     The last parameter (enableBondable=1) allows client devices to pair/bond with this server. This is typically
+	//     required for modern BLE applications. Set to 0 to disable pairing if you need an open, non-authenticated connection.
+	//
+	if (!ggkStartWithBondable("gobbledegook", "Gobbledegook", "Gobbledegook", dataGetter, dataSetter, kMaxAsyncInitTimeoutMS, 1))
 	{
 		return -1;
 	}

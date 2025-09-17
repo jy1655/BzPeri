@@ -1,0 +1,79 @@
+# Build directories
+build/
+build-*/
+cmake-build-*/
+
+# CMake artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+Testing/
+_deps/
+compile_commands.json
+build.ninja
+.ninja_deps
+.ninja_log
+
+# Autotools artifacts (generated)
+aclocal.m4
+autom4te.cache/
+config.guess
+config.log
+config.status
+config.sub
+depcomp
+install-sh
+ltmain.sh
+missing
+Makefile
+Makefile.in
+stamp-h1
+
+# Compiled objects and libraries
+*.o
+*.lo
+*.la
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+
+# Binaries
+/src/standalone
+*.out
+
+# Package/config outputs
+*.pc
+
+# Logs and dumps
+*.log
+core
+core.*
+
+# Editor/IDE
+.idea/
+.vscode/
+.vs/
+*.swp
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# Temporary
+tmp/
+*.tmp
+
+
+# CLI
+CLAUDE.md
+AGENTS.md

@@ -28,9 +28,8 @@
 #include <list>
 
 #include "Utils.h"
-#include "TickEvent.h"
 #include "GattInterface.h"
-#include "HciAdapter.h"
+#include "BluezAdapter.h"
 
 namespace ggk {
 
@@ -46,33 +45,16 @@ struct GattUuid;
 struct DBusObject;
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// Useful Lambdas
+// Modern C++ Callback Types
 // ---------------------------------------------------------------------------------------------------------------------------------
 
-#define CHARACTERISTIC_UPDATED_VALUE_CALLBACK_LAMBDA [] \
-( \
-	const GattCharacteristic &self, \
-	GDBusConnection *pConnection, \
-	void *pUserData \
-) -> bool
+#include <functional>
 
-#define CHARACTERISTIC_EVENT_CALLBACK_LAMBDA [] \
-( \
-	const GattCharacteristic &self, \
-	const TickEvent &event, \
-	GDBusConnection *pConnection, \
-	void *pUserData \
-)
-
-#define CHARACTERISTIC_METHOD_CALLBACK_LAMBDA [] \
-( \
-       const GattCharacteristic &self, \
-       GDBusConnection *pConnection, \
-       const std::string &methodName, \
-       GVariant *pParameters, \
-       GDBusMethodInvocation *pInvocation, \
-       void *pUserData \
-)
+namespace ggk::callbacks {
+	// Modern typed callback helpers - no more macro magic
+	using CharacteristicMethodFunc = std::function<void(const GattCharacteristic&, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation*, void*)>;
+	using CharacteristicUpdateFunc = std::function<bool(const GattCharacteristic&, GDBusConnection*, void*)>;
+}
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Representation of a Bluetooth GATT Characteristic
@@ -84,7 +66,6 @@ struct GattCharacteristic : GattInterface
 	static constexpr const char *kInterfaceType = "GattCharacteristic";
 
 	typedef void (*MethodCallback)(const GattCharacteristic &self, GDBusConnection *pConnection, const std::string &methodName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData);
-	typedef void (*EventCallback)(const GattCharacteristic &self, const TickEvent &event, GDBusConnection *pConnection, void *pUserData);
 	typedef bool (*UpdatedValueCallback)(const GattCharacteristic &self, GDBusConnection *pConnection, void *pUserData);
 
 	// Construct a GattCharacteristic
@@ -105,16 +86,12 @@ struct GattCharacteristic : GattInterface
 	// Locates a D-Bus method within this D-Bus interface and invokes the method
 	virtual bool callMethod(const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const;
 
-	// Adds an event to the characteristic and returns a refereence to 'this` to enable method chaining in the server description
-	//
-	// NOTE: We specifically overload this method in order to accept our custom EventCallback type and transform it into a
-	// TickEvent::Callback type. We also return our own type. This simplifies the server description by allowing call to chain.
-	GattCharacteristic &onEvent(int tickFrequency, void *pUserData, EventCallback callback);
-
-	// Ticks events within this characteristic
-	//
-	// Note: we specifically override this method in order to translate the generic TickEvent::Callback into our own EventCallback
-	virtual void tickEvents(GDBusConnection *pConnection, void *pUserData) const;
+	// Modern periodic updates: Use GLib timers directly
+	// Example: g_timeout_add_seconds(60, [](gpointer data) -> gboolean {
+	//   auto* characteristic = static_cast<GattCharacteristic*>(data);
+	//   characteristic->sendChangeNotificationValue(connection, newValue);
+	//   return G_SOURCE_CONTINUE; // Keep repeating
+	// }, this);
 
 	// Specialized support for Characteristic ReadlValue method
 	//
@@ -193,7 +170,7 @@ struct GattCharacteristic : GattInterface
 	// This is a generalized method that accepts a `GVariant *`. A templated version is available that supports common types called
 	// `sendChangeNotificationValue()`.
 	//
-	// The caller may choose to consult HciAdapter::getInstance().getActiveConnectionCount() in order to determine if there are any
+	// The caller may choose to consult BluezAdapter::getInstance().getActiveConnectionCount() in order to determine if there are any
 	// active connections before sending a change notification.
 	void sendChangeNotificationVariant(GDBusConnection *pBusConnection, GVariant *pNewValue) const;
 
@@ -202,7 +179,7 @@ struct GattCharacteristic : GattInterface
 	// This is a helper method that accepts common types. For custom types, there is a form that accepts a `GVariant *`, called
 	// `sendChangeNotificationVariant()`.
 	//
-	// The caller may choose to consult HciAdapter::getInstance().getActiveConnectionCount() in order to determine if there are any
+	// The caller may choose to consult BluezAdapter::getInstance().getActiveConnectionCount() in order to determine if there are any
 	// active connections before sending a change notification.
 	template<typename T>
 	void sendChangeNotificationValue(GDBusConnection *pBusConnection, T value) const
@@ -215,6 +192,16 @@ protected:
 
 	GattService &service;
 	UpdatedValueCallback pOnUpdatedValueFunc;
+
+private:
+
+	// Stored callbacks for static thunk pattern
+	MethodCallback readCallback_ = nullptr;
+	MethodCallback writeCallback_ = nullptr;
+
+	// Static thunks for function pointer compatibility
+	static void ReadThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u);
+	static void WriteThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u);
 };
 
 }; // namespace ggk

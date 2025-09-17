@@ -34,6 +34,9 @@
 #include <gio/gio.h>
 #include <vector>
 #include <string>
+#include <string_view>
+#include <span>
+#include <cstdint>
 #include <endian.h>
 
 #include "DBusObjectPath.h"
@@ -80,14 +83,12 @@ struct Utils
 	// A full hex-dump of binary data (with accompanying ASCII output)
 	static std::string hex(const uint8_t *pData, int count);
 
-	// Returns a peoperly formatted Bluetooth address from a set of six octets stored at `pAddress`
-	//
-	// USE WITH CAUTION: It is expected that pAddress point to an array of 6 bytes. The length of the array cannot be validated and
-	// incorrect lengths will produce undefined, likely unwanted and potentially fatal results. Or it will return the address of the
-	// train at platform 9 3/4. You decide.
+	// Returns a properly formatted Bluetooth address from a set of six octets stored at `pAddress`
 	//
 	// This method returns a set of six zero-padded 8-bit hex values 8-bit in the format: 12:34:56:78:9A:BC
+	// Modern version uses span for safe array access
 	static std::string bluetoothAddressString(uint8_t *pAddress);
+	static std::string bluetoothAddressString(std::span<const uint8_t, 6> address);
 
 	// -----------------------------------------------------------------------------------------------------------------------------
 	// A small collection of helper functions for generating various types of GVariants, which are needed when responding to BlueZ
@@ -141,7 +142,8 @@ struct Utils
 	static GVariant *gvariantFromByteArray(const guint8 *pBytes, int count);
 
 	// Returns an array of bytes ("ay") with the contents of the input array of unsigned 8-bit values
-	static GVariant *gvariantFromByteArray(const std::vector<guint8> bytes);
+	static GVariant *gvariantFromByteArray(const std::vector<guint8>& bytes);
+	static GVariant *gvariantFromByteArray(std::span<const guint8> bytes);
 
 	// Returns an array of bytes ("ay") containing a single unsigned 8-bit value
 	static GVariant *gvariantFromByteArray(const guint8 data);
@@ -183,24 +185,36 @@ struct Utils
 	// Convert a byte from HCI format to host format
 	//
 	// Since bytes are endian agnostic, this function simply returns the input value
-	static uint8_t endianToHost(uint8_t value) {return value;}
+	static constexpr uint8_t endianToHost(uint8_t value) noexcept {return value;}
 
 	// Convert a byte from host format to HCI format
 	//
 	// Since bytes are endian agnostic, this function simply returns the input value
-	static uint8_t endianToHci(uint8_t value) {return value;}
+	static constexpr uint8_t endianToHci(uint8_t value) noexcept {return value;}
 
 	// Convert a 16-bit value from HCI format to host format
-	static uint16_t endianToHost(uint16_t value) {return le16toh(value);}
+	static constexpr uint16_t endianToHost(uint16_t value) noexcept {return le16toh(value);}
 
 	// Convert a 16-bit value from host format to HCI format
-	static uint16_t endianToHci(uint16_t value) {return htole16(value);}
+	static constexpr uint16_t endianToHci(uint16_t value) noexcept {return htole16(value);}
 
 	// Convert a 32-bit value from HCI format to host format
-	static uint32_t endianToHost(uint32_t value) {return le32toh(value);}
+	static constexpr uint32_t endianToHost(uint32_t value) noexcept {return le32toh(value);}
 
 	// Convert a 32-bit value from host format to HCI format
-	static uint32_t endianToHci(uint32_t value) {return htole32(value);}
+	static constexpr uint32_t endianToHci(uint32_t value) noexcept {return htole32(value);}
+
+	// -----------------------------------------------------------------------------------------------------------------------------
+	// BlueZ name truncation utilities (moved from deprecated Mgmt class)
+	// -----------------------------------------------------------------------------------------------------------------------------
+
+	// Truncate a name to fit BlueZ constraints
+	// BlueZ defines LOCAL_NAME_MAX as 248 bytes + null terminator
+	static std::string truncateName(const std::string &name);
+
+	// Truncate a short name to fit BlueZ constraints
+	// BlueZ defines SHORT_NAME_MAX as 10 bytes + null terminator
+	static std::string truncateShortName(const std::string &name);
 };
 
 }; // namespace ggk

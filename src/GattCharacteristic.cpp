@@ -69,26 +69,8 @@ bool GattCharacteristic::callMethod(const std::string &methodName, GDBusConnecti
 	return false;
 }
 
-// Adds an event to the characteristic and returns a refereence to 'this` to enable method chaining in the server description
-//
-// NOTE: We specifically overload this method in order to accept our custom EventCallback type and transform it into a
-// TickEvent::Callback type. We also return our own type. This simplifies the server description by allowing call to chain.
-GattCharacteristic &GattCharacteristic::onEvent(int tickFrequency, void *pUserData, EventCallback callback)
-{
-	events.push_back(TickEvent(this, tickFrequency, reinterpret_cast<TickEvent::Callback>(callback), pUserData));
-	return *this;
-}
-
-// Ticks events within this characteristic
-//
-// Note: we specifically override this method in order to translate the generic TickEvent::Callback into our own EventCallback
-void GattCharacteristic::tickEvents(GDBusConnection *pConnection, void *pUserData) const
-{
-	for (const TickEvent &event : events)
-	{
-		event.tick<GattCharacteristic>(getPath(), pConnection, pUserData);
-	}
-}
+// Modern approach: Use GLib timers directly for periodic updates
+// Applications should use g_timeout_add_seconds() or g_timeout_add() for periodic operations
 
 // Specialized support for ReadlValue method
 //
@@ -102,7 +84,9 @@ GattCharacteristic &GattCharacteristic::onReadValue(MethodCallback callback)
 {
 	// array{byte} ReadValue(dict options)
 	static const char *inArgs[] = {"a{sv}", nullptr};
-	addMethod("ReadValue", inArgs, "ay", reinterpret_cast<DBusMethod::Callback>(callback));
+	// Store callback and use static thunk
+	this->readCallback_ = callback;
+	addMethod("ReadValue", inArgs, "ay", &GattCharacteristic::ReadThunk);
 	return *this;
 }
 
@@ -118,7 +102,9 @@ GattCharacteristic &GattCharacteristic::onReadValue(MethodCallback callback)
 GattCharacteristic &GattCharacteristic::onWriteValue(MethodCallback callback)
 {
 	static const char *inArgs[] = {"ay", "a{sv}", nullptr};
-	addMethod("WriteValue", inArgs, nullptr, reinterpret_cast<DBusMethod::Callback>(callback));
+	// Store callback and use static thunk
+	this->writeCallback_ = callback;
+	addMethod("WriteValue", inArgs, nullptr, &GattCharacteristic::WriteThunk);
 	return *this;
 }
 
@@ -200,7 +186,7 @@ GattDescriptor &GattCharacteristic::gattDescriptorBegin(const std::string &pathE
 // This is a generalized method that accepts a `GVariant *`. A templated version is available that supports common types called
 // `sendChangeNotificationValue()`.
 //
-// The caller may choose to consult HciAdapter::getInstance().getActiveConnectionCount() in order to determine if there are any
+// The caller may choose to consult BluezAdapter::getInstance().getActiveConnectionCount() in order to determine if there are any
 // active connections before sending a change notification.
 void GattCharacteristic::sendChangeNotificationVariant(GDBusConnection *pBusConnection, GVariant *pNewValue) const
 {
@@ -210,5 +196,24 @@ void GattCharacteristic::sendChangeNotificationVariant(GDBusConnection *pBusConn
 	GVariant *pSasv = g_variant_new("(sa{sv})", "org.bluez.GattCharacteristic1", &builder);
 	owner.emitSignal(pBusConnection, "org.freedesktop.DBus.Properties", "PropertiesChanged", pSasv);
 }
+
+// Static thunk implementations for function pointer compatibility
+
+void GattCharacteristic::ReadThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u)
+{
+	auto& ch = static_cast<const GattCharacteristic&>(self);
+	if (ch.readCallback_) {
+		ch.readCallback_(ch, c, mn, p, inv, u);
+	}
+}
+
+void GattCharacteristic::WriteThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u)
+{
+	auto& ch = static_cast<const GattCharacteristic&>(self);
+	if (ch.writeCallback_) {
+		ch.writeCallback_(ch, c, mn, p, inv, u);
+	}
+}
+
 
 }; // namespace ggk

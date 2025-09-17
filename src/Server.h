@@ -27,9 +27,11 @@
 
 #include <gio/gio.h>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <list>
 #include <memory>
+#include <span>
 
 #include "../include/Gobbledegook.h"
 #include "DBusObject.h"
@@ -56,38 +58,38 @@ struct Server
 	//
 
 	// Our server is a collection of D-Bus objects
-	typedef std::list<DBusObject> Objects;
+	using Objects = std::list<DBusObject>;
 
 	//
 	// Accessors
 	//
 
 	// Returns the set of objects that each represent the root of an object tree describing a group of services we are providing
-	const Objects &getObjects() const { return objects; }
+	const Objects& getObjects() const noexcept { return objects; }
 
 	// Returns the requested setting for BR/EDR (true = enabled, false = disabled)
-	bool getEnableBREDR() const { return enableBREDR; }
+	[[nodiscard]] bool getEnableBREDR() const noexcept { return enableBREDR; }
 
 	// Returns the requested setting for secure connections (true = enabled, false = disabled)
-	bool getEnableSecureConnection() const { return enableSecureConnection; }
+	[[nodiscard]] bool getEnableSecureConnection() const noexcept { return enableSecureConnection; }
 
 	// Returns the requested setting the connectable state (true = enabled, false = disabled)
-	bool getEnableConnectable() const { return enableConnectable; }
+	[[nodiscard]] bool getEnableConnectable() const noexcept { return enableConnectable; }
 
 	// Returns the requested setting the discoverable state (true = enabled, false = disabled)
-	bool getEnableDiscoverable() const { return enableDiscoverable; }
+	[[nodiscard]] bool getEnableDiscoverable() const noexcept { return enableDiscoverable; }
 
 	// Returns the requested setting the LE advertising state (true = enabled, false = disabled)
-	bool getEnableAdvertising() const { return enableAdvertising; }
+	[[nodiscard]] bool getEnableAdvertising() const noexcept { return enableAdvertising; }
 
 	// Returns the requested setting the bondable state (true = enabled, false = disabled)
-	bool getEnableBondable() const { return enableBondable; }
+	[[nodiscard]] bool getEnableBondable() const noexcept { return enableBondable; }
 
 	// Returns our registered data getter
-	GGKServerDataGetter getDataGetter() const { return dataGetter; }
+	[[nodiscard]] GGKServerDataGetter getDataGetter() const noexcept { return dataGetter; }
 
 	// Returns our registered data setter
-	GGKServerDataSetter getDataSetter() const { return dataSetter; }
+	[[nodiscard]] GGKServerDataSetter getDataSetter() const noexcept { return dataSetter; }
 
 	// advertisingName: The name for this controller, as advertised over LE
 	//
@@ -96,7 +98,7 @@ struct Server
 	// IMPORTANT: Setting the advertisingName will change the system-wide name of the device. If that's not what you want, set
 	// BOTH advertisingName and advertisingShortName to as empty string ("") to prevent setting the advertising
 	// name.
-	const std::string &getAdvertisingName() const { return advertisingName; }
+	[[nodiscard]] const std::string& getAdvertisingName() const noexcept { return advertisingName; }
 
 	// advertisingShortName: The short name for this controller, as advertised over LE
 	//
@@ -108,7 +110,7 @@ struct Server
 	// IMPORTANT: Setting the advertisingName will change the system-wide name of the device. If that's not what you want, set
 	// BOTH advertisingName and advertisingShortName to as empty string ("") to prevent setting the advertising
 	// name.
-	const std::string &getAdvertisingShortName() const { return advertisingShortName; }
+	[[nodiscard]] const std::string& getAdvertisingShortName() const noexcept { return advertisingShortName; }
 
 	// serviceName: The name of our server (collectino of services)
 	//
@@ -116,13 +118,13 @@ struct Server
 	//
 	// This is used to build the path for our Bluetooth services (and we'll go ahead and use it as the owned name as well for
 	// consistency.)
-	const std::string &getServiceName() const { return serviceName; }
+	[[nodiscard]] const std::string& getServiceName() const noexcept { return serviceName; }
 
 	// Our owned name
 	//
 	// D-Bus uses owned names to locate servers on the bus. Think of this as a namespace within D-Bus. We building this with the
 	// server name to keep things simple.
-	std::string getOwnedName() const { return std::string("com.") + getServiceName(); }
+	[[nodiscard]] std::string getOwnedName() const { return std::string("com.") + getServiceName(); }
 
 	//
 	// Initialization
@@ -158,8 +160,19 @@ struct Server
 	//
 	//     Retrieve this value using the `getAdvertisingShortName()` method.
 	//
-	Server(const std::string &serviceName, const std::string &advertisingName, const std::string &advertisingShortName, 
-		GGKServerDataGetter getter, GGKServerDataSetter setter);
+	// enableBondable: Enable or disable device bonding/pairing capability
+	//
+	//     When true (default), the adapter will accept pairing requests from client devices and allow them to bond.
+	//     When false, pairing requests will be rejected, which may cause immediate disconnection for devices that
+	//     require security/authentication.
+	//
+	//     Modern BLE applications typically require bonding for security, so this should generally be left as true
+	//     unless you specifically need an open, non-authenticated connection.
+	//
+	//     Retrieve this value using the `getEnableBondable()` method.
+	//
+	Server(const std::string &serviceName, const std::string &advertisingName, const std::string &advertisingShortName,
+		GGKServerDataGetter getter, GGKServerDataSetter setter, bool enableBondable = true);
 
 	//
 	// Utilitarian
@@ -168,17 +181,17 @@ struct Server
 	// Find and call a D-Bus method within the given D-Bus object on the given D-Bus interface
 	//
 	// If the method was called, this method returns true, otherwise false.  There is no result from the method call itself.
-	std::shared_ptr<const DBusInterface> findInterface(const DBusObjectPath &objectPath, const std::string &interfaceName) const;
+	[[nodiscard]] std::shared_ptr<const DBusInterface> findInterface(const DBusObjectPath& objectPath, std::string_view interfaceName) const;
 
 	// Find a D-Bus method within the given D-Bus object on the given D-Bus interface
 	//
 	// If the method was found, it is returned, otherwise nullptr is returned
-	bool callMethod(const DBusObjectPath &objectPath, const std::string &interfaceName, const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const;
+	[[nodiscard]] bool callMethod(const DBusObjectPath& objectPath, std::string_view interfaceName, std::string_view methodName, GDBusConnection* pConnection, GVariant* pParameters, GDBusMethodInvocation* pInvocation, gpointer pUserData) const;
 
 	// Find a GATT Property within the given D-Bus object on the given D-Bus interface
 	//
 	// If the property was found, it is returned, otherwise nullptr is returned
-	const GattProperty *findProperty(const DBusObjectPath &objectPath, const std::string &interfaceName, const std::string &propertyName) const;
+	[[nodiscard]] const GattProperty* findProperty(const DBusObjectPath& objectPath, std::string_view interfaceName, std::string_view propertyName) const;
 
 private:
 

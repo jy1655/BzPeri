@@ -24,13 +24,28 @@
 #pragma once
 
 #include <sstream>
+#include <string_view>
+#include <functional>
+#include <concepts>
+#include <memory>
 
 #include "../include/Gobbledegook.h"
+#include "FormatCompat.h"
 
 namespace ggk {
 
-// Our handy stringstream macro
+// Modern C++20 log level concept
+template<typename T>
+concept LogLevel = std::same_as<T, const char*> || std::same_as<T, std::string_view> || std::same_as<T, std::string>;
+
+// Our handy stringstream macro (maintained for compatibility)
 #define SSTR std::ostringstream().flush()
+
+// Modern C++20 format-based logging macros
+#define LOG_DEBUG_F(...) Logger::debug(ggk::safeFormat(__VA_ARGS__))
+#define LOG_INFO_F(...) Logger::info(ggk::safeFormat(__VA_ARGS__))
+#define LOG_WARN_F(...) Logger::warn(ggk::safeFormat(__VA_ARGS__))
+#define LOG_ERROR_F(...) Logger::error(ggk::safeFormat(__VA_ARGS__))
 
 class Logger
 {
@@ -174,6 +189,83 @@ private:
 
 	// The registered log receiver for TRACE logs - a nullptr will cause the logging for that receiver to be ignored
 	static GGKLogReceiver logReceiverTrace;
+
+public:
+	//
+	// Modern C++20 logging methods with concepts and perfect forwarding
+	//
+
+	// Generic logging with string_view (most efficient)
+	template<LogLevel T>
+	static void debug(T&& message) noexcept
+	{
+		if constexpr (std::same_as<std::decay_t<T>, std::string_view>) {
+			debug(std::string{message}.c_str());
+		} else {
+			debug(std::forward<T>(message));
+		}
+	}
+
+	template<LogLevel T>
+	static void info(T&& message) noexcept
+	{
+		if constexpr (std::same_as<std::decay_t<T>, std::string_view>) {
+			info(std::string{message}.c_str());
+		} else {
+			info(std::forward<T>(message));
+		}
+	}
+
+	template<LogLevel T>
+	static void warn(T&& message) noexcept
+	{
+		if constexpr (std::same_as<std::decay_t<T>, std::string_view>) {
+			warn(std::string{message}.c_str());
+		} else {
+			warn(std::forward<T>(message));
+		}
+	}
+
+	template<LogLevel T>
+	static void error(T&& message) noexcept
+	{
+		if constexpr (std::same_as<std::decay_t<T>, std::string_view>) {
+			error(std::string{message}.c_str());
+		} else {
+			error(std::forward<T>(message));
+		}
+	}
+
+	// Structured logging with context (modern C++20 approach)
+	struct LogContext
+	{
+		std::string_view component;
+		std::string_view function;
+		int line = 0;
+
+		constexpr LogContext(std::string_view comp = {}, std::string_view func = {}, int ln = 0) noexcept
+			: component(comp), function(func), line(ln) {}
+	};
+
+	template<LogLevel T>
+	static void debugWithContext(T&& message, const LogContext& ctx = {}) noexcept
+	{
+		if (!ctx.component.empty()) {
+			debug(safeFormat("[{}] {}", ctx.component, std::forward<T>(message)));
+		} else {
+			debug(std::forward<T>(message));
+		}
+	}
+
+	template<LogLevel T>
+	static void infoWithContext(T&& message, const LogContext& ctx = {}) noexcept
+	{
+		if (!ctx.component.empty()) {
+			info(safeFormat("[{}] {}", ctx.component, std::forward<T>(message)));
+		} else {
+			info(std::forward<T>(message));
+		}
+	}
 };
 
 }; // namespace ggk
