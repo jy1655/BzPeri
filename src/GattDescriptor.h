@@ -29,7 +29,7 @@
 #include "Utils.h"
 #include "GattInterface.h"
 
-namespace ggk {
+namespace bzp {
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Forward declarations
@@ -46,7 +46,7 @@ struct DBusObject;
 
 #include <functional>
 
-namespace ggk::callbacks {
+namespace bzp::callbacks {
 	// Modern typed callback helpers - no more macro magic
 	using DescriptorMethodFunc = std::function<void(const GattDescriptor&, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation*, void*)>;
 	using DescriptorUpdateFunc = std::function<bool(const GattDescriptor&, GDBusConnection*, void*)>;
@@ -157,4 +157,4 @@ private:
 	static void WriteThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u);
 };
 
-}; // namespace ggk
+}; // namespace bzp

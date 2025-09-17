@@ -27,7 +27,7 @@
 #include <gio/gio.h>
 #include <string>
 
-namespace ggk {
+namespace bzp {
 
 struct ServerUtils
 {
@@ -53,4 +53,4 @@ struct ServerUtils
 	static GVariant *gvariantLocalTime();
 };
 
-}; // namespace ggk
+}; // namespace bzp

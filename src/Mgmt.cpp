@@ -29,7 +29,7 @@
 #include "Logger.h"
 #include "Utils.h"
 
-namespace ggk {
+namespace bzp {
 
 // Construct the Mgmt device
 //
@@ -221,4 +221,4 @@ std::string Mgmt::truncateShortName(const std::string &name)
 	return name.substr(0, kMaxAdvertisingShortNameLength);
 }
 
-}; // namespace ggk
+}; // namespace bzp

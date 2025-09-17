@@ -27,7 +27,7 @@
 #include "Utils.h"
 #include "GattProperty.h"
 
-namespace ggk {
+namespace bzp {
 
 // Constructs a named property
 //
@@ -176,4 +176,4 @@ std::string GattProperty::generateIntrospectionXML(int depth) const
 	return xml;
 }
 
-}; // namespace ggk
+}; // namespace bzp

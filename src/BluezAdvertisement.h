@@ -1,3 +1,8 @@
+// Copyright (c) 2025 BzPeri Contributors
+// Licensed under MIT License (see LICENSE file)
+//
+// BlueZ advertisement management for BLE advertising
+
 #pragma once
 
 #include "BluezTypes.h"
@@ -7,13 +12,13 @@
 #include <vector>
 #include <memory>
 
-namespace ggk {
+namespace bzp {
 
 // BlueZ LEAdvertisement1 D-Bus interface implementation
 // Manages BLE advertising to make the GATT server discoverable
 class BluezAdvertisement {
 public:
-    BluezAdvertisement(const std::string& objectPath = "/org/gobbledegook/advertisement");
+    BluezAdvertisement(const std::string& objectPath = "/org/bzperi/advertisement");
     ~BluezAdvertisement();
 
     // Configure advertisement properties
@@ -103,4 +108,4 @@ private:
     static constexpr const char* ADVERTISING_MANAGER_INTERFACE = "org.bluez.LEAdvertisingManager1";
 };
 
-} // namespace ggk
+} // namespace bzp

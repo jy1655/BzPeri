@@ -1,0 +1,29 @@
+BzPeri - Modern Bluetooth LE GATT Server Library
+===============================================
+
+This software is based on Gobbledegook by Paul Nettle.
+
+Original Gobbledegook:
+  Copyright 2017-2019 Paul Nettle
+  Licensed under BSD-style license
+  Original repository: https://github.com/nettlep/gobbledegook
+
+BzPeri Modernization (2025):
+  - Updated for BlueZ 5.77+ compatibility
+  - C++20 modernization with std::expected error handling
+  - Enhanced D-Bus integration replacing HCI Management API
+  - Improved connection stability and bondable configuration
+  - Performance optimizations for modern Linux systems
+
+This software contains code derived from Gobbledegook. We extend our sincere
+gratitude to Paul Nettle for creating the original foundation that made this
+modern Bluetooth LE library possible.
+
+Key architectural improvements while preserving the original design philosophy:
+  - Maintained the elegant DSL-style service definition
+  - Preserved the thread-safe data callback architecture
+  - Enhanced the server initialization and error handling
+  - Modernized the BlueZ adapter management
+
+Both the original Gobbledegook and BzPeri are committed to providing developers
+with powerful, easy-to-use Bluetooth LE GATT server capabilities for Linux systems.

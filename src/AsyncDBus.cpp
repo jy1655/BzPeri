@@ -1,7 +1,12 @@
+// Copyright (c) 2025 BzPeri Contributors
+// Licensed under MIT License (see LICENSE file)
+//
+// Asynchronous D-Bus operations for BlueZ integration
+
 #include "AsyncDBus.h"
 #include "StructuredLogger.h"
 
-namespace ggk {
+namespace bzp {
 
 void AsyncDBus::getProperty(GDBusConnection* connection,
                            const std::string& serviceName,
@@ -130,4 +135,4 @@ void AsyncDBus::onMethodCallReady(GObject* source, GAsyncResult* result, gpointe
     }
 }
 
-} // namespace ggk
+} // namespace bzp

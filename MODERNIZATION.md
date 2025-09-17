@@ -1,8 +1,8 @@
-# Gobbledegook 2025 Modernization Guide
+# BzPeri 2025 Modernization Guide
 
 ## 🎯 Overview
 
-이 프로젝트는 2019년 BlueZ 5.42 기반으로 작성된 Gobbledegook을 **2025년 현재 BlueZ 5.77-5.79 환경**에 맞추어 완전히 현대화한 업그레이드 버전입니다.
+이 프로젝트는 2019년 BlueZ 5.42 기반으로 작성된 BzPeri을 **2025년 현재 BlueZ 5.77-5.79 환경**에 맞추어 완전히 현대화한 업그레이드 버전입니다.
 
 ### 주요 개선사항
 
@@ -11,7 +11,7 @@
 ✅ **BlueZ 5.77+ 호환성**: 최신 BlueZ API와 완벽 호환
 ✅ **향상된 에러 핸들링**: std::expected 기반 에러 처리
 ✅ **성능 최적화**: Linux 특화 성능 개선
-✅ **모던 빌드 시스템**: CMake + Autotools 지원
+✅ **모던 빌드 시스템**: CMake 단일화
 
 ## 🔧 주요 변경사항
 
@@ -158,7 +158,7 @@ bluetoothctl version  # 5.77+ 권장
 #### 빌드
 ```bash
 git clone <repository-url>
-cd gobbledegook
+cd bzperi
 mkdir build && cd build
 
 # 모든 고급 기능 활성화
@@ -174,18 +174,18 @@ make -j$(nproc)
 
 #### 호환성 모드 (기존 코드)
 ```cpp
-#include <Gobbledegook.h>
+#include <BzPeri.h>
 
 // 기존 코드 그대로 동작
 int dataGetter(const char* name) { return 0; }
 int dataSetter(const char* name, const void* data) { return 1; }
 
 int main() {
-    if (!ggkStart("Device", "Service", dataGetter, dataSetter)) {
+    if (!bzpStart("Device", "Service", dataGetter, dataSetter)) {
         return 1;
     }
     // ...
-    ggkShutdown();
+    bzpShutdown();
     return 0;
 }
 ```
@@ -195,8 +195,8 @@ int main() {
 #include "GattServerModern.h"
 #include "ErrorHandling.h"
 
-using namespace ggk::gatt;
-using namespace ggk::error;
+using namespace bzp::gatt;
+using namespace bzp::error;
 
 int main() {
     auto server = ModernGattServer{
@@ -325,7 +325,7 @@ sudo dbus-send --system --print-reply \
     org.freedesktop.DBus.Introspectable.Introspect
 
 # 빌드 테스트
-make -j$(nproc) && sudo ./ggk-standalone -d
+make -j$(nproc) && sudo ./bzp-standalone -d
 ```
 
 ### 기능 테스트
@@ -349,11 +349,11 @@ make -j$(nproc) && sudo ./ggk-standalone -d
 
 ## 🎯 결론
 
-이 현대화된 Gobbledegook은:
+이 현대화된 BzPeri은:
 - **2025년 현재 BlueZ 환경**에서 안정적으로 동작
 - **C++20의 최신 기능**을 활용한 현대적 코드
 - **Linux 환경에 특화**된 최적화
 - **기존 코드와 100% 호환성** 유지
 - **향후 5-10년간 지속 가능**한 아키텍처
 
-이제 Gobbledegook을 현대적인 Bluetooth LE 개발에 안심하고 사용할 수 있습니다!
+이제 BzPeri을 현대적인 Bluetooth LE 개발에 안심하고 사용할 수 있습니다!

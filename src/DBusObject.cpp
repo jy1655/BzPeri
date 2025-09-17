@@ -46,7 +46,7 @@
 #include "GattUuid.h"
 #include "Logger.h"
 
-namespace ggk {
+namespace bzp {
 
 // Construct a root object with no parent
 //
@@ -263,4 +263,4 @@ void DBusObject::emitSignal(GDBusConnection *pBusConnection, const std::string &
 }
 
 
-}; // namespace ggk
+}; // namespace bzp

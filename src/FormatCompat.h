@@ -1,9 +1,7 @@
-// Copyright 2017-2019 Paul Nettle
+// Copyright (c) 2025 JaeYoung Hwang (BzPeri Project)
+// Licensed under MIT License (see LICENSE file)
 //
-// This file is part of Gobbledegook.
-//
-// Use of this source code is governed by a BSD-style license that can be found
-// in the LICENSE file in the root of the source tree.
+// C++20 std::format compatibility layer
 
 #pragma once
 
@@ -29,7 +27,7 @@
     #include <format>
 #endif
 
-namespace ggk {
+namespace bzp {
 
 // Safe format functions with fallback
 template<typename... Args>
@@ -70,4 +68,4 @@ template<typename... Args>
 // Safe Bluetooth address formatting
 [[nodiscard]] std::string safeBluetoothAddress(const uint8_t* address) noexcept;
 
-}; // namespace ggk
+}; // namespace bzp

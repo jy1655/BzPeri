@@ -29,10 +29,10 @@
 #include <concepts>
 #include <memory>
 
-#include "../include/Gobbledegook.h"
+#include "../include/BzPeri.h"
 #include "FormatCompat.h"
 
-namespace ggk {
+namespace bzp {
 
 // Modern C++20 log level concept
 template<typename T>
@@ -42,10 +42,10 @@ concept LogLevel = std::same_as<T, const char*> || std::same_as<T, std::string_v
 #define SSTR std::ostringstream().flush()
 
 // Modern C++20 format-based logging macros
-#define LOG_DEBUG_F(...) Logger::debug(ggk::safeFormat(__VA_ARGS__))
-#define LOG_INFO_F(...) Logger::info(ggk::safeFormat(__VA_ARGS__))
-#define LOG_WARN_F(...) Logger::warn(ggk::safeFormat(__VA_ARGS__))
-#define LOG_ERROR_F(...) Logger::error(ggk::safeFormat(__VA_ARGS__))
+#define LOG_DEBUG_F(...) Logger::debug(bzp::safeFormat(__VA_ARGS__))
+#define LOG_INFO_F(...) Logger::info(bzp::safeFormat(__VA_ARGS__))
+#define LOG_WARN_F(...) Logger::warn(bzp::safeFormat(__VA_ARGS__))
+#define LOG_ERROR_F(...) Logger::error(bzp::safeFormat(__VA_ARGS__))
 
 class Logger
 {
@@ -57,35 +57,35 @@ public:
 
 	// Register logging receiver for DEBUG logging.  To register a logging level, simply call with a delegate that performs the
 	// appropriate logging action. To unregister, call with `nullptr`
-	static void registerDebugReceiver(GGKLogReceiver receiver);
+	static void registerDebugReceiver(BZPLogReceiver receiver);
 
 	// Register logging receiver for INFO logging.  To register a logging level, simply call with a delegate that performs the
 	// appropriate logging action. To unregister, call with `nullptr`
-	static void registerInfoReceiver(GGKLogReceiver receiver);
+	static void registerInfoReceiver(BZPLogReceiver receiver);
 
 	// Register logging receiver for STATUS logging.  To register a logging level, simply call with a delegate that performs the
 	// appropriate logging action. To unregister, call with `nullptr`
-	static void registerStatusReceiver(GGKLogReceiver receiver);
+	static void registerStatusReceiver(BZPLogReceiver receiver);
 
 	// Register logging receiver for WARN logging.  To register a logging level, simply call with a delegate that performs the
 	// appropriate logging action. To unregister, call with `nullptr`
-	static void registerWarnReceiver(GGKLogReceiver receiver);
+	static void registerWarnReceiver(BZPLogReceiver receiver);
 
 	// Register logging receiver for ERROR logging.  To register a logging level, simply call with a delegate that performs the
 	// appropriate logging action. To unregister, call with `nullptr`
-	static void registerErrorReceiver(GGKLogReceiver receiver);
+	static void registerErrorReceiver(BZPLogReceiver receiver);
 
 	// Register logging receiver for FATAL logging.  To register a logging level, simply call with a delegate that performs the
 	// appropriate logging action. To unregister, call with `nullptr`
-	static void registerFatalReceiver(GGKLogReceiver receiver);
+	static void registerFatalReceiver(BZPLogReceiver receiver);
 
 	// Register logging receiver for ALWAYS logging.  To register a logging level, simply call with a delegate that performs the
 	// appropriate logging action. To unregister, call with `nullptr`
-	static void registerAlwaysReceiver(GGKLogReceiver receiver);
+	static void registerAlwaysReceiver(BZPLogReceiver receiver);
 
 	// Register logging receiver for TRACE logging.  To register a logging level, simply call with a delegate that performs the
 	// appropriate logging action. To unregister, call with `nullptr`
-	static void registerTraceReceiver(GGKLogReceiver receiver);
+	static void registerTraceReceiver(BZPLogReceiver receiver);
 
 
 	//
@@ -167,28 +167,28 @@ public:
 private:
 
 	// The registered log receiver for DEBUG logs - a nullptr will cause the logging for that receiver to be ignored
-	static GGKLogReceiver logReceiverDebug;
+	static BZPLogReceiver logReceiverDebug;
 
 	// The registered log receiver for INFO logs - a nullptr will cause the logging for that receiver to be ignored
-	static GGKLogReceiver logReceiverInfo;
+	static BZPLogReceiver logReceiverInfo;
 
 	// The registered log receiver for STATUS logs - a nullptr will cause the logging for that receiver to be ignored
-	static GGKLogReceiver logReceiverStatus;
+	static BZPLogReceiver logReceiverStatus;
 
 	// The registered log receiver for WARN logs - a nullptr will cause the logging for that receiver to be ignored
-	static GGKLogReceiver logReceiverWarn;
+	static BZPLogReceiver logReceiverWarn;
 
 	// The registered log receiver for ERROR logs - a nullptr will cause the logging for that receiver to be ignored
-	static GGKLogReceiver logReceiverError;
+	static BZPLogReceiver logReceiverError;
 
 	// The registered log receiver for FATAL logs - a nullptr will cause the logging for that receiver to be ignored
-	static GGKLogReceiver logReceiverFatal;
+	static BZPLogReceiver logReceiverFatal;
 
 	// The registered log receiver for ALWAYS logs - a nullptr will cause the logging for that receiver to be ignored
-	static GGKLogReceiver logReceiverAlways;
+	static BZPLogReceiver logReceiverAlways;
 
 	// The registered log receiver for TRACE logs - a nullptr will cause the logging for that receiver to be ignored
-	static GGKLogReceiver logReceiverTrace;
+	static BZPLogReceiver logReceiverTrace;
 
 public:
 	//
@@ -268,4 +268,4 @@ public:
 	}
 };
 
-}; // namespace ggk
+}; // namespace bzp

@@ -1,3 +1,8 @@
+// Copyright (c) 2025 BzPeri Contributors
+// Licensed under MIT License (see LICENSE file)
+//
+// Asynchronous D-Bus operations for BlueZ integration
+
 #pragma once
 
 #include "BluezTypes.h"
@@ -6,7 +11,7 @@
 #include <functional>
 #include <memory>
 
-namespace ggk {
+namespace bzp {
 
 // Modern async D-Bus call wrapper
 // Replaces g_dbus_connection_call_sync with non-blocking patterns
@@ -51,4 +56,4 @@ private:
     static void onMethodCallReady(GObject* source, GAsyncResult* result, gpointer user_data);
 };
 
-} // namespace ggk
+} // namespace bzp

@@ -37,7 +37,7 @@
 #include "Logger.h"
 #include "Server.h"
 
-namespace ggk {
+namespace bzp {
 
 struct DBusInterface;
 
@@ -110,4 +110,4 @@ private:
 	Callback callback;
 };
 
-}; // namespace ggk
+}; // namespace bzp

@@ -7,9 +7,9 @@
 
 #pragma once
 
-#include "../include/Gobbledegook.h"
+#include "../include/BzPeri.h"
 
-namespace ggk {
+namespace bzp {
 
 // Modern C++ enums for internal use
 enum class ServerRunState : int
@@ -29,22 +29,22 @@ enum class ServerHealth : int
 };
 
 // Safe conversion functions
-[[nodiscard]] constexpr GGKServerRunState toC(ServerRunState state) noexcept
+[[nodiscard]] constexpr BZPServerRunState toC(ServerRunState state) noexcept
 {
-    return static_cast<GGKServerRunState>(state);
+    return static_cast<BZPServerRunState>(state);
 }
 
-[[nodiscard]] constexpr ServerRunState fromC(GGKServerRunState state) noexcept
+[[nodiscard]] constexpr ServerRunState fromC(BZPServerRunState state) noexcept
 {
     return static_cast<ServerRunState>(state);
 }
 
-[[nodiscard]] constexpr GGKServerHealth toC(ServerHealth health) noexcept
+[[nodiscard]] constexpr BZPServerHealth toC(ServerHealth health) noexcept
 {
-    return static_cast<GGKServerHealth>(health);
+    return static_cast<BZPServerHealth>(health);
 }
 
-[[nodiscard]] constexpr ServerHealth fromC(GGKServerHealth health) noexcept
+[[nodiscard]] constexpr ServerHealth fromC(BZPServerHealth health) noexcept
 {
     return static_cast<ServerHealth>(health);
 }
@@ -53,4 +53,4 @@ enum class ServerHealth : int
 [[nodiscard]] const char* serverRunStateToString(ServerRunState state) noexcept;
 [[nodiscard]] const char* serverHealthToString(ServerHealth health) noexcept;
 
-}; // namespace ggk
+}; // namespace bzp

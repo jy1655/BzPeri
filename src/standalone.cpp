@@ -1,6 +1,6 @@
 // Copyright 2017-2019 Paul Nettle
 //
-// This file is part of Gobbledegook.
+// This file is part of BzPeri.
 //
 // Use of this source code is governed by a BSD-style license that can be found
 // in the LICENSE file in the root of the source tree.
@@ -11,28 +11,28 @@
 // >>>  INSIDE THIS FILE
 // >>
 //
-// This is an example single-file stand-alone application that runs a Gobbledegook server.
+// This is an example single-file stand-alone application that runs a BzPeri server.
 //
 // >>
 // >>>  DISCUSSION
 // >>
 //
-// Very little is required ("MUST") by a stand-alone application to instantiate a valid Gobbledegook server. There are also some
+// Very little is required ("MUST") by a stand-alone application to instantiate a valid BzPeri server. There are also some
 // things that are reocommended ("SHOULD").
 //
 // * A stand-alone application MUST:
 //
-//     * Start the server via a call to `ggkStart()`.
+//     * Start the server via a call to `bzpStart()`.
 //
 //         Once started the server will run on its own thread.
 //
-//         Two of the parameters to `ggkStart()` are delegates responsible for providing data accessors for the server, a
-//         `GGKServerDataGetter` delegate and a 'GGKServerDataSetter' delegate. The getter method simply receives a string name (for
+//         Two of the parameters to `bzpStart()` are delegates responsible for providing data accessors for the server, a
+//         `BZPServerDataGetter` delegate and a 'BZPServerDataSetter' delegate. The getter method simply receives a string name (for
 //         example, "battery/level") and returns a void pointer to that data (for example: `(void *)&batteryLevel`). The setter does
 //         the same only in reverse.
 //
 //         While the server is running, you will likely need to update the data being served. This is done by calling
-//         `ggkNofifyUpdatedCharacteristic()` or `ggkNofifyUpdatedDescriptor()` with the full path to the characteristic or delegate
+//         `bzpNofifyUpdatedCharacteristic()` or `bzpNofifyUpdatedDescriptor()` with the full path to the characteristic or delegate
 //         whose data has been updated. This will trigger your server's `onUpdatedValue()` method, which can perform whatever
 //         actions are needed such as sending out a change notification (or in BlueZ parlance, a "PropertiesChanged" signal.)
 //
@@ -40,37 +40,37 @@
 //
 //     * Shutdown the server before termination
 //
-//         Triggering the server to begin shutting down is done via a call to `ggkTriggerShutdown()`. This is a non-blocking method
+//         Triggering the server to begin shutting down is done via a call to `bzpTriggerShutdown()`. This is a non-blocking method
 //         that begins the asynchronous shutdown process.
 //
 //         Before your application terminates, it should wait for the server to be completely stopped. This is done via a call to
-//         `ggkWait()`. If the server has not yet reached the `EStopped` state when `ggkWait()` is called, it will block until the
+//         `bzpWait()`. If the server has not yet reached the `EStopped` state when `bzpWait()` is called, it will block until the
 //         server has done so.
 //
-//         To avoid the blocking behavior of `ggkWait()`, ensure that the server has stopped before calling it. This can be done
-//         by ensuring `ggkGetServerRunState() == EStopped`. Even if the server has stopped, it is recommended to call `ggkWait()`
+//         To avoid the blocking behavior of `bzpWait()`, ensure that the server has stopped before calling it. This can be done
+//         by ensuring `bzpGetServerRunState() == EStopped`. Even if the server has stopped, it is recommended to call `bzpWait()`
 //         to ensure the server has cleaned up all threads and other internals.
 //
-//         If you want to keep things simple, there is a method `ggkShutdownAndWait()` which will trigger the shutdown and then
+//         If you want to keep things simple, there is a method `bzpShutdownAndWait()` which will trigger the shutdown and then
 //         block until the server has stopped.
 //
 //     * Implement signal handling to provide a clean shut-down
 //
-//         This is done by calling `ggkTriggerShutdown()` from any signal received that can terminate your application. For an
+//         This is done by calling `bzpTriggerShutdown()` from any signal received that can terminate your application. For an
 //         example of this, search for all occurrences of the string "signalHandler" in the code below.
 //
 //     * Register a custom logging mechanism with the server
 //
 //         This is done by calling each of the log registeration methods:
 //
-//             `ggkLogRegisterDebug()`
-//             `ggkLogRegisterInfo()`
-//             `ggkLogRegisterStatus()`
-//             `ggkLogRegisterWarn()`
-//             `ggkLogRegisterError()`
-//             `ggkLogRegisterFatal()`
-//             `ggkLogRegisterAlways()`
-//             `ggkLogRegisterTrace()`
+//             `bzpLogRegisterDebug()`
+//             `bzpLogRegisterInfo()`
+//             `bzpLogRegisterStatus()`
+//             `bzpLogRegisterWarn()`
+//             `bzpLogRegisterError()`
+//             `bzpLogRegisterFatal()`
+//             `bzpLogRegisterAlways()`
+//             `bzpLogRegisterTrace()`
 //
 //         Each registration method manages a different log level. For a full description of these levels, see the header comment
 //         in Logger.cpp.
@@ -79,17 +79,17 @@
 //         options to specify the level of verbosity.
 //
 // >>
-// >>>  Building with GOBBLEDEGOOK
+// >>>  Building with BZPERI
 // >>
 //
-// The Gobbledegook distribution includes this file as part of the Gobbledegook files with everything compiling to a single, stand-
-// alone binary. It is built this way because Gobbledegook is not intended to be a generic library. You will need to make your
-// custom modifications to it. Don't worry, a lot of work went into Gobbledegook to make it almost trivial to customize
+// The BzPeri distribution includes this file as part of the BzPeri files with everything compiling to a single, stand-
+// alone binary. It is built this way because BzPeri is not intended to be a generic library. You will need to make your
+// custom modifications to it. Don't worry, a lot of work went into BzPeri to make it almost trivial to customize
 // (see Server.cpp).
 //
-// If it is important to you or your build process that Gobbledegook exist as a library, you are welcome to do so. Just configure
-// your build process to build the Gobbledegook files (minus this file) as a library and link against that instead. All that is
-// required by applications linking to a Gobbledegook library is to include `include/Gobbledegook.h`.
+// If it is important to you or your build process that BzPeri exist as a library, you are welcome to do so. Just configure
+// your build process to build the BzPeri files (minus this file) as a library and link against that instead. All that is
+// required by applications linking to a BzPeri library is to include `include/BzPeri.h`.
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #include <signal.h>
@@ -98,7 +98,7 @@
 #include <sstream>
 #include <cstdlib>
 
-#include "../include/Gobbledegook.h"
+#include "../include/BzPeri.h"
 
 //
 // Constants
@@ -155,11 +155,11 @@ void signalHandler(int signum)
 	{
 		case SIGINT:
 			LogStatus("SIGINT recieved, shutting down");
-			ggkTriggerShutdown();
+			bzpTriggerShutdown();
 			break;
 		case SIGTERM:
 			LogStatus("SIGTERM recieved, shutting down");
-			ggkTriggerShutdown();
+			bzpTriggerShutdown();
 			break;
 	}
 }
@@ -170,7 +170,7 @@ void signalHandler(int signum)
 
 // Called by the server when it wants to retrieve a named value
 //
-// This method conforms to `GGKServerDataGetter` and is passed to the server via our call to `ggkStart()`.
+// This method conforms to `BZPServerDataGetter` and is passed to the server via our call to `bzpStart()`.
 //
 // The server calls this method from its own thread, so we must ensure our implementation is thread-safe. In our case, we're simply
 // sending over stored values, so we don't need to take any additional steps to ensure thread-safety.
@@ -199,7 +199,7 @@ const void *dataGetter(const char *pName)
 
 // Called by the server when it wants to update a named value
 //
-// This method conforms to `GGKServerDataSetter` and is passed to the server via our call to `ggkStart()`.
+// This method conforms to `BZPServerDataSetter` and is passed to the server via our call to `bzpStart()`.
 //
 // The server calls this method from its own thread, so we must ensure our implementation is thread-safe. In our case, we're simply
 // sending over stored values, so we don't need to take any additional steps to ensure thread-safety.
@@ -302,14 +302,14 @@ int main(int argc, char **ppArgv)
 	signal(SIGTERM, signalHandler);
 
 	// Register our loggers
-	ggkLogRegisterDebug(LogDebug);
-	ggkLogRegisterInfo(LogInfo);
-	ggkLogRegisterStatus(LogStatus);
-	ggkLogRegisterWarn(LogWarn);
-	ggkLogRegisterError(LogError);
-	ggkLogRegisterFatal(LogFatal);
-	ggkLogRegisterAlways(LogAlways);
-	ggkLogRegisterTrace(LogTrace);
+	bzpLogRegisterDebug(LogDebug);
+	bzpLogRegisterInfo(LogInfo);
+	bzpLogRegisterStatus(LogStatus);
+	bzpLogRegisterWarn(LogWarn);
+	bzpLogRegisterError(LogError);
+	bzpLogRegisterFatal(LogFatal);
+	bzpLogRegisterAlways(LogAlways);
+	bzpLogRegisterTrace(LogTrace);
 
 	// Start the server's ascync processing
 	//
@@ -323,7 +323,7 @@ int main(int argc, char **ppArgv)
 	//     The last parameter (enableBondable=1) allows client devices to pair/bond with this server. This is typically
 	//     required for modern BLE applications. Set to 0 to disable pairing if you need an open, non-authenticated connection.
 	//
-	if (!ggkStartWithBondable("gobbledegook", "Gobbledegook", "Gobbledegook", dataGetter, dataSetter, kMaxAsyncInitTimeoutMS, 1))
+	if (!bzpStartWithBondable("bzperi", "BzPeri", "BzPeri", dataGetter, dataSetter, kMaxAsyncInitTimeoutMS, 1))
 	{
 		return -1;
 	}
@@ -331,20 +331,20 @@ int main(int argc, char **ppArgv)
 	// Wait for the server to start the shutdown process
 	//
 	// While we wait, every 15 ticks, drop the battery level by one percent until we reach 0
-	while (ggkGetServerRunState() < EStopping)
+	while (bzpGetServerRunState() < EStopping)
 	{
 		std::this_thread::sleep_for(std::chrono::seconds(15));
 
 		serverDataBatteryLevel = std::max(serverDataBatteryLevel - 1, 0);
-		ggkNofifyUpdatedCharacteristic("/com/gobbledegook/battery/level");
+		bzpNofifyUpdatedCharacteristic("/com/bzperi/battery/level");
 	}
 
 	// Wait for the server to come to a complete stop (CTRL-C from the command line)
-	if (!ggkWait())
+	if (!bzpWait())
 	{
 		return -1;
 	}
 
 	// Return the final server health status as a success (0) or error (-1)
-  	return ggkGetServerHealth() == EOk ? 0 : 1;
+  	return bzpGetServerHealth() == EOk ? 0 : 1;
 }

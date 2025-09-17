@@ -29,7 +29,7 @@
 #include <vector>
 #include <optional>
 
-namespace ggk {
+namespace bzp {
 
 // BlueZ operation result types
 enum class BluezError
@@ -170,4 +170,4 @@ BluezError mapDBusErrorName(const std::string& errorName);
 // Check if error is retryable
 bool isRetryableError(BluezError error);
 
-} // namespace ggk
+} // namespace bzp

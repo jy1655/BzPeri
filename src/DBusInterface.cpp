@@ -46,7 +46,7 @@
 #include "DBusObject.h"
 #include "Logger.h"
 
-namespace ggk {
+namespace bzp {
 
 //
 // Construction
@@ -162,4 +162,4 @@ std::string DBusInterface::generateIntrospectionXML(int depth) const
 	return xml;
 }
 
-}; // namespace ggk
+}; // namespace bzp

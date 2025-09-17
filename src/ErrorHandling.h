@@ -1,9 +1,10 @@
-// Copyright 2017-2025 Paul Nettle & Contributors
+// Copyright (c) 2025 JaeYoung Hwang (BzPeri Project)
 //
-// This file is part of Gobbledegook.
+// This file is part of BzPeri.
 //
-// Use of this source code is governed by a BSD-style license that can be found
-// in the LICENSE file in the root of the source tree.
+// Licensed under MIT License (see LICENSE file)
+//
+// Modern C++20 error handling with std::expected
 
 #pragma once
 
@@ -16,10 +17,10 @@
 
 #include "config.h"
 
-namespace ggk::error {
+namespace bzp::error {
 
-// Comprehensive error categories for Gobbledegook
-enum class GobbledegookErrorCode : int
+// Comprehensive error categories for BzPeri
+enum class BzPeriErrorCode : int
 {
     Success = 0,
 
@@ -92,13 +93,13 @@ enum class GobbledegookErrorCode : int
     OutOfRange = 704
 };
 
-// Error category for Gobbledegook errors
-class GobbledegookErrorCategory : public std::error_category
+// Error category for BzPeri errors
+class BzPeriErrorCategory : public std::error_category
 {
 public:
     [[nodiscard]] const char* name() const noexcept override
     {
-        return "gobbledegook";
+        return "bzperi";
     }
 
     [[nodiscard]] std::string message(int condition) const override;
@@ -107,12 +108,12 @@ public:
 };
 
 // Get the singleton error category
-[[nodiscard]] const GobbledegookErrorCategory& gobbledegook_category() noexcept;
+[[nodiscard]] const BzPeriErrorCategory& bzperi_category() noexcept;
 
 // Helper function to create error codes
-[[nodiscard]] inline std::error_code make_error_code(GobbledegookErrorCode e) noexcept
+[[nodiscard]] inline std::error_code make_error_code(BzPeriErrorCode e) noexcept
 {
-    return {static_cast<int>(e), gobbledegook_category()};
+    return {static_cast<int>(e), bzperi_category()};
 }
 
 // Enhanced error information with context
@@ -151,21 +152,21 @@ using Result = std::expected<T, ErrorContext>;
 using VoidResult = Result<void>;
 
 // Convenience macros for error creation
-#define GGK_ERROR(code) ::ggk::error::ErrorContext{::ggk::error::make_error_code(::ggk::error::GobbledegookErrorCode::code)}
+#define BZP_ERROR(code) ::bzp::error::ErrorContext{::bzp::error::make_error_code(::bzp::error::BzPeriErrorCode::code)}
 
-#define GGK_ERROR_WITH_DETAILS(code, details) \
-    ::ggk::error::ErrorContext{::ggk::error::make_error_code(::ggk::error::GobbledegookErrorCode::code), {}, {}, std::source_location::current(), details}
+#define BZP_ERROR_WITH_DETAILS(code, details) \
+    ::bzp::error::ErrorContext{::bzp::error::make_error_code(::bzp::error::BzPeriErrorCode::code), {}, {}, std::source_location::current(), details}
 
-#define GGK_ERROR_COMPONENT(code, component, operation) \
-    ::ggk::error::ErrorContext{::ggk::error::make_error_code(::ggk::error::GobbledegookErrorCode::code), component, operation}
+#define BZP_ERROR_COMPONENT(code, component, operation) \
+    ::bzp::error::ErrorContext{::bzp::error::make_error_code(::bzp::error::BzPeriErrorCode::code), component, operation}
 
 // Error handling utilities
 namespace utils {
     // Convert system errno to our error codes
-    [[nodiscard]] GobbledegookErrorCode errnoToGobbledegookError(int err) noexcept;
+    [[nodiscard]] BzPeriErrorCode errnoToBzPeriError(int err) noexcept;
 
     // Convert D-Bus error names to our error codes
-    [[nodiscard]] GobbledegookErrorCode dbusErrorToGobbledegookError(std::string_view errorName) noexcept;
+    [[nodiscard]] BzPeriErrorCode dbusErrorToBzPeriError(std::string_view errorName) noexcept;
 
     // Format error messages with context
     [[nodiscard]] std::string formatError(const ErrorContext& ctx) noexcept;
@@ -174,18 +175,18 @@ namespace utils {
     void logError(const ErrorContext& ctx) noexcept;
 
     // Check if error is recoverable
-    [[nodiscard]] bool isRecoverable(GobbledegookErrorCode code) noexcept;
+    [[nodiscard]] bool isRecoverable(BzPeriErrorCode code) noexcept;
 
     // Get error severity level
     enum class Severity { Info, Warning, Error, Critical, Fatal };
-    [[nodiscard]] Severity getSeverity(GobbledegookErrorCode code) noexcept;
+    [[nodiscard]] Severity getSeverity(BzPeriErrorCode code) noexcept;
 }
 
 // Exception class for when exceptions are needed (discouraged in favor of Result<T>)
-class GobbledegookException : public std::system_error
+class BzPeriException : public std::system_error
 {
 public:
-    explicit GobbledegookException(const ErrorContext& ctx)
+    explicit BzPeriException(const ErrorContext& ctx)
         : std::system_error(ctx.error), context_(ctx)
     {
     }
@@ -231,13 +232,13 @@ private:
     std::string_view component_;
     std::string_view operation_;
     bool hasError_ = false;
-    ErrorContext lastError_{make_error_code(GobbledegookErrorCode::Success)};
+    ErrorContext lastError_{make_error_code(BzPeriErrorCode::Success)};
 };
 
-} // namespace ggk::error
+} // namespace bzp::error
 
 // Enable std::error_code support
 namespace std {
     template<>
-    struct is_error_code_enum<ggk::error::GobbledegookErrorCode> : true_type {};
+    struct is_error_code_enum<bzp::error::BzPeriErrorCode> : true_type {};
 }

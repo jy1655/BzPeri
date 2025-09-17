@@ -31,7 +31,7 @@
 #include "Utils.h"
 #include "Logger.h"
 
-namespace ggk {
+namespace bzp {
 
 //
 // Standard constructor
@@ -216,4 +216,4 @@ void GattCharacteristic::WriteThunk(const DBusInterface& self, GDBusConnection* 
 }
 
 
-}; // namespace ggk
+}; // namespace bzp

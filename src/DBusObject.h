@@ -29,7 +29,7 @@
 
 #include "DBusObjectPath.h"
 
-namespace ggk {
+namespace bzp {
 
 struct GattProperty;
 struct GattService;
@@ -123,4 +123,4 @@ private:
 	DBusObject *pParent;
 };
 
-}; // namespace ggk
+}; // namespace bzp

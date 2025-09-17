@@ -1,9 +1,7 @@
-// Copyright 2017-2025 Paul Nettle & Contributors
+// Copyright (c) 2025 BzPeri Contributors
+// Licensed under MIT License (see LICENSE file)
 //
-// This file is part of Gobbledegook.
-//
-// Use of this source code is governed by a BSD-style license that can be found
-// in the LICENSE file in the root of the source tree.
+// Modern BlueZ integration with Linux performance optimizations
 
 #pragma once
 
@@ -22,7 +20,7 @@
 #include "config.h"
 
 // Modern BlueZ 5.77+ specific features and optimizations
-namespace ggk::bluez {
+namespace bzp::bluez {
 
 // Modern error handling using std::expected (C++20)
 enum class BlueZError
@@ -211,6 +209,6 @@ namespace utils {
     std::string uuidToPath(std::string_view uuid) noexcept;
 }
 
-} // namespace ggk::bluez
+} // namespace bzp::bluez
 
 #endif // LINUX_PERFORMANCE_OPTIMIZATION

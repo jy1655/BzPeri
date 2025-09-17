@@ -59,7 +59,7 @@
 #include <iostream>
 #include "Logger.h"
 
-namespace ggk {
+namespace bzp {
 
 // "0000180A-0000-1000-8000-00805f9b34fb"
 struct GattUuid
@@ -273,4 +273,4 @@ private:
 	int bitCount;
 };
 
-}; // namespace ggk
+}; // namespace bzp

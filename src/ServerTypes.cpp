@@ -7,7 +7,7 @@
 
 #include "ServerTypes.h"
 
-namespace ggk {
+namespace bzp {
 
 const char* serverRunStateToString(ServerRunState state) noexcept
 {
@@ -33,4 +33,4 @@ const char* serverHealthToString(ServerHealth health) noexcept
     }
 }
 
-}; // namespace ggk
+}; // namespace bzp

@@ -4,7 +4,7 @@
 #include <gio/gio.h>
 #include <glib.h>
 
-namespace ggk {
+namespace bzp {
 
 // Modern C++ RAII wrappers for GLib objects
 // Replaces manual g_object_unref/g_variant_unref patterns
@@ -99,4 +99,4 @@ private:
     guint source_id_;
 };
 
-} // namespace ggk
+} // namespace bzp

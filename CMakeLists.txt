@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
-project(gobbledegook
+project(bzperi
     VERSION 1.0.0
-    DESCRIPTION "C++20 Bluetooth LE GATT server using BlueZ over D-Bus"
+    DESCRIPTION "BzPeri - Modern C++20 Bluetooth LE GATT server using BlueZ over D-Bus"
     LANGUAGES CXX)
 
 # Set C++20 standard with Linux optimizations
@@ -119,7 +119,7 @@ configure_file(
 include_directories("${CMAKE_BINARY_DIR}")
 
 # Source files
-set(GOBBLEDEGOOK_SOURCES
+set(BZPERI_SOURCES
     src/StructuredLogger.cpp
     src/DBusInterface.cpp
     src/DBusMethod.cpp
@@ -141,7 +141,7 @@ set(GOBBLEDEGOOK_SOURCES
 
 # Platform-specific sources
 if(LINUX)
-    list(APPEND GOBBLEDEGOOK_SOURCES
+    list(APPEND BZPERI_SOURCES
         src/BluezAdapter.cpp
         src/BluezTypes.cpp
         src/BluezAdvertisement.cpp
@@ -150,36 +150,36 @@ endif()
 
 # Create library
 if(BUILD_SHARED_LIBS)
-    add_library(gobbledegook SHARED ${GOBBLEDEGOOK_SOURCES})
-    set_target_properties(gobbledegook PROPERTIES
+    add_library(bzperi SHARED ${BZPERI_SOURCES})
+    set_target_properties(bzperi PROPERTIES
         VERSION ${PROJECT_VERSION}
         SOVERSION 1
     )
 else()
-    add_library(gobbledegook STATIC ${GOBBLEDEGOOK_SOURCES})
+    add_library(bzperi STATIC ${BZPERI_SOURCES})
 endif()
 
 # Library properties
-set_target_properties(gobbledegook PROPERTIES
-    OUTPUT_NAME ggk
-    PUBLIC_HEADER include/Gobbledegook.h
+set_target_properties(bzperi PROPERTIES
+    OUTPUT_NAME bzp
+    PUBLIC_HEADER "include/BzPeri.h;include/Gobbledegook.h"
 )
 
 # Link libraries
-target_link_libraries(gobbledegook PRIVATE Threads::Threads)
+target_link_libraries(bzperi PRIVATE Threads::Threads)
 
 if(LINUX)
-    target_link_libraries(gobbledegook PRIVATE
+    target_link_libraries(bzperi PRIVATE
         ${GLIB_LIBRARIES}
         ${GIO_LIBRARIES}
         ${GOBJECT_LIBRARIES}
     )
-    target_include_directories(gobbledegook PRIVATE
+    target_include_directories(bzperi PRIVATE
         ${GLIB_INCLUDE_DIRS}
         ${GIO_INCLUDE_DIRS}
         ${GOBJECT_INCLUDE_DIRS}
     )
-    target_compile_options(gobbledegook PRIVATE
+    target_compile_options(bzperi PRIVATE
         ${GLIB_CFLAGS_OTHER}
         ${GIO_CFLAGS_OTHER}
         ${GOBJECT_CFLAGS_OTHER}
@@ -189,16 +189,16 @@ endif()
 # Standalone executable
 if(BUILD_STANDALONE AND LINUX)
     add_executable(standalone src/standalone.cpp)
-    target_link_libraries(standalone gobbledegook)
+    target_link_libraries(standalone bzperi)
     set_target_properties(standalone PROPERTIES
-        OUTPUT_NAME ggk-standalone
+        OUTPUT_NAME bzp-standalone
     )
 endif()
 
 # Installation
 include(GNUInstallDirs)
 
-install(TARGETS gobbledegook
+install(TARGETS bzperi
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -213,18 +213,18 @@ endif()
 
 # Create pkg-config file
 configure_file(
-    "${CMAKE_SOURCE_DIR}/gobbledegook.pc.in"
-    "${CMAKE_BINARY_DIR}/gobbledegook.pc"
+    "${CMAKE_SOURCE_DIR}/bzperi.pc.in"
+    "${CMAKE_BINARY_DIR}/bzperi.pc"
     @ONLY
 )
 
-install(FILES "${CMAKE_BINARY_DIR}/gobbledegook.pc"
+install(FILES "${CMAKE_BINARY_DIR}/bzperi.pc"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
 )
 
 # Print configuration summary
 message(STATUS "")
-message(STATUS "Gobbledegook Configuration Summary:")
+message(STATUS "BzPeri Configuration Summary:")
 message(STATUS "  Version:           ${PROJECT_VERSION}")
 message(STATUS "  Build type:        ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ standard:      C++${CMAKE_CXX_STANDARD}")

@@ -50,8 +50,8 @@
 #include "Server.h"
 
 // Macro for safe C API functions that catch C++ exceptions
-#define GGK_C_API_GUARD_BEGIN() try {
-#define GGK_C_API_GUARD_END_RETURN_INT(default_value) \
+#define BZP_C_API_GUARD_BEGIN() try {
+#define BZP_C_API_GUARD_END_RETURN_INT(default_value) \
 	} catch (const std::exception& e) { \
 		Logger::error(SSTR << "C API exception: " << e.what()); \
 		return default_value; \
@@ -60,14 +60,14 @@
 		return default_value; \
 	}
 
-#define GGK_C_API_GUARD_END_RETURN_VOID() \
+#define BZP_C_API_GUARD_END_RETURN_VOID() \
 	} catch (const std::exception& e) { \
 		Logger::error(SSTR << "C API exception: " << e.what()); \
 	} catch (...) { \
 		Logger::error("C API unknown exception"); \
 	}
 
-namespace ggk
+namespace bzp
 {
 	// During initialization, we'll check for complation at this interval
 	static const int kMaxAsyncInitCheckIntervalMS = 10;
@@ -76,10 +76,10 @@ namespace ggk
 	static std::thread serverThread;
 
 	// The current server state (thread-safe atomic)
-	static std::atomic<GGKServerRunState> serverRunState{EUninitialized};
+	static std::atomic<BZPServerRunState> serverRunState{EUninitialized};
 
 	// The current server health (thread-safe atomic)
-	static std::atomic<GGKServerHealth> serverHealth{EOk};
+	static std::atomic<BZPServerHealth> serverHealth{EOk};
 
 	// Condition variable for state transitions
 	static std::condition_variable stateChangedCV;
@@ -96,10 +96,10 @@ namespace ggk
 	std::mutex updateQueueMutex;
 
 	// Internal method to set the run state of the server
-	void setServerRunState(GGKServerRunState newState)
+	void setServerRunState(BZPServerRunState newState)
 	{
-		GGKServerRunState oldState = serverRunState.load(std::memory_order_acquire);
-		Logger::status(SSTR << "** SERVER RUN STATE CHANGED: " << ggkGetServerRunStateString(oldState) << " -> " << ggkGetServerRunStateString(newState));
+		BZPServerRunState oldState = serverRunState.load(std::memory_order_acquire);
+		Logger::status(SSTR << "** SERVER RUN STATE CHANGED: " << bzpGetServerRunStateString(oldState) << " -> " << bzpGetServerRunStateString(newState));
 
 		// Store with release ordering and notify
 		serverRunState.store(newState, std::memory_order_release);
@@ -109,17 +109,17 @@ namespace ggk
 	}
 
 	// Internal method to set the health of the server
-	void setServerHealth(GGKServerHealth newHealth)
+	void setServerHealth(BZPServerHealth newHealth)
 	{
-		GGKServerHealth oldHealth = serverHealth.load(std::memory_order_acquire);
-		Logger::status(SSTR << "** SERVER HEALTH CHANGED: " << ggkGetServerHealthString(oldHealth) << " -> " << ggkGetServerHealthString(newHealth));
+		BZPServerHealth oldHealth = serverHealth.load(std::memory_order_acquire);
+		Logger::status(SSTR << "** SERVER HEALTH CHANGED: " << bzpGetServerHealthString(oldHealth) << " -> " << bzpGetServerHealthString(newHealth));
 
 		// Store with release ordering
 		serverHealth.store(newHealth, std::memory_order_release);
 	}
-}; // namespace ggk
+}; // namespace bzp
 
-using namespace ggk;
+using namespace bzp;
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 //  _                                  _     _             _   _
@@ -131,45 +131,45 @@ using namespace ggk;
 //
 // ---------------------------------------------------------------------------------------------------------------------------------
 
-void ggkLogRegisterDebug(GGKLogReceiver receiver) {
-	GGK_C_API_GUARD_BEGIN()
+void bzpLogRegisterDebug(BZPLogReceiver receiver) {
+	BZP_C_API_GUARD_BEGIN()
 	Logger::registerDebugReceiver(receiver);
-	GGK_C_API_GUARD_END_RETURN_VOID()
+	BZP_C_API_GUARD_END_RETURN_VOID()
 }
-void ggkLogRegisterInfo(GGKLogReceiver receiver) {
-	GGK_C_API_GUARD_BEGIN()
+void bzpLogRegisterInfo(BZPLogReceiver receiver) {
+	BZP_C_API_GUARD_BEGIN()
 	Logger::registerInfoReceiver(receiver);
-	GGK_C_API_GUARD_END_RETURN_VOID()
+	BZP_C_API_GUARD_END_RETURN_VOID()
 }
-void ggkLogRegisterStatus(GGKLogReceiver receiver) {
-	GGK_C_API_GUARD_BEGIN()
+void bzpLogRegisterStatus(BZPLogReceiver receiver) {
+	BZP_C_API_GUARD_BEGIN()
 	Logger::registerStatusReceiver(receiver);
-	GGK_C_API_GUARD_END_RETURN_VOID()
+	BZP_C_API_GUARD_END_RETURN_VOID()
 }
-void ggkLogRegisterWarn(GGKLogReceiver receiver) {
-	GGK_C_API_GUARD_BEGIN()
+void bzpLogRegisterWarn(BZPLogReceiver receiver) {
+	BZP_C_API_GUARD_BEGIN()
 	Logger::registerWarnReceiver(receiver);
-	GGK_C_API_GUARD_END_RETURN_VOID()
+	BZP_C_API_GUARD_END_RETURN_VOID()
 }
-void ggkLogRegisterError(GGKLogReceiver receiver) {
-	GGK_C_API_GUARD_BEGIN()
+void bzpLogRegisterError(BZPLogReceiver receiver) {
+	BZP_C_API_GUARD_BEGIN()
 	Logger::registerErrorReceiver(receiver);
-	GGK_C_API_GUARD_END_RETURN_VOID()
+	BZP_C_API_GUARD_END_RETURN_VOID()
 }
-void ggkLogRegisterFatal(GGKLogReceiver receiver) {
-	GGK_C_API_GUARD_BEGIN()
+void bzpLogRegisterFatal(BZPLogReceiver receiver) {
+	BZP_C_API_GUARD_BEGIN()
 	Logger::registerFatalReceiver(receiver);
-	GGK_C_API_GUARD_END_RETURN_VOID()
+	BZP_C_API_GUARD_END_RETURN_VOID()
 }
-void ggkLogRegisterTrace(GGKLogReceiver receiver) {
-	GGK_C_API_GUARD_BEGIN()
+void bzpLogRegisterTrace(BZPLogReceiver receiver) {
+	BZP_C_API_GUARD_BEGIN()
 	Logger::registerTraceReceiver(receiver);
-	GGK_C_API_GUARD_END_RETURN_VOID()
+	BZP_C_API_GUARD_END_RETURN_VOID()
 }
-void ggkLogRegisterAlways(GGKLogReceiver receiver) {
-	GGK_C_API_GUARD_BEGIN()
+void bzpLogRegisterAlways(BZPLogReceiver receiver) {
+	BZP_C_API_GUARD_BEGIN()
 	Logger::registerAlwaysReceiver(receiver);
-	GGK_C_API_GUARD_END_RETURN_VOID()
+	BZP_C_API_GUARD_END_RETURN_VOID()
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -187,32 +187,32 @@ void ggkLogRegisterAlways(GGKLogReceiver receiver) {
 // Adds an update to the front of the queue for a characteristic at the given object path
 //
 // Returns non-zero value on success or 0 on failure.
-int ggkNofifyUpdatedCharacteristic(const char *pObjectPath)
+int bzpNofifyUpdatedCharacteristic(const char *pObjectPath)
 {
-	GGK_C_API_GUARD_BEGIN()
+	BZP_C_API_GUARD_BEGIN()
 	if (!pObjectPath) return 0;
-	return ggkPushUpdateQueue(pObjectPath, "org.bluez.GattCharacteristic1") != 0;
-	GGK_C_API_GUARD_END_RETURN_INT(0)
+	return bzpPushUpdateQueue(pObjectPath, "org.bluez.GattCharacteristic1") != 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
 }
 
 // Adds an update to the front of the queue for a descriptor at the given object path
 //
 // Returns non-zero value on success or 0 on failure.
-int ggkNofifyUpdatedDescriptor(const char *pObjectPath)
+int bzpNofifyUpdatedDescriptor(const char *pObjectPath)
 {
-	GGK_C_API_GUARD_BEGIN()
+	BZP_C_API_GUARD_BEGIN()
 	if (!pObjectPath) return 0;
-	return ggkPushUpdateQueue(pObjectPath, "org.bluez.GattDescriptor1") != 0;
-	GGK_C_API_GUARD_END_RETURN_INT(0)
+	return bzpPushUpdateQueue(pObjectPath, "org.bluez.GattDescriptor1") != 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
 }
 
 // Adds a named update to the front of the queue. Generally, this routine should not be used directly. Instead, use the
-// `ggkNofifyUpdatedCharacteristic()` instead.
+// `bzpNofifyUpdatedCharacteristic()` instead.
 //
 // Returns non-zero value on success or 0 on failure.
-int ggkPushUpdateQueue(const char *pObjectPath, const char *pInterfaceName)
+int bzpPushUpdateQueue(const char *pObjectPath, const char *pInterfaceName)
 {
-	GGK_C_API_GUARD_BEGIN()
+	BZP_C_API_GUARD_BEGIN()
 	if (!pObjectPath || !pInterfaceName) return 0;
 
 	QueueEntry t(pObjectPath, pInterfaceName);
@@ -220,7 +220,7 @@ int ggkPushUpdateQueue(const char *pObjectPath, const char *pInterfaceName)
 	std::lock_guard<std::mutex> guard(updateQueueMutex);
 	updateQueue.push_front(t);
 	return 1;
-	GGK_C_API_GUARD_END_RETURN_INT(0)
+	BZP_C_API_GUARD_END_RETURN_INT(0)
 }
 
 // Get the next update from the back of the queue and returns the element in `element` as a string in the format:
@@ -236,9 +236,9 @@ int ggkPushUpdateQueue(const char *pObjectPath, const char *pInterfaceName)
 // is removed.
 //
 // Returns 1 on success, 0 if the queue is empty, -1 on error (such as the length too small to store the element)
-int ggkPopUpdateQueue(char *pElementBuffer, int elementLen, int keep)
+int bzpPopUpdateQueue(char *pElementBuffer, int elementLen, int keep)
 {
-	GGK_C_API_GUARD_BEGIN()
+	BZP_C_API_GUARD_BEGIN()
 	if (!pElementBuffer || elementLen <= 0) return -1;
 
 	std::string result;
@@ -269,34 +269,34 @@ int ggkPopUpdateQueue(char *pElementBuffer, int elementLen, int keep)
 	pElementBuffer[elementLen - 1] = '\0';
 
 	return 1;
-	GGK_C_API_GUARD_END_RETURN_INT(-1)
+	BZP_C_API_GUARD_END_RETURN_INT(-1)
 }
 
 // Returns 1 if the queue is empty, otherwise 0
-int ggkUpdateQueueIsEmpty()
+int bzpUpdateQueueIsEmpty()
 {
-	GGK_C_API_GUARD_BEGIN()
+	BZP_C_API_GUARD_BEGIN()
 	std::lock_guard<std::mutex> guard(updateQueueMutex);
 	return updateQueue.empty() ? 1 : 0;
-	GGK_C_API_GUARD_END_RETURN_INT(1)
+	BZP_C_API_GUARD_END_RETURN_INT(1)
 }
 
 // Returns the number of entries waiting in the queue
-int ggkUpdateQueueSize()
+int bzpUpdateQueueSize()
 {
-	GGK_C_API_GUARD_BEGIN()
+	BZP_C_API_GUARD_BEGIN()
 	std::lock_guard<std::mutex> guard(updateQueueMutex);
 	return static_cast<int>(updateQueue.size());
-	GGK_C_API_GUARD_END_RETURN_INT(0)
+	BZP_C_API_GUARD_END_RETURN_INT(0)
 }
 
 // Removes all entries from the queue
-void ggkUpdateQueueClear()
+void bzpUpdateQueueClear()
 {
-	GGK_C_API_GUARD_BEGIN()
+	BZP_C_API_GUARD_BEGIN()
 	std::lock_guard<std::mutex> guard(updateQueueMutex);
 	updateQueue.clear();
-	GGK_C_API_GUARD_END_RETURN_VOID()
+	BZP_C_API_GUARD_END_RETURN_VOID()
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -311,14 +311,14 @@ void ggkUpdateQueueClear()
 
 // Retrieve the current running state of the server
 //
-// See `GGKServerRunState` (enumeration) for more information.
-GGKServerRunState ggkGetServerRunState()
+// See `BZPServerRunState` (enumeration) for more information.
+BZPServerRunState bzpGetServerRunState()
 {
 	return serverRunState;
 }
 
-// Convert a `GGKServerRunState` into a human-readable string
-const char *ggkGetServerRunStateString(GGKServerRunState state)
+// Convert a `BZPServerRunState` into a human-readable string
+const char *bzpGetServerRunStateString(BZPServerRunState state)
 {
 	switch(state)
 	{
@@ -332,7 +332,7 @@ const char *ggkGetServerRunStateString(GGKServerRunState state)
 }
 
 // Convenience method to check ServerRunState for a running server
-int ggkIsServerRunning()
+int bzpIsServerRunning()
 {
 	return serverRunState <= ERunning ? 1 : 0;
 }
@@ -349,14 +349,14 @@ int ggkIsServerRunning()
 
 // Retrieve the current health of the server
 //
-// See `GGKServerHealth` (enumeration) for more information.
-GGKServerHealth ggkGetServerHealth()
+// See `BZPServerHealth` (enumeration) for more information.
+BZPServerHealth bzpGetServerHealth()
 {
 	return serverHealth;
 }
 
-// Convert a `GGKServerHealth` into a human-readable string
-const char *ggkGetServerHealthString(GGKServerHealth state)
+// Convert a `BZPServerHealth` into a human-readable string
+const char *bzpGetServerHealthString(BZPServerHealth state)
 {
 	switch(state)
 	{
@@ -382,27 +382,27 @@ const char *ggkGetServerHealthString(GGKServerHealth state)
 // The shutdown process will interrupt any currently running asynchronous operation and prevent new operations from starting.
 // Once the server has stabilized, its event processing loop is terminated and the server is cleaned up.
 //
-// `ggkGetServerRunState` will return EStopped when shutdown is complete. To block until the shutdown is complete, see
-// `ggkWait()`.
+// `bzpGetServerRunState` will return EStopped when shutdown is complete. To block until the shutdown is complete, see
+// `bzpWait()`.
 //
-// Alternatively, you can use `ggkShutdownAndWait()` to request the shutdown and block until the shutdown is complete.
-void ggkTriggerShutdown()
+// Alternatively, you can use `bzpShutdownAndWait()` to request the shutdown and block until the shutdown is complete.
+void bzpTriggerShutdown()
 {
 	shutdown();
 }
 
-// Convenience method to trigger a shutdown (via `ggkTriggerShutdown()`) and also waits for shutdown to complete (via
-// `ggkWait()`)
-int ggkShutdownAndWait()
+// Convenience method to trigger a shutdown (via `bzpTriggerShutdown()`) and also waits for shutdown to complete (via
+// `bzpWait()`)
+int bzpShutdownAndWait()
 {
-	if (ggkIsServerRunning() != 0)
+	if (bzpIsServerRunning() != 0)
 	{
 		// Tell the server to shut down
-		ggkTriggerShutdown();
+		bzpTriggerShutdown();
 	}
 
 	// Block until it has shut down completely
-	return ggkWait();
+	return bzpWait();
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -420,15 +420,15 @@ int ggkShutdownAndWait()
 //
 // If the server fails to stop for some reason, the thread will be killed.
 //
-// Typically, a call to this method would follow `ggkTriggerShutdown()`.
-int ggkWait()
+// Typically, a call to this method would follow `bzpTriggerShutdown()`.
+int bzpWait()
 {
 	int result = 0;
 	try
 	{
-		if (ggkGetServerRunState() <= ERunning)
+		if (bzpGetServerRunState() <= ERunning)
 		{
-			Logger::info("Waiting for GGK server to stop");
+			Logger::info("Waiting for BzPeri server to stop");
 		}
 
 		if (serverThread.joinable())
@@ -443,16 +443,16 @@ int ggkWait()
 		switch (ex.code().value())
 		{
 			case static_cast<int>(std::errc::invalid_argument):
-				Logger::warn(SSTR << "Server thread was not joinable during ggkWait(): " << ex.what());
+				Logger::warn(SSTR << "Server thread was not joinable during bzpWait(): " << ex.what());
 				break;
 			case static_cast<int>(std::errc::no_such_process):
-				Logger::warn(SSTR << "Server thread was not valid during ggkWait(): " << ex.what());
+				Logger::warn(SSTR << "Server thread was not valid during bzpWait(): " << ex.what());
 				break;
 			case static_cast<int>(std::errc::resource_deadlock_would_occur):
-				Logger::warn(SSTR << "Deadlock avoided in call to ggkWait() (did the server thread try to stop itself?): " << ex.what());
+				Logger::warn(SSTR << "Deadlock avoided in call to bzpWait() (did the server thread try to stop itself?): " << ex.what());
 				break;
 			default:
-				Logger::warn(SSTR << "Unknown system_error code (" << ex.code() << ") during ggkWait(): " << ex.what());
+				Logger::warn(SSTR << "Unknown system_error code (" << ex.code() << ") during bzpWait(): " << ex.what());
 				break;
 		}
 	}
@@ -525,47 +525,47 @@ int ggkWait()
 //
 //     Retrieve this value using the `getAdvertisingShortName()` method
 //
-int ggkStartWithBondable(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
-	GGKServerDataGetter getter, GGKServerDataSetter setter, int maxAsyncInitTimeoutMS, int enableBondable)
+int bzpStartWithBondable(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS, int enableBondable)
 {
 	try
 	{
 		// Input validation
 		if (!pServiceName || strlen(pServiceName) == 0)
 		{
-			Logger::error("ggkStart: pServiceName cannot be null or empty");
+			Logger::error("bzpStart: pServiceName cannot be null or empty");
 			return 0;
 		}
 		if (!pAdvertisingName)
 		{
-			Logger::error("ggkStart: pAdvertisingName cannot be null");
+			Logger::error("bzpStart: pAdvertisingName cannot be null");
 			return 0;
 		}
 		if (!pAdvertisingShortName)
 		{
-			Logger::error("ggkStart: pAdvertisingShortName cannot be null");
+			Logger::error("bzpStart: pAdvertisingShortName cannot be null");
 			return 0;
 		}
 		if (!getter)
 		{
-			Logger::error("ggkStart: getter delegate cannot be null");
+			Logger::error("bzpStart: getter delegate cannot be null");
 			return 0;
 		}
 		if (!setter)
 		{
-			Logger::error("ggkStart: setter delegate cannot be null");
+			Logger::error("bzpStart: setter delegate cannot be null");
 			return 0;
 		}
 		if (maxAsyncInitTimeoutMS < 100 || maxAsyncInitTimeoutMS > 60000)
 		{
-			Logger::error(SSTR << "ggkStart: maxAsyncInitTimeoutMS (" << maxAsyncInitTimeoutMS << ") must be between 100 and 60000 milliseconds");
+			Logger::error(SSTR << "bzpStart: maxAsyncInitTimeoutMS (" << maxAsyncInitTimeoutMS << ") must be between 100 and 60000 milliseconds");
 			return 0;
 		}
 
 		// Validate service name length (reasonable limits)
 		if (strlen(pServiceName) > 255)
 		{
-			Logger::error(SSTR << "ggkStart: pServiceName too long (" << strlen(pServiceName) << " > 255)");
+			Logger::error(SSTR << "bzpStart: pServiceName too long (" << strlen(pServiceName) << " > 255)");
 			return 0;
 		}
 
@@ -607,7 +607,7 @@ int ggkStartWithBondable(const char *pServiceName, const char *pAdvertisingName,
 			}
 		}, nullptr);
 
-		Logger::info(SSTR << "Starting GGK server '" << pAdvertisingName << "'");
+		Logger::info(SSTR << "Starting BzPeri server '" << pAdvertisingName << "'");
 
 		// Allocate our server
 		TheServer = std::make_shared<Server>(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, enableBondable != 0);
@@ -619,7 +619,7 @@ int ggkStartWithBondable(const char *pServiceName, const char *pAdvertisingName,
 		}
 		catch(std::system_error &ex)
 		{
-			Logger::error(SSTR << "Server thread was unable to start (code " << ex.code() << ") during ggkStart(): " << ex.what());
+			Logger::error(SSTR << "Server thread was unable to start (code " << ex.code() << ") during bzpStart(): " << ex.what());
 
 			setServerRunState(EStopped);
 			return 0;
@@ -635,7 +635,7 @@ int ggkStartWithBondable(const char *pServiceName, const char *pAdvertisingName,
 		// If something went wrong, shut down
 		if (!initCompleted)
 		{
-			Logger::error("GGK server initialization timed out");
+			Logger::error("BzPeri server initialization timed out");
 
 			setServerHealth(EFailedInit);
 
@@ -643,30 +643,30 @@ int ggkStartWithBondable(const char *pServiceName, const char *pAdvertisingName,
 		}
 
 		// If something went wrong, shut down if we've not already done so
-		if (ggkGetServerRunState() != ERunning)
+		if (bzpGetServerRunState() != ERunning)
 		{
-			if (!ggkWait())
+			if (!bzpWait())
 			{
-				Logger::warn(SSTR << "Unable to stop the server after an error in ggkStart()");
+				Logger::warn(SSTR << "Unable to stop the server after an error in bzpStart()");
 			}
 
 			return 0;
 		}
 
 		// Everything looks good
-		Logger::trace("GGK server has started");
+		Logger::trace("BzPeri server has started");
 		return 1;
 	}
 	catch(...)
 	{
-		Logger::error(SSTR << "Unknown exception during ggkStartWithBondable()");
+		Logger::error(SSTR << "Unknown exception during bzpStartWithBondable()");
 		return 0;
 	}
 }
 
-// Backward compatibility wrapper - calls ggkStartWithBondable with enableBondable=1 (true)
-int ggkStart(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
-	GGKServerDataGetter getter, GGKServerDataSetter setter, int maxAsyncInitTimeoutMS)
+// Backward compatibility wrapper - calls bzpStartWithBondable with enableBondable=1 (true)
+int bzpStart(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS)
 {
-	return ggkStartWithBondable(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, maxAsyncInitTimeoutMS, 1);
+	return bzpStartWithBondable(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, maxAsyncInitTimeoutMS, 1);
 }

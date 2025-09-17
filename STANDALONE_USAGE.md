@@ -2,25 +2,25 @@
 
 ## Overview
 
-The `ggk-standalone` application now supports modern BlueZ adapter selection and enhanced command-line options.
+The `bzp-standalone` application now supports modern BlueZ adapter selection and enhanced command-line options.
 
 ## Command Line Options
 
 ### Basic Usage
 ```bash
-sudo ./build/ggk-standalone [options]
+sudo ./build/bzp-standalone [options]
 ```
 
 ### Logging Options
 ```bash
 # Quiet mode (errors only)
-sudo ./build/ggk-standalone -q
+sudo ./build/bzp-standalone -q
 
 # Verbose mode
-sudo ./build/ggk-standalone -v
+sudo ./build/bzp-standalone -v
 
 # Debug mode (most detailed)
-sudo ./build/ggk-standalone -d
+sudo ./build/bzp-standalone -d
 ```
 
 ### BlueZ Adapter Options
@@ -28,7 +28,7 @@ sudo ./build/ggk-standalone -d
 #### List Available Adapters
 ```bash
 # List all available BlueZ adapters
-sudo ./build/ggk-standalone --list-adapters
+sudo ./build/bzp-standalone --list-adapters
 
 # Example output:
 #   Available BlueZ adapters:
@@ -39,28 +39,28 @@ sudo ./build/ggk-standalone --list-adapters
 #### Select Specific Adapter
 ```bash
 # Use specific adapter by name
-sudo ./build/ggk-standalone --adapter=hci1
+sudo ./build/bzp-standalone --adapter=hci1
 
 # Use specific adapter by path
-sudo ./build/ggk-standalone --adapter=/org/bluez/hci1
+sudo ./build/bzp-standalone --adapter=/org/bluez/hci1
 
 # Use specific adapter by MAC address
-sudo ./build/ggk-standalone --adapter=00:1A:2B:3C:4D:5E
+sudo ./build/bzp-standalone --adapter=00:1A:2B:3C:4D:5E
 ```
 
 #### Combined Options
 ```bash
 # Debug mode with specific adapter
-sudo ./build/ggk-standalone -d --adapter=hci1
+sudo ./build/bzp-standalone -d --adapter=hci1
 
 # List adapters with verbose output
-sudo ./build/ggk-standalone -v --list-adapters
+sudo ./build/bzp-standalone -v --list-adapters
 ```
 
 ### Help
 ```bash
 # Show help message
-./build/ggk-standalone --help
+./build/bzp-standalone --help
 ```
 
 ## Environment Variables
@@ -70,11 +70,11 @@ You can also use environment variables instead of command-line options:
 ```bash
 # Set preferred adapter
 export BLUEZ_ADAPTER=hci1
-sudo ./build/ggk-standalone
+sudo ./build/bzp-standalone
 
 # Enable adapter listing
 export BLUEZ_LIST_ADAPTERS=1
-sudo ./build/ggk-standalone
+sudo ./build/bzp-standalone
 ```
 
 ## Adapter Selection Logic
@@ -91,7 +91,7 @@ The application follows this priority order for adapter selection:
 ### Permission Issues
 ```bash
 # If you get permission errors:
-sudo ./build/ggk-standalone
+sudo ./build/bzp-standalone
 
 # Or configure polkit rules (see BLUEZ_MIGRATION.md)
 ```
@@ -99,10 +99,10 @@ sudo ./build/ggk-standalone
 ### Adapter Not Found
 ```bash
 # List available adapters first
-sudo ./build/ggk-standalone --list-adapters
+sudo ./build/bzp-standalone --list-adapters
 
 # Then use a valid adapter
-sudo ./build/ggk-standalone --adapter=hci0
+sudo ./build/bzp-standalone --adapter=hci0
 ```
 
 ### BlueZ Service Issues
@@ -114,7 +114,7 @@ systemctl status bluetooth
 sudo systemctl restart bluetooth
 
 # Then try again
-sudo ./build/ggk-standalone
+sudo ./build/bzp-standalone
 ```
 
 ## Example Usage Scenarios
@@ -122,28 +122,28 @@ sudo ./build/ggk-standalone
 ### Development and Debugging
 ```bash
 # Start with debug logging and specific adapter
-sudo ./build/ggk-standalone -d --adapter=hci0
+sudo ./build/bzp-standalone -d --adapter=hci0
 ```
 
 ### Production Deployment
 ```bash
 # Quiet mode for production
-sudo ./build/ggk-standalone -q
+sudo ./build/bzp-standalone -q
 ```
 
 ### Multi-Adapter System
 ```bash
 # First, see what's available
-sudo ./build/ggk-standalone --list-adapters
+sudo ./build/bzp-standalone --list-adapters
 
 # Select the best adapter
-sudo ./build/ggk-standalone --adapter=hci1
+sudo ./build/bzp-standalone --adapter=hci1
 ```
 
 ### USB Bluetooth Dongle
 ```bash
 # When using USB Bluetooth dongles, they often appear as hci1 or higher
-sudo ./build/ggk-standalone --adapter=hci1
+sudo ./build/bzp-standalone --adapter=hci1
 ```
 
 ## Monitoring and Troubleshooting
@@ -195,8 +195,8 @@ Both signals will trigger a clean shutdown sequence that properly closes all Blu
 
 The application respects these configuration files:
 
-- **D-Bus Policy**: `/etc/dbus-1/system.d/com.gobbledegook.conf`
-- **Polkit Rules**: `/etc/polkit-1/rules.d/50-gobbledegook-bluez.rules`
+- **D-Bus Policy**: `/etc/dbus-1/system.d/com.bzperi.conf`
+- **Polkit Rules**: `/etc/polkit-1/rules.d/50-bzperi-bluez.rules`
 - **BlueZ Config**: `/etc/bluetooth/main.conf`
 
 See `BLUEZ_MIGRATION.md` for detailed configuration instructions.

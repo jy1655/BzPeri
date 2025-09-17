@@ -32,7 +32,7 @@
 #include "Server.h"
 #include "Utils.h"
 
-namespace ggk {
+namespace bzp {
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Forward declarations
@@ -131,7 +131,7 @@ struct GattInterface : DBusInterface
 		return addProperty<T>(GattProperty(name, Utils::gvariantFromBoolean(value), getter, setter));
 	}
 
-	// Return a data value from the server's registered data getter (GGKServerDataGetter)
+	// Return a data value from the server's registered data getter (BZPServerDataGetter)
 	//
 	// This method is for use with non-pointer types. For pointer types, use `getDataPointer()` instead.
 	//
@@ -145,7 +145,7 @@ struct GattInterface : DBusInterface
 		return nullptr == pData ? defaultValue : *static_cast<const T *>(pData);
 	}
 
-	// Return a data pointer from the server's registered data getter (GGKServerDataGetter)
+	// Return a data pointer from the server's registered data getter (BZPServerDataGetter)
 	//
 	// This method is for use with pointer types. For non-pointer types, use `getDataValue()` instead.
 	//
@@ -160,7 +160,7 @@ struct GattInterface : DBusInterface
 	}
 
 	// Sends a data value from the server back to the application through the server's registered data setter
-	// (GGKServerDataSetter)
+	// (BZPServerDataSetter)
 	//
 	// This method is for use with non-pointer types. For pointer types, use `setDataPointer()` instead.
 	//
@@ -174,7 +174,7 @@ struct GattInterface : DBusInterface
 	}
 
 	// Sends a data pointer from the server back to the application through the server's registered data setter
-	// (GGKServerDataSetter)
+	// (BZPServerDataSetter)
 	//
 	// This method is for use with pointer types. For non-pointer types, use `setDataValue()` instead.
 	//
@@ -221,4 +221,4 @@ protected:
 	std::list<GattProperty> properties;
 };
 
-}; // namespace ggk
+}; // namespace bzp

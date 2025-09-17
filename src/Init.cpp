@@ -50,7 +50,7 @@
 #include "Logger.h"
 #include "Init.h"
 
-namespace ggk {
+namespace bzp {
 
 //
 // Constants
@@ -92,8 +92,8 @@ static std::string bluezGattManagerInterfaceName = "";
 // Externs
 //
 
-extern void setServerRunState(enum GGKServerRunState newState);
-extern void setServerHealth(enum GGKServerHealth newHealth);
+extern void setServerRunState(enum BZPServerRunState newState);
+extern void setServerHealth(enum BZPServerHealth newHealth);
 
 //
 // Forward declarations
@@ -110,10 +110,10 @@ static void initializationStateProcessor();
 //                                                  |_|                                        |___/
 //
 // Our idle funciton is what processes data updates. We handle this in a simple way. We update the data directly in our global
-// `TheServer` object, then call `ggkPushUpdateQueue` to trigger that data to be updated (in whatever way the service responsible
+// `TheServer` object, then call `bzpPushUpdateQueue` to trigger that data to be updated (in whatever way the service responsible
 // for that data() sees fit.
 //
-// This is done using the `ggkPushUpdateQueue` / `ggkPopUpdateQueue` methods to manage the queue of pending update messages. Each
+// This is done using the `bzpPushUpdateQueue` / `bzpPopUpdateQueue` methods to manage the queue of pending update messages. Each
 // entry represents an interface that needs to be updated. The idleFunc calls the interface's `onUpdatedValue` method for each
 // update.
 //
@@ -133,7 +133,7 @@ bool idleFunc(void *pUserData)
 {
 
 	// Don't do anything unless we're running
-	if (ggkGetServerRunState() != ERunning)
+	if (bzpGetServerRunState() != ERunning)
 	{
 		return false;
 	}
@@ -141,7 +141,7 @@ bool idleFunc(void *pUserData)
 	// Try to get an update
 	const int kQueueEntryLen = 1024;
 	char queueEntry[kQueueEntryLen];
-	if (ggkPopUpdateQueue(queueEntry, kQueueEntryLen, 0) != 1)
+	if (bzpPopUpdateQueue(queueEntry, kQueueEntryLen, 0) != 1)
 	{
 		return false;
 	}
@@ -283,7 +283,7 @@ void uninit()
 // This method is non-blocking and as such, will only trigger the shutdown process but not wait for it
 void shutdown()
 {
-	if (ggkGetServerRunState() > ERunning)
+	if (bzpGetServerRunState() > ERunning)
 	{
 		Logger::warn("Ignoring call to shutdown (we are already shutting down)");
 		return;
@@ -319,7 +319,7 @@ gboolean onPeriodicTimer(gpointer pUserData)
 {
 	(void)pUserData; // Suppress unused parameter warning
 	// If we're shutting down, don't do anything and stop the periodic timer
-	if (ggkGetServerRunState() > ERunning)
+	if (bzpGetServerRunState() > ERunning)
 	{
 		return FALSE;
 	}
@@ -1037,7 +1037,7 @@ void doBusAcquire()
 void initializationStateProcessor()
 {
 	// If we're in our end-of-life or waiting for a retry, don't process states
-	if (ggkGetServerRunState() > ERunning || 0 != retryTimeStart)
+	if (bzpGetServerRunState() > ERunning || 0 != retryTimeStart)
 	{
 		return;
 	}
@@ -1114,7 +1114,7 @@ void initializationStateProcessor()
 	// At this point, we should be fully initialized
 	//
 	// It shouldn't ever happen, but just in case, let's double-check that we're healthy and if not, shutdown immediately
-	if (ggkGetServerHealth() != EOk)
+	if (bzpGetServerHealth() != EOk)
 	{
 		shutdown();
 		return;
@@ -1136,7 +1136,7 @@ void initializationStateProcessor()
 
 // Entry point for the asynchronous server thread
 //
-// This method should not be called directly, instead, direct your attention over to `ggkStart()`
+// This method should not be called directly, instead, direct your attention over to `bzpStart()`
 void runServerThread()
 {
 	// Set the initialization state
@@ -1166,7 +1166,7 @@ void runServerThread()
 		[](gpointer pUserData) -> gboolean
 		{
 			// Check if we should continue running
-			if (ggkGetServerRunState() > ERunning)
+			if (bzpGetServerRunState() > ERunning)
 			{
 				return G_SOURCE_REMOVE;
 			}
@@ -1190,10 +1190,10 @@ void runServerThread()
 
 	// We have stopped
 	setServerRunState(EStopped);
-	Logger::info("GGK server stopped");
+	Logger::info("BzPeri server stopped");
 
 	// Cleanup
 	uninit();
 }
 
-}; // namespace ggk
+}; // namespace bzp

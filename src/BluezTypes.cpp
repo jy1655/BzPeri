@@ -1,9 +1,7 @@
-// Copyright 2017-2019 Paul Nettle
+// Copyright (c) 2025 BzPeri Contributors
+// Licensed under MIT License (see LICENSE file)
 //
-// This file is part of Gobbledegook.
-//
-// Use of this source code is governed by a BSD-style license that can be found
-// in the LICENSE file in the root of the source tree.
+// BlueZ type definitions and utilities
 
 #include "BluezTypes.h"
 #include "Logger.h"
@@ -11,7 +9,7 @@
 #include <cmath>
 #include <random>
 
-namespace ggk {
+namespace bzp {
 
 // RetryPolicy::getDelayMs implementation with jitter
 int RetryPolicy::getDelayMs(int attempt) const
@@ -186,9 +184,9 @@ BluezResult<void> BluezResult<void>::fromGError(GError* error)
 	return BluezResult<void>(mappedError, message);
 }
 
-} // namespace ggk
+} // namespace bzp
 
 // Explicit template instantiations to ensure symbols are emitted from this TU
 // for pointer specializations used across the library.
-template ggk::BluezResult<GVariant*> ggk::BluezResult<GVariant*>::fromGError(GError*);
-template ggk::BluezError ggk::BluezResult<GVariant*>::mapGErrorDomain(GError*);
+template bzp::BluezResult<GVariant*> bzp::BluezResult<GVariant*>::fromGError(GError*);
+template bzp::BluezError bzp::BluezResult<GVariant*>::mapGErrorDomain(GError*);

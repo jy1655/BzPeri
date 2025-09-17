@@ -1,0 +1,12 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: BzPeri
+Description: Modern C++20 Bluetooth LE GATT server using BlueZ over D-Bus
+Version: @PROJECT_VERSION@
+URL: https://github.com/bzperi/bzperi
+Requires: glib-2.0 >= 2.58, gio-2.0 >= 2.58, gobject-2.0 >= 2.58
+Libs: -L${libdir} -lbzp -lpthread
+Cflags: -I${includedir}

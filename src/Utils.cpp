@@ -36,7 +36,7 @@
 #include "Utils.h"
 #include "FormatCompat.h"
 
-namespace ggk {
+namespace bzp {
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Handy string functions
@@ -476,4 +476,4 @@ std::string Utils::truncateShortName(const std::string &name)
 	return name.substr(0, kShortNameMax);
 }
 
-}; // namespace ggk
+}; // namespace bzp

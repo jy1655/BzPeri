@@ -1,9 +1,14 @@
+// Copyright (c) 2025 BzPeri Contributors
+// Licensed under MIT License (see LICENSE file)
+//
+// BlueZ advertisement management for BLE advertising
+
 #include "BluezAdvertisement.h"
 #include "GLibRAII.h"
 #include "Logger.h"
 #include <cstring>
 
-namespace ggk {
+namespace bzp {
 
 // Global logger for advertisement operations
 extern StructuredLogger bluezLogger;
@@ -460,4 +465,4 @@ GVariant* BluezAdvertisement::getIncludes() const
     return g_variant_builder_end(&builder);
 }
 
-} // namespace ggk
+} // namespace bzp

@@ -25,7 +25,7 @@
 #include <gio/gio.h>
 #include <string>
 
-namespace ggk {
+namespace bzp {
 
 struct DBusObjectPath;
 
@@ -97,4 +97,4 @@ private:
 	GDBusInterfaceSetPropertyFunc setterFunc;
 };
 
-}; // namespace ggk
+}; // namespace bzp

@@ -32,7 +32,7 @@
 #include "DBusObject.h"
 #include "GattCharacteristic.h"
 
-namespace ggk {
+namespace bzp {
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Representation of a Bluetooth GATT Service
@@ -84,4 +84,4 @@ GattCharacteristic &GattService::gattCharacteristicBegin(const std::string &path
 	return characteristic;
 }
 
-}; // namespace ggk
+}; // namespace bzp

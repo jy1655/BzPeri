@@ -22,7 +22,7 @@
 
 #pragma once
 
-namespace ggk {
+namespace bzp {
 
 // Trigger a graceful, asynchronous shutdown of the server
 //
@@ -31,7 +31,7 @@ void shutdown();
 
 // Entry point for the asynchronous server thread
 //
-// This method should not be called directly, instead, direct your attention over to `ggkStart()`
+// This method should not be called directly, instead, direct your attention over to `bzpStart()`
 void runServerThread();
 
-}; // namespace ggk
+}; // namespace bzp

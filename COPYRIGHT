@@ -1,0 +1,43 @@
+BzPeri Copyright Information
+============================
+
+BzPeri is based on Gobbledegook and contains both original and derived works.
+
+Original Work:
+--------------
+Gobbledegook - Bluetooth LE GATT Server Framework
+Copyright (c) 2017-2019 Paul Nettle
+Licensed under BSD-style license (see LICENSE file)
+
+Derived Work:
+-------------
+BzPeri - Modern Bluetooth LE GATT Server Library
+Copyright (c) 2025 BzPeri Contributors
+Licensed under MIT License (see LICENSE-MIT file)
+
+Contributor Information:
+------------------------
+Paul Nettle - Original Gobbledegook author and primary contributor
+  - Created the foundational architecture and DSL framework
+  - Implemented original BlueZ D-Bus integration
+  - Designed the elegant service definition system
+
+BzPeri Contributors - Modernization and enhancements (2025)
+  - C++20 modernization and std::expected error handling
+  - BlueZ 5.77+ compatibility and performance improvements
+  - Enhanced connection stability and bondable configuration
+  - Migration from HCI Management API to modern D-Bus interfaces
+
+License Transition:
+-------------------
+The original Gobbledegook code was licensed under a BSD-style license, which
+permits relicensing under more permissive terms. BzPeri is licensed under the
+MIT License to provide maximum flexibility for users while maintaining proper
+attribution to the original work.
+
+Both licenses are preserved in this repository:
+- LICENSE: Original BSD-style license from Gobbledegook
+- LICENSE-MIT: New MIT license for BzPeri
+
+All derivative work respects and acknowledges the original copyright and
+licensing terms established by Paul Nettle.

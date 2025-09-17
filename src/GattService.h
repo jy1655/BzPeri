@@ -31,7 +31,7 @@
 
 #include "GattInterface.h"
 
-namespace ggk {
+namespace bzp {
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Forward declarations
@@ -89,4 +89,4 @@ struct GattService : GattInterface
 	virtual const std::string getInterfaceType() const { return GattService::kInterfaceType; }
 };
 
-}; // namespace ggk
+}; // namespace bzp

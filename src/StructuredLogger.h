@@ -4,7 +4,7 @@
 #include <sstream>
 #include <string>
 
-namespace ggk {
+namespace bzp {
 
 // Modern structured logging for BlueZ operations
 // Provides consistent format: [Component] op=Operation prop=Property path=Path result=Result
@@ -83,4 +83,4 @@ extern StructuredLogger bluezLogger;
 extern StructuredLogger gattLogger;
 extern StructuredLogger dbusLogger;
 
-} // namespace ggk
+} // namespace bzp

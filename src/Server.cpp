@@ -57,11 +57,11 @@
 // >>
 //
 // The purpose of the server is to serve data. Your application is responsible for providing that data to the server via two data
-// accessors (a getter and a setter) that implemented in the form of delegates that are passed into the `ggkStart()` method.
+// accessors (a getter and a setter) that implemented in the form of delegates that are passed into the `bzpStart()` method.
 //
 // While the server is running, if data is updated via a write operation from the client the setter delegate will be called. If your
 // application also generates or updates data periodically, it can push those updates to the server via call to
-// `ggkNofifyUpdatedCharacteristic()` or `ggkNofifyUpdatedDescriptor()`.
+// `bzpNofifyUpdatedCharacteristic()` or `bzpNofifyUpdatedDescriptor()`.
 //
 // >>
 // >>>  UNDERSTANDING THE UNDERLYING FRAMEWORKS
@@ -109,8 +109,8 @@
 //
 // The first parameter to each of the `*Begin` methods is a path node name. As we build our hierarchy, we give each node a name,
 // which gets appended to it's parent's node (which in turns gets appended to its parent's node, etc.) If our root path was
-// "/com/gobbledegook", then our service would have the path "/com/gobbledegook/text" and the characteristic would have the path
-// "/com/gobbledegook/text/string", and the descriptor would have the path "/com/gobbledegook/text/string/description". These paths
+// "/com/bzperi", then our service would have the path "/com/bzperi/text" and the characteristic would have the path
+// "/com/bzperi/text/string", and the descriptor would have the path "/com/bzperi/text/string/description". These paths
 // are important as they act like an addressing mechanism similar to paths on a filesystem or in a URL.
 //
 // The second parameter to each of the `*Begin` methods is a UUID as defined by the Bluetooth standard. These UUIDs effectively
@@ -163,7 +163,7 @@
 #include "GattDescriptor.h"
 #include "Logger.h"
 
-namespace ggk {
+namespace bzp {
 
 // There's a good chance there will be a bunch of unused parameters from the lambda macros
 #if defined(__GNUC__) && defined(__clang__)
@@ -228,7 +228,7 @@ std::shared_ptr<Server> TheServer = nullptr;
 //     Retrieve this value using the `getEnableBondable()` method.
 //
 Server::Server(const std::string &serviceName, const std::string &advertisingName, const std::string &advertisingShortName,
-	GGKServerDataGetter getter, GGKServerDataSetter setter, bool enableBondable)
+	BZPServerDataGetter getter, BZPServerDataSetter setter, bool enableBondable)
 {
 	// Save our names
 	this->serviceName = serviceName;
@@ -297,7 +297,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 	//     https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.service.battery_service.xml
 	//
 	// We also handle updates to the battery level from inside the server (see onUpdatedValue). There is an external method
-	// (see main.cpp) that updates our battery level and posts an update using ggkPushUpdateQueue. Those updates are used
+	// (see main.cpp) that updates our battery level and posts an update using bzpPushUpdateQueue. Those updates are used
 	// to notify us that our value has changed, which translates into a call to `onUpdatedValue` from the idleFunc (see
 	// Init.cpp).
 	.gattServiceBegin("battery", "180F")
@@ -641,4 +641,4 @@ const GattProperty *Server::findProperty(const DBusObjectPath &objectPath, std::
 	return nullptr;
 }
 
-}; // namespace ggk
+}; // namespace bzp

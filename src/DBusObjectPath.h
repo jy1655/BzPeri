@@ -29,7 +29,7 @@
 #include <string>
 #include <ostream>
 
-namespace ggk {
+namespace bzp {
 
 struct DBusObjectPath
 {
@@ -163,4 +163,4 @@ inline std::ostream& operator +(std::ostream &os, const DBusObjectPath &path)
     return os;
 }
 
-}; // namespace ggk
+}; // namespace bzp

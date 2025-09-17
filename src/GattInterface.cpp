@@ -30,7 +30,7 @@
 #include "BluezModern.h"
 #endif
 
-namespace ggk {
+namespace bzp {
 
 //
 // Standard constructor
@@ -118,4 +118,4 @@ std::string GattInterface::generateIntrospectionXML(int depth) const
 	return xml;
 }
 
-}; // namespace ggk
+}; // namespace bzp

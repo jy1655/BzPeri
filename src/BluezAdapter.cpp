@@ -1,9 +1,7 @@
-// Copyright 2017-2019 Paul Nettle
+// Copyright (c) 2025 JaeYoung Hwang (BzPeri Project)
+// Licensed under MIT License (see LICENSE file)
 //
-// This file is part of Gobbledegook.
-//
-// Use of this source code is governed by a BSD-style license that can be found
-// in the LICENSE file in the root of the source tree.
+// Modern BlueZ adapter management for BzPeri
 
 #include "BluezAdapter.h"
 #include "BluezAdvertisement.h"
@@ -17,7 +15,7 @@
 #include <chrono>
 #include <thread>
 
-namespace ggk {
+namespace bzp {
 
 // Singleton instance
 BluezAdapter& BluezAdapter::getInstance()
@@ -486,7 +484,7 @@ BluezResult<void> BluezAdapter::retryOperationWithTimeout(std::function<BluezRes
 	// Try once synchronously first
 	auto result = operation();
     // Use BluezError-based retryability check (not GError*)
-    if (result.isSuccess() || !::ggk::isRetryableError(result.error()))
+    if (result.isSuccess() || !::bzp::isRetryableError(result.error()))
 	{
 		return result;
 	}
@@ -537,7 +535,7 @@ gboolean BluezAdapter::onRetryTimeout(gpointer user_data)
 	auto result = state->operation();
 
     // Use BluezError-based retryability check (not GError*)
-    if (result.isSuccess() || !::ggk::isRetryableError(result.error()) || state->currentAttempt >= state->policy.maxAttempts)
+    if (result.isSuccess() || !::bzp::isRetryableError(result.error()) || state->currentAttempt >= state->policy.maxAttempts)
 	{
 		// Operation succeeded or max attempts reached
 		Logger::debug(SSTR << "Async retry " << (result.isSuccess() ? "succeeded" : "exhausted")
@@ -612,7 +610,7 @@ gboolean BluezAdapter::onAdvertisingRetryTimeout(gpointer user_data)
 	{
 		if (!adapter->advertisement)
 		{
-			adapter->advertisement = std::make_unique<BluezAdvertisement>("/com/gobbledegook/advertisement0");
+			adapter->advertisement = std::make_unique<BluezAdvertisement>("/com/bzperi/advertisement0");
 
 			// Configure advertisement with essential service UUIDs
 			// Reduced to only 16-bit standard UUIDs to fit legacy 31-byte advertising budget
@@ -656,7 +654,7 @@ gboolean BluezAdapter::onAdvertisingRetryTimeout(gpointer user_data)
 					// Check if we should continue retrying (with additional safety checks)
 					auto& retryState = adapter->activeAdvertisingRetry;
 					if (retryState && retryState->currentAttempt < retryState->policy.maxAttempts &&
-						(::ggk::isRetryableError(result.error()) ||
+						(::bzp::isRetryableError(result.error()) ||
 						 result.error() == BluezError::Timeout ||
 						 result.error() == BluezError::Failed))
 					{
@@ -1171,7 +1169,7 @@ void BluezAdapter::setAdvertisingAsync(bool enabled, std::function<void(BluezRes
 		// Create advertisement if it doesn't exist
 		if (!advertisement)
 		{
-			advertisement = std::make_unique<BluezAdvertisement>("/com/gobbledegook/advertisement0");
+			advertisement = std::make_unique<BluezAdvertisement>("/com/bzperi/advertisement0");
 
 			// Configure advertisement with essential service UUIDs
 			// Reduced to only 16-bit standard UUIDs to fit legacy 31-byte advertising budget
@@ -1207,7 +1205,7 @@ void BluezAdapter::setAdvertisingAsync(bool enabled, std::function<void(BluezRes
 					bluezLogger.log().op("StartAdvertising").result("Failed").error(result.errorMessage()).warn();
 
 					// Check if error is retryable
-					if (::ggk::isRetryableError(result.error()) ||
+					if (::bzp::isRetryableError(result.error()) ||
 						result.error() == BluezError::Timeout ||
 						result.error() == BluezError::Failed)
 					{
@@ -1250,4 +1248,4 @@ bool BluezAdapter::isAdvertising() const
 	return advertisement && advertisement->isRegistered();
 }
 
-} // namespace ggk
+} // namespace bzp

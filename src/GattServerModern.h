@@ -24,7 +24,7 @@
 #include "BluezModern.h"
 #endif
 
-namespace ggk::gatt {
+namespace bzp::gatt {
 
 // Modern C++20 concepts for GATT operations
 template<typename T>
@@ -170,8 +170,8 @@ public:
     // Server configuration
     struct Configuration
     {
-        std::string deviceName = "Gobbledegook Server";
-        std::string shortName = "GGK";
+        std::string deviceName = "BzPeri Server";
+        std::string shortName = "BZP";
         bool advertisingEnabled = true;
         uint16_t advertisingInterval = 100; // ms
         std::vector<std::string> advertisingUuids;
@@ -252,4 +252,4 @@ namespace utils {
     std::string generateCharacteristicPath(std::string_view servicePath, std::string_view charName) noexcept;
 }
 
-} // namespace ggk::gatt
+} // namespace bzp::gatt

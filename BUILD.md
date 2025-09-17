@@ -1,6 +1,6 @@
-# Gobbledegook Build Guide (2025)
+# BzPeri Build Guide (2025)
 
-This guide covers building Gobbledegook for modern systems with support for the latest BlueZ versions (5.77+).
+This guide covers building BzPeri for modern systems with support for the latest BlueZ versions (5.77+).
 
 ## System Requirements
 
@@ -55,7 +55,7 @@ Modern CMake-based build system with cross-platform support:
 ```bash
 # Clone and setup
 git clone <repository-url>
-cd gobbledegook
+cd bzperi
 
 # Create build directory
 mkdir build && cd build
@@ -81,7 +81,7 @@ cmake .. -DBUILD_SHARED_LIBS=ON
 # Static libraries
 cmake .. -DBUILD_SHARED_LIBS=OFF
 
-# Build standalone example (default: ON on Linux)
+# Build bzp-standalone example (default: ON on Linux)
 cmake .. -DBUILD_STANDALONE=ON
 
 # Enable testing
@@ -91,36 +91,20 @@ cmake .. -DBUILD_TESTING=ON
 cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local
 ```
 
-### Option 2: Autotools (Legacy)
-
-Traditional autotools build (Linux only):
-
-```bash
-# Generate configure script (if building from git)
-autoreconf -fiv
-
-# Configure
-./configure
-
-# Build
-make -j$(nproc)
-
-# Install
-sudo make install
-```
+> **Note:** Legacy Autotools builds have been removed. CMake is now the sole build system for BzPeri.
 
 ## Build Verification
 
 ### Check Build Success
 ```bash
 # Verify library
-ls -la build/libggk.*
+ls -la build/libbzp.*
 
-# Verify standalone (Linux only)
-ls -la build/ggk-standalone
+# Verify bzp-standalone (Linux only)
+ls -la build/bzp-standalone
 
 # Check symbol exports
-nm -D build/libggk.so | grep ggk
+nm -D build/libbzp.so | grep bzp
 ```
 
 ### Runtime Verification (Linux)
@@ -133,8 +117,8 @@ sudo dbus-send --system --print-reply \
     --dest=org.bluez /org/bluez \
     org.freedesktop.DBus.Introspectable.Introspect
 
-# Run standalone example (requires sudo)
-sudo ./build/ggk-standalone -d
+# Run bzp-standalone example (requires sudo)
+sudo ./build/bzp-standalone -d
 ```
 
 ## Development Setup
@@ -162,7 +146,7 @@ cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
 make -j$(nproc)
 
 # Run with debugging
-sudo gdb ./ggk-standalone
+sudo gdb ./bzp-standalone
 ```
 
 ## Platform-Specific Notes
@@ -171,7 +155,7 @@ sudo gdb ./ggk-standalone
 - Requires root privileges for BlueZ D-Bus access
 - D-Bus policy configuration may be needed:
   ```bash
-  sudo cp docs/gobbledegook.conf /etc/dbus-1/system.d/
+  sudo cp docs/bzperi.conf /etc/dbus-1/system.d/
   sudo systemctl reload dbus
   ```
 
@@ -215,11 +199,11 @@ sudo apt install bluez bluez-tools
 #### "D-Bus permission denied"
 ```bash
 # Add D-Bus policy
-sudo cp docs/gobbledegook.conf /etc/dbus-1/system.d/
+sudo cp docs/bzperi.conf /etc/dbus-1/system.d/
 sudo systemctl reload dbus
 
 # Or run with sudo
-sudo ./ggk-standalone
+sudo ./bzp-standalone
 ```
 
 #### "std::format not available"
@@ -247,7 +231,7 @@ make clean && make -j$(nproc)
 #### CMake Integration
 ```cmake
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GGK REQUIRED gobbledegook)
+pkg_check_modules(GGK REQUIRED bzperi)
 
 target_link_libraries(your_target ${GGK_LIBRARIES})
 target_include_directories(your_target PRIVATE ${GGK_INCLUDE_DIRS})
@@ -256,30 +240,30 @@ target_include_directories(your_target PRIVATE ${GGK_INCLUDE_DIRS})
 #### pkg-config Integration
 ```bash
 # Compiler flags
-gcc $(pkg-config --cflags gobbledegook) main.c
+gcc $(pkg-config --cflags bzperi) main.c
 
 # Linker flags
-gcc main.o $(pkg-config --libs gobbledegook) -o main
+gcc main.o $(pkg-config --libs bzperi) -o main
 ```
 
 ### Example Usage
 ```cpp
-#include <Gobbledegook.h>
+#include <BzPeri.h>
 
 // Your application data getters/setters
 int dataGetter(const char* name) { /* ... */ }
 int dataSetter(const char* name, const void* data) { /* ... */ }
 
 int main() {
-    if (!ggkStart("My Device", "My Service", dataGetter, dataSetter)) {
+    if (!bzpStart("My Device", "My Service", dataGetter, dataSetter)) {
         return 1;
     }
 
     // Your application logic
 
-    ggkShutdown();
+    bzpShutdown();
     return 0;
 }
 ```
 
-For more detailed examples, see the `src/standalone.cpp` file and the original README.md.
+For more detailed examples, see the `src/bzp-standalone.cpp` file and the original README.md.

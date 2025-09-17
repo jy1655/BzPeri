@@ -31,7 +31,7 @@
 #include "HciAdapter.h"
 #include "Utils.h"
 
-namespace ggk {
+namespace bzp {
 
 struct Mgmt
 {
@@ -255,4 +255,4 @@ private:
 	static const uint16_t kDefaultControllerIndex = 0;
 };
 
-}; // namespace ggk
+}; // namespace bzp

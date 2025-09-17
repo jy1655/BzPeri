@@ -39,7 +39,7 @@
 #include "Logger.h"
 #include "Utils.h"
 
-namespace ggk {
+namespace bzp {
 
 // Adds an object to the tree of managed objects as returned from the `GetManagedObjects` method call from the D-Bus interface
 // `org.freedesktop.DBus.ObjectManager`.
@@ -305,4 +305,4 @@ GVariant *ServerUtils::gvariantLocalTime()
 	return pVariant;
 }
 
-}; // namespace ggk
+}; // namespace bzp

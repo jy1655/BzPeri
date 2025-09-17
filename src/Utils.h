@@ -41,7 +41,7 @@
 
 #include "DBusObjectPath.h"
 
-namespace ggk {
+namespace bzp {
 
 struct Utils
 {
@@ -217,4 +217,4 @@ struct Utils
 	static std::string truncateShortName(const std::string &name);
 };
 
-}; // namespace ggk
+}; // namespace bzp

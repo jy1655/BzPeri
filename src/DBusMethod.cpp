@@ -29,7 +29,7 @@
 
 #include "DBusMethod.h"
 
-namespace ggk {
+namespace bzp {
 
 // Instantiate a named method on a given interface (pOwner) with a given set of arguments and a callback delegate
 DBusMethod::DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, Callback callback)
@@ -79,4 +79,4 @@ std::string DBusMethod::generateIntrospectionXML(int depth) const
 	return xml;
 }
 
-}; // namespace ggk
+}; // namespace bzp

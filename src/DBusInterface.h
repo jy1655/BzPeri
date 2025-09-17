@@ -28,7 +28,7 @@
 
 #include "DBusMethod.h"
 
-namespace ggk {
+namespace bzp {
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Forward declarations
@@ -115,4 +115,4 @@ protected:
 	std::list<DBusMethod> methods;
 };
 
-}; // namespace ggk
+}; // namespace bzp

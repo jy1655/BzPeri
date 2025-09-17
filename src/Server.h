@@ -33,10 +33,10 @@
 #include <memory>
 #include <span>
 
-#include "../include/Gobbledegook.h"
+#include "../include/BzPeri.h"
 #include "DBusObject.h"
 
-namespace ggk {
+namespace bzp {
 
 //
 // Forward declarations
@@ -86,10 +86,10 @@ struct Server
 	[[nodiscard]] bool getEnableBondable() const noexcept { return enableBondable; }
 
 	// Returns our registered data getter
-	[[nodiscard]] GGKServerDataGetter getDataGetter() const noexcept { return dataGetter; }
+	[[nodiscard]] BZPServerDataGetter getDataGetter() const noexcept { return dataGetter; }
 
 	// Returns our registered data setter
-	[[nodiscard]] GGKServerDataSetter getDataSetter() const noexcept { return dataSetter; }
+	[[nodiscard]] BZPServerDataSetter getDataSetter() const noexcept { return dataSetter; }
 
 	// advertisingName: The name for this controller, as advertised over LE
 	//
@@ -172,7 +172,7 @@ struct Server
 	//     Retrieve this value using the `getEnableBondable()` method.
 	//
 	Server(const std::string &serviceName, const std::string &advertisingName, const std::string &advertisingShortName,
-		GGKServerDataGetter getter, GGKServerDataSetter setter, bool enableBondable = true);
+		BZPServerDataGetter getter, BZPServerDataSetter setter, bool enableBondable = true);
 
 	//
 	// Utilitarian
@@ -217,10 +217,10 @@ private:
 	bool enableBondable;
 
 	// The getter callback that is responsible for returning current server data that is shared over Bluetooth
-	GGKServerDataGetter dataGetter;
+	BZPServerDataGetter dataGetter;
 
 	// The setter callback that is responsible for storing current server data that is shared over Bluetooth
-	GGKServerDataSetter dataSetter;
+	BZPServerDataSetter dataSetter;
 
 	// advertisingName: The name for this controller, as advertised over LE
 	//
@@ -255,4 +255,4 @@ private:
 // Our one and only server. It's a global.
 extern std::shared_ptr<Server> TheServer;
 
-}; // namespace ggk
+}; // namespace bzp

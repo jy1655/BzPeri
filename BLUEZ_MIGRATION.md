@@ -57,13 +57,13 @@ if (result.hasError()) {
 ### Root Access
 The application works with `sudo` out of the box:
 ```bash
-sudo ./build/ggk-standalone -d
+sudo ./build/bzp-standalone -d
 ```
 
 ### Polkit Configuration
 For non-root execution, configure polkit rules:
 
-**File**: `/etc/polkit-1/rules.d/50-gobbledegook-bluez.rules`
+**File**: `/etc/polkit-1/rules.d/50-bzperi-bluez.rules`
 ```javascript
 polkit.addRule(function(action, subject) {
     if (action.id.indexOf("org.bluez.") == 0) {
@@ -75,7 +75,7 @@ polkit.addRule(function(action, subject) {
 ```
 
 ### D-Bus Policy
-Ensure your existing `/etc/dbus-1/system.d/com.gobbledegook.conf` remains for service name ownership. BlueZ access is handled by polkit.
+Ensure your existing `/etc/dbus-1/system.d/com.bzperi.conf` remains for service name ownership. BlueZ access is handled by polkit.
 
 ## Feature Detection and Fallbacks
 
@@ -114,7 +114,7 @@ for (const auto& adapter : adapters.value()) {
 ```bash
 # Environment variable
 export BLUEZ_ADAPTER=hci1
-./build/ggk-standalone
+./build/bzp-standalone
 
 # Or programmatically
 adapter.initialize("hci1");  // or "/org/bluez/hci1"
@@ -158,7 +158,7 @@ auto result = adapter.retryOperation([&]() {
 ## Validation Checklist
 
 ### Startup Sequence
-1. ✅ Acquires `com.gobbledegook` D-Bus name
+1. ✅ Acquires `com.bzperi` D-Bus name
 2. ✅ Discovers available adapters via ObjectManager
 3. ✅ Selects powered adapter (or first available)
 4. ✅ Sets Powered/Discoverable/Connectable without blocking
@@ -207,7 +207,7 @@ busctl tree org.bluez
 ### Debug Information
 Enable debug logging to see detailed D-Bus operations:
 ```bash
-sudo ./build/ggk-standalone -d -v
+sudo ./build/bzp-standalone -d -v
 ```
 
 Monitor D-Bus traffic:

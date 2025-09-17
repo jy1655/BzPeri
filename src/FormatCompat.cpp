@@ -1,14 +1,12 @@
-// Copyright 2017-2019 Paul Nettle
+// Copyright (c) 2025 JaeYoung Hwang (BzPeri Project)
+// Licensed under MIT License (see LICENSE file)
 //
-// This file is part of Gobbledegook.
-//
-// Use of this source code is governed by a BSD-style license that can be found
-// in the LICENSE file in the root of the source tree.
+// C++20 std::format compatibility layer
 
 #include "FormatCompat.h"
 #include <cstdio>
 
-namespace ggk {
+namespace bzp {
 
 std::string safeHex(uint8_t value) noexcept
 {
@@ -85,4 +83,4 @@ std::string safeBluetoothAddress(const uint8_t* address) noexcept
     return std::string(buffer);
 }
 
-}; // namespace ggk
+}; // namespace bzp
