@@ -14,7 +14,28 @@
 - **GLib/GIO** ≥ 2.58, D-Bus system access
 - **Root privileges** or proper D-Bus/BlueZ permissions
 
-### Build & Run
+### Installation from APT Repository
+
+**Recommended**: Install directly from our APT repository:
+
+```bash
+# Add BzPeri repository
+curl -fsSL https://jy1655.github.io/BzPeri/repo/repo.key | sudo gpg --dearmor -o /usr/share/keyrings/bzperi-archive-keyring.gpg
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] https://jy1655.github.io/BzPeri/repo stable main" | sudo tee /etc/apt/sources.list.d/bzperi.list
+
+# Install BzPeri
+sudo apt update
+sudo apt install bzperi bzperi-dev bzperi-tools
+
+# Auto-configure BlueZ (optional but recommended)
+export BZPERI_AUTO_EXPERIMENTAL=1
+sudo -E apt install --reinstall bzperi
+
+# Run example server
+sudo bzp-standalone -d
+```
+
+### Build from Source
 ```bash
 # Clone and build
 git clone https://github.com/jy1655/BzPeri.git
@@ -118,7 +139,10 @@ bzpStartWithBondable("device", "name", "short", getter, setter, timeout, true);
 ## ⚙️ Configuration
 
 ### D-Bus Permissions
-Create `/etc/dbus-1/system.d/com.bzperi.conf`:
+
+**🎉 Automatic Setup**: When installed via package manager (`apt install bzperi`), D-Bus permissions are automatically configured and applied. No manual setup or restart required!
+
+For manual builds, create `/etc/dbus-1/system.d/com.bzperi.conf`:
 ```xml
 <!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN">
 <busconfig>
@@ -130,12 +154,64 @@ Create `/etc/dbus-1/system.d/com.bzperi.conf`:
 </busconfig>
 ```
 
-### BlueZ Configuration
-For advanced features, enable experimental mode:
+D-Bus will automatically detect and apply the new policy. If you encounter permission issues, you can manually reload D-Bus configuration:
 ```bash
+sudo systemctl reload dbus  # Only if needed for troubleshooting
+```
+
+### BlueZ Configuration
+
+**🎉 Automatic Helper**: When installed via package manager, BzPeri includes a configuration helper script.
+
+```bash
+# Enable BlueZ experimental mode (recommended for optimal compatibility)
+sudo /usr/share/bzperi/configure-bluez-experimental.sh enable
+
+# Check current status
+sudo /usr/share/bzperi/configure-bluez-experimental.sh status
+
+# Disable if needed
+sudo /usr/share/bzperi/configure-bluez-experimental.sh disable
+```
+
+**Manual Configuration**: For advanced users or custom setups:
+```bash
+# Create systemd override (safer than editing system files)
 sudo systemctl edit bluetooth
-# Add: ExecStart=/usr/libexec/bluetooth/bluetoothd --experimental
+
+# Add the following lines:
+# [Service]
+# ExecStart=
+# ExecStart=/usr/lib/bluetooth/bluetoothd --experimental
+# Note: Replace with your system's actual bluetoothd path
+
+# Apply changes
 sudo systemctl restart bluetooth
+```
+
+**Key Benefits of the Helper Script**:
+- ✅ **Auto-detects** bluetoothd path across different Linux distributions
+- ✅ **Preserves existing flags** and adds --experimental safely
+- ✅ **Safe override** method - doesn't modify system files
+- ✅ **Easy rollback** - can disable anytime
+
+## 🏗️ Architecture Support
+
+BzPeri packages are currently available for:
+- **amd64** (x86_64) - Intel/AMD 64-bit systems ✅
+
+**Planned Architecture Support:**
+- **arm64** (aarch64) - ARM 64-bit systems (Raspberry Pi 4+, Apple Silicon, etc.) 🚧
+
+*Need ARM64 support urgently? [Request it here](../../issues) and we'll prioritize it.*
+
+### Cross-Compilation (Experimental)
+```bash
+# ARM64 cross-compilation (experimental - not yet in official packages)
+./scripts/build-deb.sh --arch arm64
+
+# Use CMake toolchain directly
+cmake -DCMAKE_TOOLCHAIN_FILE=toolchains/aarch64-linux-gnu.cmake ..
 ```
 
 ## 🔧 Advanced Features
@@ -202,7 +278,6 @@ We welcome contributions! Whether it's bug fixes, new features, or documentation
 ## 🆘 Support
 
 - **Issues**: [GitHub Issues](../../issues)
-- **Documentation**: See CLAUDE.md for comprehensive guidance
 - **Examples**: Check out `src/bzp-standalone.cpp` for a complete example
 
 ---

@@ -1,0 +1,58 @@
+#!/bin/sh
+
+set -e
+
+# D-Bus policy file has been installed
+# Note: D-Bus typically detects and applies policy changes automatically
+
+if [ "$1" = "configure" ]; then
+    # Determine which D-Bus policy directory was used
+    DBUS_POLICY_FILE=""
+    if [ -f "/usr/share/dbus-1/system.d/com.bzperi.conf" ]; then
+        DBUS_POLICY_FILE="/usr/share/dbus-1/system.d/com.bzperi.conf"
+    elif [ -f "/etc/dbus-1/system.d/com.bzperi.conf" ]; then
+        DBUS_POLICY_FILE="/etc/dbus-1/system.d/com.bzperi.conf"
+    fi
+
+    # Log that the D-Bus policy has been installed
+    if [ -n "$DBUS_POLICY_FILE" ]; then
+        echo "BzPeri D-Bus policy installed at $DBUS_POLICY_FILE"
+        echo "D-Bus will automatically detect the policy."
+    else
+        echo "Warning: BzPeri D-Bus policy file not found in expected locations."
+    fi
+    echo ""
+
+    # Check if automatic BlueZ experimental mode is requested
+    if [ "$BZPERI_AUTO_EXPERIMENTAL" = "1" ] || [ "$BZPERI_AUTO_EXPERIMENTAL" = "true" ]; then
+        echo "🚀 Automatically enabling BlueZ experimental mode..."
+        if /usr/share/bzperi/configure-bluez-experimental.sh enable; then
+            echo "✅ BlueZ experimental mode enabled successfully!"
+        else
+            echo "❌ Failed to enable BlueZ experimental mode automatically."
+            echo "You can enable it manually later with:"
+            echo "  sudo /usr/share/bzperi/configure-bluez-experimental.sh enable"
+        fi
+        echo ""
+    else
+        # Show manual configuration instructions
+        echo "📡 BlueZ Configuration Notice:"
+        echo "BzPeri works best with BlueZ experimental features enabled."
+        echo ""
+        echo "🔧 Quick Setup Options:"
+        echo ""
+        echo "1. Enable now (recommended):"
+        echo "   sudo /usr/share/bzperi/configure-bluez-experimental.sh enable"
+        echo ""
+        echo "2. Enable during future installs:"
+        echo "   export BZPERI_AUTO_EXPERIMENTAL=1"
+        echo "   sudo -E apt install bzperi  # or apt upgrade"
+        echo ""
+        echo "3. Check current status:"
+        echo "   sudo /usr/share/bzperi/configure-bluez-experimental.sh status"
+        echo ""
+        echo "Note: This is optional but recommended for optimal compatibility."
+    fi
+fi
+
+#DEBHELPER#

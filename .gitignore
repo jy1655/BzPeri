@@ -1,6 +1,7 @@
 # Build directories
 build/
 build-*/
+build-deb/
 cmake-build-*/
 
 # CMake artifacts
@@ -48,6 +49,41 @@ stamp-h1
 # Package/config outputs
 *.pc
 
+# Debian packaging artifacts
+*.deb
+*.ddeb
+*.dsc
+*.changes
+*.buildinfo
+packages/
+debian/.debhelper/
+debian/bzperi/
+debian/bzperi-dev/
+debian/bzperi-tools/
+debian/files
+debian/*.substvars
+debian/*.log
+
+# APT repository artifacts
+public/
+public-*/
+repo/
+*.key
+*.asc
+*.gpg
+Release*
+Packages*
+InRelease
+
+# GPG/Security artifacts (NEVER commit private keys!)
+*-private.asc
+*-secret.key
+bzperi-repo-private.asc
+bzperi-repo-secret.gpg
+
+# Lintian output
+lintian.log
+
 # Logs and dumps
 *.log
 core
@@ -73,6 +109,17 @@ Icon?
 tmp/
 *.tmp
 
+
+# Development artifacts
+.coverage
+htmlcov/
+*.pyc
+__pycache__/
+
+# Local development files
+local-*
+test-output/
+scratch/
 
 # CLI
 CLAUDE.md

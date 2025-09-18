@@ -1,0 +1,370 @@
+#!/bin/bash
+
+# BzPeri BlueZ Experimental Mode Configuration Script
+# This script safely enables BlueZ experimental features for BzPeri
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Function to print colored output
+print_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
+print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# Function to check if running as root
+check_root() {
+    if [ "$EUID" -ne 0 ]; then
+        print_error "This script must be run as root (use sudo)"
+        exit 1
+    fi
+}
+
+# Function to check if BlueZ is installed
+check_bluez() {
+    if ! systemctl list-unit-files | grep -q "bluetooth.service"; then
+        print_error "BlueZ bluetooth service not found"
+        print_info "Please install BlueZ first: sudo apt install bluez"
+        exit 1
+    fi
+
+    print_info "BlueZ service found"
+}
+
+# Function to check current BlueZ experimental status
+check_current_status() {
+    print_info "Checking current BlueZ configuration..."
+
+    # Get current command
+    local current_command
+    current_command=$(get_current_execstart 2>/dev/null)
+
+    if [ $? -eq 0 ] && [ -n "$current_command" ]; then
+        print_info "Current command: $current_command"
+
+        if has_experimental_flag "$current_command"; then
+            print_success "BlueZ experimental mode is enabled"
+            return 0
+        else
+            print_info "BlueZ experimental mode is not enabled"
+            return 1
+        fi
+    else
+        print_warning "Could not determine current BlueZ configuration"
+        return 1
+    fi
+}
+
+# Function to backup current configuration
+backup_config() {
+    local backup_dir="/etc/systemd/system/bluetooth.service.d"
+    local backup_file="$backup_dir/bzperi-backup-$(date +%Y%m%d-%H%M%S).conf"
+
+    if [ -d "$backup_dir" ]; then
+        print_info "Creating backup of current override configuration..."
+        if [ -f "$backup_dir/override.conf" ]; then
+            cp "$backup_dir/override.conf" "$backup_file"
+            print_info "Backup saved to: $backup_file"
+        fi
+    fi
+}
+
+# Function to get current ExecStart command from bluetooth service
+get_current_execstart() {
+    local full_command=""
+
+    # Method 1: Get from systemctl show (most reliable)
+    local show_output=$(systemctl show bluetooth.service -p ExecStart --value 2>/dev/null)
+    if [ -n "$show_output" ]; then
+        # Extract the actual command from systemctl show output
+        # Format: path=/path/to/bluetoothd ; argv[]={ /path/to/bluetoothd [args...] }
+        full_command=$(echo "$show_output" | sed -n 's/.*argv\[\]={ \([^}]*\) }.*/\1/p')
+
+        if [ -n "$full_command" ]; then
+            echo "$full_command"
+            return 0
+        fi
+    fi
+
+    # Method 2: Parse unit file directly
+    local unit_command=$(systemctl cat bluetooth.service 2>/dev/null | grep "^ExecStart=" | head -1 | sed 's/ExecStart=//')
+    if [ -n "$unit_command" ]; then
+        echo "$unit_command"
+        return 0
+    fi
+
+    # Method 3: Find common bluetoothd paths
+    local common_paths="/usr/lib/bluetooth/bluetoothd /usr/libexec/bluetooth/bluetoothd /usr/sbin/bluetoothd"
+    for path in $common_paths; do
+        if [ -x "$path" ]; then
+            print_warning "Using fallback path: $path"
+            echo "$path"
+            return 0
+        fi
+    done
+
+    print_error "Could not determine bluetoothd command"
+    return 1
+}
+
+# Function to check if experimental flag is already in command
+has_experimental_flag() {
+    local command="$1"
+    echo "$command" | grep -q "\--experimental"
+}
+
+# Function to create systemd override for experimental mode
+enable_experimental() {
+    local override_dir="/etc/systemd/system/bluetooth.service.d"
+    local override_file="$override_dir/experimental.conf"
+
+    print_info "Detecting current BlueZ configuration..."
+
+    # Get current ExecStart command
+    local current_command
+    current_command=$(get_current_execstart)
+    if [ $? -ne 0 ]; then
+        print_error "Failed to detect bluetoothd command"
+        exit 1
+    fi
+
+    print_info "Current BlueZ command: $current_command"
+
+    # Check if experimental flag is already present
+    if has_experimental_flag "$current_command"; then
+        print_info "Command already has --experimental flag"
+        new_command="$current_command"
+    else
+        print_info "Adding --experimental flag to current command"
+        new_command="$current_command --experimental"
+    fi
+
+    print_info "New command will be: $new_command"
+    print_info "Creating systemd override..."
+
+    # Create override directory
+    mkdir -p "$override_dir"
+
+    # Create override configuration with enhanced command
+    cat > "$override_file" << EOF
+# BzPeri BlueZ Experimental Mode Override
+# This file enables experimental features for BzPeri compatibility
+# Generated by: bzperi configure-bluez-experimental script
+# Original command: $current_command
+# Enhanced command: $new_command
+
+[Service]
+ExecStart=
+ExecStart=$new_command
+EOF
+
+    print_success "BlueZ experimental override created: $override_file"
+    print_info "Enhanced command: $new_command"
+}
+
+# Function to reload systemd and restart bluetooth
+reload_service() {
+    print_info "Reloading systemd configuration..."
+    systemctl daemon-reload
+
+    print_info "Restarting bluetooth service..."
+    systemctl restart bluetooth
+
+    # Wait a moment for service to start
+    sleep 2
+
+    # Check if service is running
+    if systemctl is-active --quiet bluetooth; then
+        print_success "Bluetooth service restarted successfully"
+    else
+        print_error "Failed to restart bluetooth service"
+        print_info "Check service status with: systemctl status bluetooth"
+        exit 1
+    fi
+}
+
+# Function to verify experimental mode is active
+verify_experimental() {
+    print_info "Verifying experimental mode is active..."
+
+    # Check if experimental flag is in the running process
+    if pgrep -f "bluetoothd --experimental" >/dev/null; then
+        print_success "BlueZ is running with experimental mode enabled"
+        return 0
+    else
+        print_warning "BlueZ experimental mode may not be active"
+        print_info "Check with: ps aux | grep bluetoothd"
+        return 1
+    fi
+}
+
+# Function to disable experimental mode
+disable_experimental() {
+    local override_dir="/etc/systemd/system/bluetooth.service.d"
+    local override_file="$override_dir/experimental.conf"
+
+    print_info "Disabling BlueZ experimental mode..."
+
+    if [ -f "$override_file" ]; then
+        rm "$override_file"
+        print_info "Removed experimental override file"
+
+        # Remove directory if empty
+        if [ -d "$override_dir" ] && [ -z "$(ls -A "$override_dir")" ]; then
+            rmdir "$override_dir"
+            print_info "Removed empty override directory"
+        fi
+
+        reload_service
+        print_success "BlueZ experimental mode disabled"
+    else
+        print_info "No experimental override found - already disabled"
+    fi
+}
+
+# Function to show current status
+show_status() {
+    print_info "Current BlueZ configuration:"
+
+    # Show current command configuration
+    echo ""
+    echo "=== Configuration Detection ==="
+    local current_command
+    current_command=$(get_current_execstart 2>/dev/null)
+    if [ $? -eq 0 ] && [ -n "$current_command" ]; then
+        echo "Detected command: $current_command"
+        if has_experimental_flag "$current_command"; then
+            print_success "✓ Experimental mode: ENABLED"
+        else
+            print_warning "✗ Experimental mode: DISABLED"
+        fi
+    else
+        print_error "✗ Could not detect command configuration"
+    fi
+
+    # Show service status
+    echo ""
+    echo "=== Service Status ==="
+    systemctl status bluetooth --no-pager -l | head -8
+
+    # Show running process
+    echo ""
+    echo "=== Running Process ==="
+    local process_info=$(ps aux | grep bluetoothd | grep -v grep)
+    if [ -n "$process_info" ]; then
+        echo "$process_info"
+        if echo "$process_info" | grep -q "\--experimental"; then
+            print_success "✓ Process is running with --experimental"
+        else
+            print_warning "✗ Process is running WITHOUT --experimental"
+        fi
+    else
+        print_error "✗ No bluetoothd process found"
+    fi
+
+    # Show override configuration
+    echo ""
+    echo "=== Override Configuration ==="
+    local override_file="/etc/systemd/system/bluetooth.service.d/experimental.conf"
+    if [ -f "$override_file" ]; then
+        print_success "✓ Override file exists: $override_file"
+        echo "--- Content ---"
+        cat "$override_file"
+    else
+        print_info "○ No experimental override found"
+    fi
+
+    # Show systemd unit file
+    echo ""
+    echo "=== Original Unit File ==="
+    systemctl cat bluetooth.service | grep "ExecStart=" | head -3
+}
+
+# Function to show usage
+show_usage() {
+    echo "Usage: $0 [COMMAND]"
+    echo ""
+    echo "Commands:"
+    echo "  enable    Enable BlueZ experimental mode (default)"
+    echo "  disable   Disable BlueZ experimental mode"
+    echo "  status    Show current BlueZ configuration"
+    echo "  check     Check if experimental mode is enabled"
+    echo "  -h, --help Show this help message"
+    echo ""
+    echo "This script uses systemd service overrides to safely enable/disable"
+    echo "BlueZ experimental features without modifying system files."
+    echo ""
+    echo "Examples:"
+    echo "  sudo $0 enable    # Enable experimental mode"
+    echo "  sudo $0 disable   # Disable experimental mode"
+    echo "  sudo $0 status    # Show current status"
+}
+
+# Main function
+main() {
+    local command="${1:-enable}"
+
+    case "$command" in
+        "enable")
+            print_info "Enabling BlueZ experimental mode for BzPeri..."
+            check_root
+            check_bluez
+
+            if check_current_status; then
+                print_info "Experimental mode already enabled - nothing to do"
+                exit 0
+            fi
+
+            backup_config
+            enable_experimental
+            reload_service
+            verify_experimental
+
+            print_success "BlueZ experimental mode enabled successfully!"
+            print_info "You can now use BzPeri with advanced BlueZ features"
+            ;;
+
+        "disable")
+            print_info "Disabling BlueZ experimental mode..."
+            check_root
+            check_bluez
+            disable_experimental
+            print_success "BlueZ experimental mode disabled"
+            ;;
+
+        "status")
+            show_status
+            ;;
+
+        "check")
+            check_bluez
+            if check_current_status; then
+                print_success "BlueZ experimental mode is enabled"
+                exit 0
+            else
+                print_info "BlueZ experimental mode is not enabled"
+                exit 1
+            fi
+            ;;
+
+        "-h"|"--help")
+            show_usage
+            exit 0
+            ;;
+
+        *)
+            print_error "Unknown command: $command"
+            show_usage
+            exit 1
+            ;;
+    esac
+}
+
+# Run main function with all arguments
+main "$@"

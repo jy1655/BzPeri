@@ -32,6 +32,13 @@ option(BUILD_TESTING "Build tests" OFF)
 option(ENABLE_BLUEZ_ADVANCED "Enable advanced BlueZ 5.77+ features" ${LINUX})
 option(ENABLE_PERFORMANCE_OPTIMIZATION "Enable Linux-specific performance optimizations" ${LINUX})
 
+# Optional: override version from CI/tag
+set(BZPERI_VERSION_OVERRIDE "" CACHE STRING "Override project/package version (e.g., from git tag)")
+set(BZPERI_EFFECTIVE_VERSION ${PROJECT_VERSION})
+if(BZPERI_VERSION_OVERRIDE)
+    set(BZPERI_EFFECTIVE_VERSION ${BZPERI_VERSION_OVERRIDE})
+endif()
+
 # Find required packages
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
@@ -152,7 +159,7 @@ endif()
 if(BUILD_SHARED_LIBS)
     add_library(bzperi SHARED ${BZPERI_SOURCES})
     set_target_properties(bzperi PROPERTIES
-        VERSION ${PROJECT_VERSION}
+        VERSION ${BZPERI_EFFECTIVE_VERSION}
         SOVERSION 1
     )
 else()
@@ -199,15 +206,15 @@ endif()
 include(GNUInstallDirs)
 
 install(TARGETS bzperi
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT libraries
+    PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} COMPONENT headers
 )
 
 if(TARGET standalone)
     install(TARGETS standalone
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT tools
     )
 endif()
 
@@ -219,13 +226,97 @@ configure_file(
 )
 
 install(FILES "${CMAKE_BINARY_DIR}/bzperi.pc"
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig COMPONENT headers
 )
+
+# Install D-Bus policy file
+if(LINUX)
+    # Check for modern D-Bus policy directory
+    if(EXISTS "/usr/share/dbus-1/system.d")
+        set(DBUS_POLICY_DIR "/usr/share/dbus-1/system.d")
+        message(STATUS "Using modern D-Bus policy directory: ${DBUS_POLICY_DIR}")
+    else()
+        set(DBUS_POLICY_DIR "/etc/dbus-1/system.d")
+        message(STATUS "Using legacy D-Bus policy directory: ${DBUS_POLICY_DIR}")
+    endif()
+
+    install(FILES "${CMAKE_SOURCE_DIR}/dbus/com.bzperi.conf"
+        DESTINATION ${DBUS_POLICY_DIR} COMPONENT libraries
+        PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
+    )
+
+    # Install BlueZ configuration script
+    install(PROGRAMS "${CMAKE_SOURCE_DIR}/scripts/configure-bluez-experimental.sh"
+        DESTINATION /usr/share/bzperi COMPONENT libraries
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+    )
+endif()
+
+# CPack configuration for Debian packaging
+set(CPACK_PACKAGE_NAME "bzperi")
+set(CPACK_PACKAGE_VERSION ${BZPERI_EFFECTIVE_VERSION})
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Modern C++20 Bluetooth LE GATT server library")
+set(CPACK_PACKAGE_DESCRIPTION "BzPeri is a modern C++20 Bluetooth LE GATT server library for Linux systems using BlueZ over D-Bus. It provides an elegant DSL-style interface for creating and managing Bluetooth LE services.")
+set(CPACK_PACKAGE_CONTACT "Jy <daunfun@gmail.com>")
+set(CPACK_PACKAGE_VENDOR "BzPeri Project")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/jy1655/BzPeri")
+
+# Debian package configuration
+set(CPACK_GENERATOR "DEB")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Jy <daunfun@gmail.com>")
+set(CPACK_DEBIAN_PACKAGE_SECTION "libs")
+set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+
+# Allow CI to override architecture; default to amd64
+set(BZPERI_DEB_ARCH "" CACHE STRING "Override Debian package architecture (e.g., amd64, arm64)")
+if(NOT BZPERI_DEB_ARCH)
+    set(BZPERI_DEB_ARCH "amd64")
+endif()
+set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "${BZPERI_DEB_ARCH}")
+
+# Dependencies
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.34), libgcc-s1 (>= 3.0), libstdc++6 (>= 11), libglib2.0-0 (>= 2.58), libgio-2.0-0 (>= 2.58), libgobject-2.0-0 (>= 2.58), bluez (>= 5.42)")
+set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "bluez (>= 5.77)")
+set(CPACK_DEBIAN_PACKAGE_SUGGESTS "bluez-tools")
+
+# Development package
+set(CPACK_DEBIAN_PACKAGE_BUILDS_DEPENDS "build-essential, cmake (>= 3.16), pkg-config, libglib2.0-dev (>= 2.58), libgio-2.0-dev (>= 2.58), libgobject-2.0-dev (>= 2.58), libbluetooth-dev, bluez")
+
+# Package file naming
+set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+
+# Create separate packages for library and development files
+set(CPACK_DEB_COMPONENT_INSTALL ON)
+set(CPACK_COMPONENTS_ALL libraries headers)
+
+# Library package
+set(CPACK_COMPONENT_LIBRARIES_DISPLAY_NAME "BzPeri Runtime Library")
+set(CPACK_COMPONENT_LIBRARIES_DESCRIPTION "Runtime library for BzPeri Bluetooth LE GATT server")
+set(CPACK_DEBIAN_LIBRARIES_PACKAGE_NAME "bzperi")
+set(CPACK_DEBIAN_LIBRARIES_PACKAGE_SECTION "libs")
+
+# Development package
+set(CPACK_COMPONENT_HEADERS_DISPLAY_NAME "BzPeri Development Files")
+set(CPACK_COMPONENT_HEADERS_DESCRIPTION "Development files for BzPeri Bluetooth LE GATT server library")
+set(CPACK_DEBIAN_HEADERS_PACKAGE_NAME "bzperi-dev")
+set(CPACK_DEBIAN_HEADERS_PACKAGE_SECTION "libdevel")
+set(CPACK_DEBIAN_HEADERS_PACKAGE_DEPENDS "bzperi (= ${BZPERI_EFFECTIVE_VERSION})")
+
+# Tools package
+if(BUILD_STANDALONE)
+    set(CPACK_COMPONENTS_ALL ${CPACK_COMPONENTS_ALL} tools)
+    set(CPACK_COMPONENT_TOOLS_DISPLAY_NAME "BzPeri Tools")
+    set(CPACK_COMPONENT_TOOLS_DESCRIPTION "Command-line tools for BzPeri")
+    set(CPACK_DEBIAN_TOOLS_PACKAGE_NAME "bzperi-tools")
+    set(CPACK_DEBIAN_TOOLS_PACKAGE_SECTION "utils")
+    set(CPACK_DEBIAN_TOOLS_PACKAGE_DEPENDS "bzperi (= ${BZPERI_EFFECTIVE_VERSION})")
+endif()
 
 # Print configuration summary
 message(STATUS "")
 message(STATUS "BzPeri Configuration Summary:")
-message(STATUS "  Version:           ${PROJECT_VERSION}")
+message(STATUS "  Version (declared): ${PROJECT_VERSION}")
+message(STATUS "  Version (effective): ${BZPERI_EFFECTIVE_VERSION}")
 message(STATUS "  Build type:        ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ standard:      C++${CMAKE_CXX_STANDARD}")
 message(STATUS "  Shared libraries:  ${BUILD_SHARED_LIBS}")
@@ -236,4 +327,9 @@ if(LINUX)
     message(STATUS "  GLib version:      ${GLIB_VERSION}")
     message(STATUS "  GIO version:       ${GIO_VERSION}")
 endif()
+message(STATUS "  Package generator: ${CPACK_GENERATOR}")
+message(STATUS "  Debian arch:       ${BZPERI_DEB_ARCH}")
 message(STATUS "")
+
+# Include CPack after all configuration is complete
+include(CPack)
