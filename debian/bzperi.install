@@ -1,0 +1,3 @@
+usr/lib/*/libbzp.so.*
+etc/dbus-1/system.d/com.bzperi.conf
+usr/share/bzperi/configure-bluez-experimental.sh

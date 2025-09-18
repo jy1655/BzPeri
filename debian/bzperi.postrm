@@ -1,0 +1,14 @@
+#!/bin/sh
+
+set -e
+
+# D-Bus policy file has been removed
+# Note: D-Bus typically detects and applies policy changes automatically
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    echo "BzPeri D-Bus policy removed from /etc/dbus-1/system.d/"
+    echo "D-Bus will automatically detect the change. If needed, manually reload with:"
+    echo "  sudo systemctl reload dbus"
+fi
+
+#DEBHELPER#

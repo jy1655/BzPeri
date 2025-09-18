@@ -16,8 +16,7 @@ This guide covers building BzPeri for modern systems with support for the latest
 # Ubuntu/Debian
 sudo apt update
 sudo apt install build-essential cmake pkg-config \
-    libglib2.0-dev libgio-2.0-dev libgobject-2.0-dev \
-    libbluetooth-dev bluez bluez-tools
+    libglib2.0-dev libbluetooth-dev bluez
 
 # Fedora/CentOS/RHEL
 sudo dnf install gcc-c++ cmake pkgconfig \
