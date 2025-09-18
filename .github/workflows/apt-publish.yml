@@ -150,42 +150,52 @@ jobs:
           ARCHS: ${{ steps.merge.outputs.architectures }}
           PKG_VERSION: ${{ steps.get_version.outputs.version }}
         run: |
+          # Ensure stable directory exists
+          mkdir -p public/repo/dists/stable
           pushd public/repo/dists/stable >/dev/null
+
+          # Create Release file header
           cat > Release << EOF
           Origin: BzPeri Repository
           Label: BzPeri
           Suite: stable
           Codename: stable
           Version: ${PKG_VERSION:-1.0}
-          Architectures: ${ARCHS}
+          Architectures: ${ARCHS:-amd64}
           Components: main
           Description: BzPeri APT repository
+          Date: $(date -u '+%a, %d %b %Y %H:%M:%S UTC')
           EOF
+
+          # Generate checksums for all files
           apt-ftparchive release . >> Release
           popd >/dev/null
 
-      - name: Import GPG private key
-        if: env.APT_GPG_PRIVATE_KEY != ''
+      - name: Import GPG private key and sign repository
+        if: ${{ secrets.APT_GPG_PRIVATE_KEY != '' }}
         env:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
           APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
         run: |
+          # Import GPG key
           echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" --import
-          gpg --list-secret-keys --keyid-format=long
 
-      - name: Sign APT repo
-        if: env.APT_GPG_PRIVATE_KEY != ''
-        env:
-          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
-        run: |
-          pushd public/repo/dists/stable >/dev/null
+          # Get key ID
           KEYID=$(gpg --list-secret-keys --keyid-format=long | awk '/sec/{print $2}' | sed 's|.*/||' | head -1)
+          echo "Using GPG key: $KEYID"
+
+          # Sign Release file
+          pushd public/repo/dists/stable >/dev/null
           gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
               --local-user "$KEYID" --detach-sign --armor -o Release.gpg Release
           gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
               --local-user "$KEYID" --clearsign -o InRelease Release
           popd >/dev/null
+
+          # Export public key
           gpg --armor --export "$KEYID" > public/repo/repo.key
+
+          echo "Repository signed successfully"
 
       - name: Add repo index page
         run: |
