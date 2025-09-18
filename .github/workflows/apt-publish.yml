@@ -8,6 +8,9 @@ on:
   release:
     types: [published]
 
+# Security: Only allow releases from authorized users
+# Note: Tag protection rules should be configured in repository settings
+
 permissions:
   contents: read
   pages: write
@@ -27,7 +30,7 @@ jobs:
             runner: ubuntu-latest
             deb_arch: amd64
           - arch: arm64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04-arm64
             deb_arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
@@ -37,23 +40,11 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          if [ "${{ matrix.deb_arch }}" = "arm64" ]; then
-            # Add arm64 architecture and install cross-compilation tools
-            sudo dpkg --add-architecture arm64
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends \
-              build-essential cmake pkg-config debhelper \
-              dpkg-dev apt-utils gnupg apt-transport-https \
-              gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-              libglib2.0-dev:arm64 libgio-2.0-dev:arm64 libgobject-2.0-dev:arm64 \
-              libbluetooth-dev:arm64 bluez bluez-tools
-          else
-            sudo apt-get install -y --no-install-recommends \
-              build-essential cmake pkg-config debhelper \
-              dpkg-dev apt-utils gnupg apt-transport-https \
-              libglib2.0-dev libgio-2.0-dev libgobject-2.0-dev \
-              libbluetooth-dev bluez bluez-tools
-          fi
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config debhelper \
+            dpkg-dev apt-utils gnupg apt-transport-https \
+            libglib2.0-dev \
+            libbluetooth-dev bluez
 
       - name: Determine version from tag or release
         id: get_version
@@ -72,13 +63,7 @@ jobs:
           BZPERI_VERSION: ${{ steps.get_version.outputs.version }}
         run: |
           chmod +x scripts/build-deb.sh
-          if [ "${{ matrix.deb_arch }}" = "arm64" ]; then
-            # Use CMake toolchain file for stable cross-compilation
-            export CMAKE_TOOLCHAIN_FILE="$PWD/toolchains/aarch64-linux-gnu.cmake"
-            ./scripts/build-deb.sh --cpack --version "$BZPERI_VERSION" --arch "${{ matrix.deb_arch }}"
-          else
-            ./scripts/build-deb.sh --cpack --version "$BZPERI_VERSION" --arch "${{ matrix.deb_arch }}"
-          fi
+          ./scripts/build-deb.sh --cpack --version "$BZPERI_VERSION" --arch "${{ matrix.deb_arch }}"
 
       - name: Install lintian and check package quality
         run: |
