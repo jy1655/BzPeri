@@ -267,10 +267,41 @@ set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Jy <daunfun@gmail.com>")
 set(CPACK_DEBIAN_PACKAGE_SECTION "libs")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 
-# Allow CI to override architecture; default to amd64
+# Auto-detect or override architecture
 set(BZPERI_DEB_ARCH "" CACHE STRING "Override Debian package architecture (e.g., amd64, arm64)")
 if(NOT BZPERI_DEB_ARCH)
-    set(BZPERI_DEB_ARCH "amd64")
+    # Auto-detect architecture based on CMAKE_SYSTEM_PROCESSOR
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+        set(BZPERI_DEB_ARCH "arm64")
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
+        set(BZPERI_DEB_ARCH "amd64")
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm|armv7l)$")
+        set(BZPERI_DEB_ARCH "armhf")
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(i386|i686)$")
+        set(BZPERI_DEB_ARCH "i386")
+    else()
+        # Fallback: try to detect using dpkg-architecture if available
+        find_program(DPKG_ARCH_CMD dpkg-architecture)
+        if(DPKG_ARCH_CMD)
+            execute_process(
+                COMMAND ${DPKG_ARCH_CMD} -qDEB_HOST_ARCH
+                OUTPUT_VARIABLE DETECTED_DEB_ARCH
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET
+            )
+            if(DETECTED_DEB_ARCH)
+                set(BZPERI_DEB_ARCH "${DETECTED_DEB_ARCH}")
+                message(STATUS "Auto-detected Debian architecture via dpkg-architecture: ${BZPERI_DEB_ARCH}")
+            else()
+                set(BZPERI_DEB_ARCH "amd64")
+                message(WARNING "Failed to auto-detect architecture, defaulting to amd64")
+            endif()
+        else()
+            set(BZPERI_DEB_ARCH "amd64")
+            message(WARNING "dpkg-architecture not found, defaulting to amd64")
+        endif()
+    endif()
+    message(STATUS "Auto-detected Debian architecture: ${BZPERI_DEB_ARCH} (CMAKE_SYSTEM_PROCESSOR: ${CMAKE_SYSTEM_PROCESSOR})")
 endif()
 set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "${BZPERI_DEB_ARCH}")
 

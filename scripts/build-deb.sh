@@ -20,6 +20,49 @@ PACKAGE_DIR="$PROJECT_ROOT/packages"
 VERSION_OVERRIDE="${BZPERI_VERSION:-}"
 ARCH_OVERRIDE="${BZPERI_ARCH:-}"
 
+# Auto-detect architecture if not overridden
+auto_detect_arch() {
+    if [ -z "$ARCH_OVERRIDE" ]; then
+        local detected_arch=""
+
+        # Try dpkg-architecture first (most reliable on Debian/Ubuntu)
+        if command -v dpkg-architecture >/dev/null 2>&1; then
+            detected_arch=$(dpkg-architecture -qDEB_HOST_ARCH 2>/dev/null)
+            if [ -n "$detected_arch" ]; then
+                print_info "Auto-detected architecture via dpkg-architecture: $detected_arch"
+                ARCH_OVERRIDE="$detected_arch"
+                return
+            fi
+        fi
+
+        # Fallback to uname -m mapping
+        local machine_arch=$(uname -m)
+        case "$machine_arch" in
+            x86_64|amd64)
+                detected_arch="amd64"
+                ;;
+            aarch64|arm64)
+                detected_arch="arm64"
+                ;;
+            armv7l|arm)
+                detected_arch="armhf"
+                ;;
+            i386|i686)
+                detected_arch="i386"
+                ;;
+            *)
+                print_warning "Unknown architecture: $machine_arch, defaulting to amd64"
+                detected_arch="amd64"
+                ;;
+        esac
+
+        print_info "Auto-detected architecture via uname: $detected_arch (machine: $machine_arch)"
+        ARCH_OVERRIDE="$detected_arch"
+    else
+        print_info "Using architecture override: $ARCH_OVERRIDE"
+    fi
+}
+
 # Function to print colored output
 print_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
@@ -286,6 +329,9 @@ main() {
 
     print_info "Starting BzPeri Debian package build..."
     print_info "Build method: $build_method"
+
+    # Auto-detect architecture
+    auto_detect_arch
 
     # Check platform and dependencies
     check_platform
