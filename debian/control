@@ -5,9 +5,8 @@ Maintainer: Jy <daunfun@gmail.com>
 Build-Depends: debhelper (>= 13),
                cmake (>= 3.16),
                pkg-config,
+               build-essential,
                libglib2.0-dev (>= 2.58),
-               libgio-2.0-dev (>= 2.58),
-               libgobject-2.0-dev (>= 2.58),
                libbluetooth-dev,
                bluez
 Standards-Version: 4.6.0
@@ -16,7 +15,7 @@ Vcs-Git: https://github.com/jy1655/BzPeri.git
 Vcs-Browser: https://github.com/jy1655/BzPeri
 
 Package: bzperi
-Architecture: any
+Architecture: amd64
 Multi-Arch: same
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Recommends: bluez (>= 5.77)
@@ -30,13 +29,11 @@ Description: Modern C++20 Bluetooth LE GATT server library (runtime)
 
 Package: bzperi-dev
 Section: libdevel
-Architecture: any
+Architecture: amd64
 Multi-Arch: same
 Depends: bzperi (= ${binary:Version}),
          ${misc:Depends},
          libglib2.0-dev (>= 2.58),
-         libgio-2.0-dev (>= 2.58),
-         libgobject-2.0-dev (>= 2.58),
          libbluetooth-dev
 Description: Modern C++20 Bluetooth LE GATT server library (development files)
  BzPeri is a modern C++20 Bluetooth LE GATT server library for Linux systems
@@ -47,7 +44,7 @@ Description: Modern C++20 Bluetooth LE GATT server library (development files)
 
 Package: bzperi-tools
 Section: utils
-Architecture: any
+Architecture: amd64
 Depends: bzperi (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
 Description: Modern C++20 Bluetooth LE GATT server library (tools)
  BzPeri is a modern C++20 Bluetooth LE GATT server library for Linux systems

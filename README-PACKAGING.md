@@ -12,7 +12,7 @@
 
 ## 📦 패키지 구조
 
-BzPeri는 다음 3개의 Debian 패키지로 분리되며, **amd64**와 **arm64** 아키텍처를 지원합니다:
+BzPeri는 다음 3개의 Debian 패키지로 분리되며, 현재 **amd64** 아키텍처를 지원합니다 (**arm64**는 개발 중):
 
 ### `bzperi` (런타임 라이브러리)
 - **설명**: BzPeri 런타임 라이브러리
@@ -53,8 +53,8 @@ chmod +x scripts/build-deb.sh
 ./scripts/build-deb.sh
 
 # 특정 아키텍처 빌드
-./scripts/build-deb.sh --arch amd64    # x86_64 시스템용
-./scripts/build-deb.sh --arch arm64    # ARM64 크로스 컴파일
+./scripts/build-deb.sh --arch amd64    # x86_64 시스템용 (지원됨)
+./scripts/build-deb.sh --arch arm64    # ARM64 크로스 컴파일 (실험적)
 
 # 네이티브 Debian 도구를 이용한 빌드
 ./scripts/build-deb.sh --native
