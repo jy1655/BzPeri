@@ -29,6 +29,9 @@ jobs:
           - arch: amd64
             runner: ubuntu-latest
             deb_arch: amd64
+          - arch: arm64
+            runner: [self-hosted, Linux, ARM64]
+            deb_arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
@@ -104,32 +107,46 @@ jobs:
           name: apt-repo-amd64
           path: merge/amd64
 
+      - name: Download arm64 repo fragment
+        uses: actions/download-artifact@v4
+        with:
+          name: apt-repo-arm64
+          path: merge/arm64
+
       - name: Merge fragments
         id: merge
         run: |
           mkdir -p public/repo/pool/main
           mkdir -p public/repo/dists/stable/main
-          # Copy packages from amd64 build
-          if [ -d "merge/amd64/repo" ]; then
-            cp -r merge/amd64/repo/. public/repo/
-          fi
 
-          # Generate Packages files for amd64 if packages exist
-          if [ -d public/repo/pool/main ] && [ "$(ls -A public/repo/pool/main 2>/dev/null)" ]; then
-            # Ensure dists directory structure exists
-            mkdir -p public/repo/dists/stable/main/binary-amd64
+          # Copy packages from each architecture
+          for ARCH in amd64 arm64; do
+            if [ -d "merge/$ARCH/repo/pool/main" ]; then
+              echo "Processing $ARCH packages..."
+              mkdir -p "public/repo/pool/main/$ARCH"
+              cp -r "merge/$ARCH/repo/pool/main/." "public/repo/pool/main/$ARCH/"
+            else
+              echo "Warning: No packages found for $ARCH"
+            fi
+          done
 
-            # Generate Packages files
-            cd public/repo
-            dpkg-scanpackages pool/main /dev/null | gzip -9c > dists/stable/main/binary-amd64/Packages.gz
-            dpkg-scanpackages pool/main /dev/null > dists/stable/main/binary-amd64/Packages
-            cd - >/dev/null
+          # Generate Packages files for each architecture
+          ARCHS=""
+          for ARCH in amd64 arm64; do
+            if [ -d "public/repo/pool/main/$ARCH" ] && [ "$(ls -A "public/repo/pool/main/$ARCH" 2>/dev/null)" ]; then
+              echo "Generating Packages for $ARCH..."
+              mkdir -p "public/repo/dists/stable/main/binary-$ARCH"
 
-            ARCHS="amd64"
-          else
-            echo "Warning: No packages found in merge/amd64/repo/pool/main"
-            ARCHS=""
-          fi
+              cd public/repo
+              dpkg-scanpackages "pool/main/$ARCH" /dev/null | gzip -9c > "dists/stable/main/binary-$ARCH/Packages.gz"
+              dpkg-scanpackages "pool/main/$ARCH" /dev/null > "dists/stable/main/binary-$ARCH/Packages"
+              cd - >/dev/null
+
+              ARCHS="$ARCHS $ARCH"
+            else
+              echo "No packages found for $ARCH, skipping..."
+            fi
+          done
           ARCHS=$(echo "$ARCHS" | xargs)
           echo "architectures=$ARCHS" >> $GITHUB_OUTPUT
 
@@ -243,20 +260,24 @@ jobs:
           <html lang="en">
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
-          <title>BzPeri APT Repository (amd64)</title>
+          <title>BzPeri APT Repository</title>
           <style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;max-width:820px;margin:40px auto;padding:0 16px;line-height:1.5}code{background:#f5f5f5;padding:0 4px;border-radius:4px}</style>
           <h1>BzPeri APT Repository</h1>
-          <p>Architecture: <strong>amd64</strong>. ARM64: planned.</p>
+          <p>Supported Architectures: <strong>${{ steps.merge.outputs.architectures }}</strong></p>
           <h2>Setup</h2>
           <ol>
             <li>Install key:<br>
               <code>curl -fsSL https://jy1655.github.io/BzPeri/repo/repo.key | sudo gpg --dearmor -o /usr/share/keyrings/bzperi-archive-keyring.gpg</code>
             </li>
             <li>Add source:<br>
-              <code>echo "deb [arch=amd64 signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] https://jy1655.github.io/BzPeri/repo stable main" | sudo tee /etc/apt/sources.list.d/bzperi.list</code>
+              <code>echo "deb [signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] https://jy1655.github.io/BzPeri/repo stable main" | sudo tee /etc/apt/sources.list.d/bzperi.list</code>
             </li>
             <li>Install:<br>
               <code>sudo apt update && sudo apt install bzperi bzperi-dev bzperi-tools</code>
+            </li>
+            <li>Enable BlueZ experimental mode (required):<br>
+              <code>sudo /usr/share/bzperi/configure-bluez-experimental.sh enable</code><br>
+              <small>Tip: You can also auto-enable during install with <code>export BZPERI_AUTO_EXPERIMENTAL=1</code> then <code>sudo -E apt install bzperi</code>.</small>
             </li>
           </ol>
           <h2>Files</h2>
@@ -342,7 +363,7 @@ jobs:
                 <li><strong>bzperi-dev</strong> - Development headers and pkg-config files</li>
                 <li><strong>bzperi-tools</strong> - Command-line tools (bzp-standalone)</li>
               </ul>
-              <p><strong>Supported Architecture:</strong> amd64 (x86_64) - ARM64 support coming soon!</p>
+              <p><strong>Supported Architectures:</strong> amd64 (x86_64), arm64 (aarch64)</p>
             </div>
 
             <div class="step">
@@ -374,9 +395,16 @@ jobs:
           # Check critical APT files exist
           REQUIRED_FILES=(
             "public/repo/dists/stable/Release"
-            "public/repo/dists/stable/main/binary-amd64/Packages"
-            "public/repo/dists/stable/main/binary-amd64/Packages.gz"
           )
+
+          # Add architecture-specific files based on what was built
+          ARCHS="${{ steps.merge.outputs.architectures }}"
+          for ARCH in $ARCHS; do
+            REQUIRED_FILES+=(
+              "public/repo/dists/stable/main/binary-$ARCH/Packages"
+              "public/repo/dists/stable/main/binary-$ARCH/Packages.gz"
+            )
+          done
 
           MISSING_FILES=()
           for file in "${REQUIRED_FILES[@]}"; do
@@ -418,12 +446,17 @@ jobs:
           # Validate Release file content
           echo ""
           echo "Release file validation:"
-          if grep -q "Architectures:.*amd64" public/repo/dists/stable/Release; then
-            echo "✅ amd64 architecture declared"
-          else
-            echo "❌ amd64 architecture missing in Release"
-            exit 1
-          fi
+          ARCHS="${{ steps.merge.outputs.architectures }}"
+          echo "Expected architectures: $ARCHS"
+
+          for ARCH in $ARCHS; do
+            if grep -q "Architectures:.*$ARCH" public/repo/dists/stable/Release; then
+              echo "✅ $ARCH architecture declared"
+            else
+              echo "❌ $ARCH architecture missing in Release"
+              exit 1
+            fi
+          done
 
           if grep -q "Components:.*main" public/repo/dists/stable/Release; then
             echo "✅ main component declared"
@@ -435,15 +468,19 @@ jobs:
           # Display final setup instructions
           echo ""
           echo "=== Installation Instructions ==="
+          ARCHS="${{ steps.merge.outputs.architectures }}"
+
           if [ "$GPG_SIGNED" = true ]; then
             echo "Signed repository (recommended):"
             echo "  curl -fsSL https://jy1655.github.io/BzPeri/repo/repo.key | sudo gpg --dearmor -o /usr/share/keyrings/bzperi-archive-keyring.gpg"
-            echo "  echo \"deb [arch=amd64 signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] https://jy1655.github.io/BzPeri/repo stable main\" | sudo tee /etc/apt/sources.list.d/bzperi.list"
+            echo "  echo \"deb [signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] https://jy1655.github.io/BzPeri/repo stable main\" | sudo tee /etc/apt/sources.list.d/bzperi.list"
           else
             echo "Unsigned repository (development only):"
-            echo "  echo \"deb [arch=amd64 trusted=yes] https://jy1655.github.io/BzPeri/repo stable main\" | sudo tee /etc/apt/sources.list.d/bzperi.list"
+            echo "  echo \"deb [trusted=yes] https://jy1655.github.io/BzPeri/repo stable main\" | sudo tee /etc/apt/sources.list.d/bzperi.list"
           fi
           echo "  sudo apt update && sudo apt install bzperi bzperi-dev bzperi-tools"
+          echo ""
+          echo "Supported architectures: $ARCHS"
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
