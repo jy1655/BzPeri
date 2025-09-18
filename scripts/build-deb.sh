@@ -49,7 +49,7 @@ check_dependencies() {
     done
 
     # Check for library dependencies
-    for lib in libglib2.0-dev libgio-2.0-dev libgobject-2.0-dev libbluetooth-dev; do
+    for lib in libglib2.0-dev libbluetooth-dev; do
         if ! dpkg -l | grep -q "^ii  $lib"; then
             missing_deps+=("$lib")
         fi
