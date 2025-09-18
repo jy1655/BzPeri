@@ -197,7 +197,12 @@ jobs:
             # Export public key
             gpg --armor --export "$KEYID" > public/repo/repo.key
 
-            echo "Repository signed successfully"
+            # Verify signatures
+            echo "Verifying signatures..."
+            gpg --verify public/repo/dists/stable/Release.gpg public/repo/dists/stable/Release
+            gpg --verify public/repo/dists/stable/InRelease
+
+            echo "✅ Repository signed and verified successfully"
           else
             echo "No GPG private key found, skipping repository signing"
             echo "Repository will be unsigned (not recommended for production)"
@@ -329,6 +334,89 @@ jobs:
           # Replace environment variables
           sed -i "s/ENV_PKG_VERSION/${PKG_VERSION:-latest}/g" public/index.html
           sed -i "s/ENV_ARCHS/${ARCHS:-amd64}/g" public/index.html
+
+      - name: Disable Jekyll for APT repo
+        run: |
+          # Prevent GitHub Pages (Jekyll) from interfering with APT files like Release.gpg/InRelease
+          touch public/.nojekyll
+
+      - name: Validate APT repository structure
+        run: |
+          echo "=== APT Repository Validation ==="
+
+          # Check critical APT files exist
+          REQUIRED_FILES=(
+            "public/repo/dists/stable/Release"
+            "public/repo/dists/stable/main/binary-amd64/Packages"
+            "public/repo/dists/stable/main/binary-amd64/Packages.gz"
+          )
+
+          MISSING_FILES=()
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [ ! -f "$file" ]; then
+              MISSING_FILES+=("$file")
+            fi
+          done
+
+          if [ ${#MISSING_FILES[@]} -ne 0 ]; then
+            echo "❌ Missing critical APT files:"
+            printf '  %s\n' "${MISSING_FILES[@]}"
+            exit 1
+          fi
+
+          # Check if packages exist
+          PKG_COUNT=$(find public/repo/pool/main -name "*.deb" 2>/dev/null | wc -l)
+          if [ "$PKG_COUNT" -eq 0 ]; then
+            echo "❌ No .deb packages found in pool/main"
+            exit 1
+          fi
+
+          # Check signing status
+          if [ -f "public/repo/dists/stable/InRelease" ] && [ -f "public/repo/repo.key" ]; then
+            echo "✅ Repository is GPG signed"
+            GPG_SIGNED=true
+          else
+            echo "⚠️  Repository is unsigned (development mode)"
+            GPG_SIGNED=false
+          fi
+
+          echo "✅ Found $PKG_COUNT packages"
+          echo "✅ All critical APT files present"
+
+          # Show repository structure
+          echo ""
+          echo "Repository structure:"
+          find public/repo -type f | sort | sed 's/^/  /'
+
+          # Validate Release file content
+          echo ""
+          echo "Release file validation:"
+          if grep -q "Architectures:.*amd64" public/repo/dists/stable/Release; then
+            echo "✅ amd64 architecture declared"
+          else
+            echo "❌ amd64 architecture missing in Release"
+            exit 1
+          fi
+
+          if grep -q "Components:.*main" public/repo/dists/stable/Release; then
+            echo "✅ main component declared"
+          else
+            echo "❌ main component missing in Release"
+            exit 1
+          fi
+
+          # Display final setup instructions
+          echo ""
+          echo "=== Installation Instructions ==="
+          if [ "$GPG_SIGNED" = true ]; then
+            echo "Signed repository (recommended):"
+            echo "  curl -fsSL https://jy1655.github.io/BzPeri/repo/repo.key | sudo gpg --dearmor -o /usr/share/keyrings/bzperi-archive-keyring.gpg"
+            echo "  echo \"deb [arch=amd64 signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] https://jy1655.github.io/BzPeri/repo stable main\" | sudo tee /etc/apt/sources.list.d/bzperi.list"
+          else
+            echo "Unsigned repository (development only):"
+            echo "  echo \"deb [arch=amd64 trusted=yes] https://jy1655.github.io/BzPeri/repo stable main\" | sudo tee /etc/apt/sources.list.d/bzperi.list"
+          fi
+          echo "  sudo apt update && sudo apt install bzperi bzperi-dev bzperi-tools"
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
