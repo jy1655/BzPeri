@@ -1,0 +1,322 @@
+name: Build and Publish APT Repo
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*.*.*'
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build packages (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            deb_arch: amd64
+          - arch: arm64
+            runner: ubuntu-latest
+            deb_arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          if [ "${{ matrix.deb_arch }}" = "arm64" ]; then
+            # Add arm64 architecture and install cross-compilation tools
+            sudo dpkg --add-architecture arm64
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends \
+              build-essential cmake pkg-config debhelper \
+              dpkg-dev apt-utils gnupg apt-transport-https \
+              gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+              libglib2.0-dev:arm64 libgio-2.0-dev:arm64 libgobject-2.0-dev:arm64 \
+              libbluetooth-dev:arm64 bluez bluez-tools
+          else
+            sudo apt-get install -y --no-install-recommends \
+              build-essential cmake pkg-config debhelper \
+              dpkg-dev apt-utils gnupg apt-transport-https \
+              libglib2.0-dev libgio-2.0-dev libgobject-2.0-dev \
+              libbluetooth-dev bluez bluez-tools
+          fi
+
+      - name: Determine version from tag or release
+        id: get_version
+        run: |
+          VERSION=""
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME}"
+          elif [ -n "${{ github.event.release.tag_name }}" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          fi
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build Debian packages
+        env:
+          BZPERI_VERSION: ${{ steps.get_version.outputs.version }}
+        run: |
+          chmod +x scripts/build-deb.sh
+          if [ "${{ matrix.deb_arch }}" = "arm64" ]; then
+            # Use CMake toolchain file for stable cross-compilation
+            export CMAKE_TOOLCHAIN_FILE="$PWD/toolchains/aarch64-linux-gnu.cmake"
+            ./scripts/build-deb.sh --cpack --version "$BZPERI_VERSION" --arch "${{ matrix.deb_arch }}"
+          else
+            ./scripts/build-deb.sh --cpack --version "$BZPERI_VERSION" --arch "${{ matrix.deb_arch }}"
+          fi
+
+      - name: Install lintian and check package quality
+        run: |
+          sudo apt-get install -y lintian
+          echo "::group::Lintian Package Quality Check"
+          for deb in packages/*.deb; do
+            if [ -f "$deb" ]; then
+              echo "Checking $(basename "$deb")..."
+              # Run lintian with informational level, but don't fail on warnings
+              lintian --info --display-info --color=auto "$deb" || true
+              echo "---"
+            fi
+          done
+          echo "::endgroup::"
+
+      - name: Prepare APT repo fragment
+        run: |
+          ARCH=${{ matrix.deb_arch }}
+          REPO_DIR=public-${ARCH}/repo
+          mkdir -p "$REPO_DIR/pool/main"
+          mkdir -p "$REPO_DIR/dists/stable/main/binary-${ARCH}"
+          cp packages/*.deb "$REPO_DIR/pool/main/"
+          pushd "$REPO_DIR" >/dev/null
+          dpkg-scanpackages pool/main /dev/null | gzip -9c > dists/stable/main/binary-${ARCH}/Packages.gz
+          dpkg-scanpackages pool/main /dev/null > dists/stable/main/binary-${ARCH}/Packages
+          popd >/dev/null
+
+      - name: Upload APT fragment artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apt-repo-${{ matrix.arch }}
+          path: public-${{ matrix.deb_arch }}
+
+  publish:
+    name: Sign and publish APT repo
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download amd64 repo fragment
+        uses: actions/download-artifact@v4
+        with:
+          name: apt-repo-amd64
+          path: merge/amd64
+      - name: Download arm64 repo fragment
+        uses: actions/download-artifact@v4
+        with:
+          name: apt-repo-arm64
+          path: merge/arm64
+        continue-on-error: true
+
+      - name: Merge fragments
+        id: merge
+        run: |
+          mkdir -p public/repo/pool/main
+          mkdir -p public/repo/dists/stable/main
+          # Copy packages
+          for A in amd64 arm64; do
+            if [ -d "merge/$A/repo/pool/main" ]; then
+              mkdir -p public/repo/pool/main/$A
+              cp -r merge/$A/repo/pool/main/. public/repo/pool/main/$A/
+            fi
+          done
+          # Regenerate Packages per arch from merged pool
+          for A in amd64 arm64; do
+            mkdir -p public/repo/dists/stable/main/binary-$A
+            if [ -d public/repo/pool/main/$A ]; then
+              dpkg-scanpackages public/repo/pool/main/$A /dev/null | gzip -9c > public/repo/dists/stable/main/binary-$A/Packages.gz
+              dpkg-scanpackages public/repo/pool/main/$A /dev/null > public/repo/dists/stable/main/binary-$A/Packages
+            else
+              : > public/repo/dists/stable/main/binary-$A/Packages
+            fi
+          done
+          # Determine present architectures
+          ARCHS=""
+          for A in amd64 arm64; do
+            if [ -s public/repo/dists/stable/main/binary-$A/Packages ]; then
+              ARCHS="$ARCHS $A"
+            else
+              rm -rf public/repo/dists/stable/main/binary-$A || true
+            fi
+          done
+          ARCHS=$(echo "$ARCHS" | xargs)
+          echo "architectures=$ARCHS" >> $GITHUB_OUTPUT
+
+      - name: Determine version from tag or release
+        id: get_version
+        run: |
+          VERSION=""
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME}"
+          elif [ -n "${{ github.event.release.tag_name }}" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          fi
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Release file
+        env:
+          ARCHS: ${{ steps.merge.outputs.architectures }}
+          PKG_VERSION: ${{ steps.get_version.outputs.version }}
+        run: |
+          pushd public/repo/dists/stable >/dev/null
+          cat > Release << EOF
+          Origin: BzPeri Repository
+          Label: BzPeri
+          Suite: stable
+          Codename: stable
+          Version: ${PKG_VERSION:-1.0}
+          Architectures: ${ARCHS}
+          Components: main
+          Description: BzPeri APT repository
+          EOF
+          apt-ftparchive release . >> Release
+          popd >/dev/null
+
+      - name: Import GPG private key
+        if: env.APT_GPG_PRIVATE_KEY != ''
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" --import
+          gpg --list-secret-keys --keyid-format=long
+
+      - name: Sign APT repo
+        if: env.APT_GPG_PRIVATE_KEY != ''
+        env:
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          pushd public/repo/dists/stable >/dev/null
+          KEYID=$(gpg --list-secret-keys --keyid-format=long | awk '/sec/{print $2}' | sed 's|.*/||' | head -1)
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
+              --local-user "$KEYID" --detach-sign --armor -o Release.gpg Release
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
+              --local-user "$KEYID" --clearsign -o InRelease Release
+          popd >/dev/null
+          gpg --armor --export "$KEYID" > public/repo/repo.key
+
+      - name: Create index.html for Pages
+        env:
+          PKG_VERSION: ${{ steps.get_version.outputs.version }}
+          ARCHS: ${{ steps.merge.outputs.architectures }}
+        run: |
+          cat > public/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>BzPeri APT Repository</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; line-height: 1.6; }
+              .header { text-align: center; margin-bottom: 40px; }
+              .version { color: #666; font-size: 0.9em; }
+              .code-block { background: #f5f5f5; padding: 15px; border-radius: 5px; overflow-x: auto; }
+              .architecture { background: #e3f2fd; padding: 2px 8px; border-radius: 3px; font-size: 0.85em; margin: 0 2px; }
+              .step { margin: 20px 0; padding: 15px; border-left: 4px solid #2196f3; background: #f8f9fa; }
+              .warning { border-left-color: #ff9800; background: #fff8e1; }
+              a { color: #1976d2; text-decoration: none; }
+              a:hover { text-decoration: underline; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>🚀 BzPeri APT Repository</h1>
+              <p>Modern C++20 Bluetooth LE GATT Server Library</p>
+              <p class="version">Version: ENV_PKG_VERSION | Architectures: ENV_ARCHS</p>
+            </div>
+
+            <div class="step">
+              <h2>📦 Quick Installation</h2>
+              <div class="code-block">
+          # Add BzPeri repository<br>
+          curl -fsSL https://jy1655.github.io/BzPeri/repo/repo.key | sudo gpg --dearmor -o /usr/share/keyrings/bzperi-archive-keyring.gpg<br>
+          echo "deb [signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] https://jy1655.github.io/BzPeri/repo stable main" | sudo tee /etc/apt/sources.list.d/bzperi.list<br><br>
+
+          # Install packages<br>
+          sudo apt update<br>
+          sudo apt install bzperi bzperi-dev bzperi-tools
+              </div>
+            </div>
+
+            <div class="step warning">
+              <h2>⚙️ BlueZ Configuration (Recommended)</h2>
+              <div class="code-block">
+          # Auto-configure during installation<br>
+          export BZPERI_AUTO_EXPERIMENTAL=1<br>
+          sudo -E apt install bzperi<br><br>
+
+          # Or configure manually after installation<br>
+          sudo /usr/share/bzperi/configure-bluez-experimental.sh enable
+              </div>
+            </div>
+
+            <div class="step">
+              <h2>🏃 Quick Start</h2>
+              <div class="code-block">
+          # Run example server (requires sudo for BlueZ access)<br>
+          sudo bzp-standalone -d<br><br>
+
+          # List available Bluetooth adapters<br>
+          sudo bzp-standalone --list-adapters
+              </div>
+            </div>
+
+            <div class="step">
+              <h2>📚 Available Packages</h2>
+              <ul>
+                <li><strong>bzperi</strong> - Runtime library for applications</li>
+                <li><strong>bzperi-dev</strong> - Development headers and pkg-config files</li>
+                <li><strong>bzperi-tools</strong> - Command-line tools (bzp-standalone)</li>
+              </ul>
+            </div>
+
+            <div class="step">
+              <h2>🔗 Links</h2>
+              <ul>
+                <li><a href="https://github.com/jy1655/BzPeri">GitHub Repository</a></li>
+                <li><a href="https://github.com/jy1655/BzPeri/blob/main/README.md">Documentation</a></li>
+                <li><a href="https://github.com/jy1655/BzPeri/issues">Issues & Support</a></li>
+                <li><a href="repo/">Browse Repository</a></li>
+              </ul>
+            </div>
+          </body>
+          </html>
+          EOF
+
+          # Replace environment variables
+          sed -i "s/ENV_PKG_VERSION/${PKG_VERSION:-latest}/g" public/index.html
+          sed -i "s/ENV_ARCHS/${ARCHS:-amd64}/g" public/index.html
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4

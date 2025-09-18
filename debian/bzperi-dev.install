@@ -1,0 +1,3 @@
+usr/include/*
+usr/lib/*/libbzp.so
+usr/lib/*/pkgconfig/bzperi.pc

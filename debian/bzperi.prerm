@@ -1,0 +1,9 @@
+#!/bin/sh
+
+set -e
+
+# Before removing the package, we don't need to do anything special
+# The D-Bus policy file will be removed automatically, and D-Bus will
+# handle the configuration change gracefully
+
+#DEBHELPER#

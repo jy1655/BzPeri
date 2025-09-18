@@ -1,0 +1,58 @@
+Source: bzperi
+Section: libs
+Priority: optional
+Maintainer: Jy <daunfun@gmail.com>
+Build-Depends: debhelper (>= 13),
+               cmake (>= 3.16),
+               pkg-config,
+               libglib2.0-dev (>= 2.58),
+               libgio-2.0-dev (>= 2.58),
+               libgobject-2.0-dev (>= 2.58),
+               libbluetooth-dev,
+               bluez
+Standards-Version: 4.6.0
+Homepage: https://github.com/jy1655/BzPeri
+Vcs-Git: https://github.com/jy1655/BzPeri.git
+Vcs-Browser: https://github.com/jy1655/BzPeri
+
+Package: bzperi
+Architecture: any
+Multi-Arch: same
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: bluez (>= 5.77)
+Suggests: bluez-tools
+Description: Modern C++20 Bluetooth LE GATT server library (runtime)
+ BzPeri is a modern C++20 Bluetooth LE GATT server library for Linux systems
+ using BlueZ over D-Bus. It provides an elegant DSL-style interface for
+ creating and managing Bluetooth LE services.
+ .
+ This package contains the runtime library.
+
+Package: bzperi-dev
+Section: libdevel
+Architecture: any
+Multi-Arch: same
+Depends: bzperi (= ${binary:Version}),
+         ${misc:Depends},
+         libglib2.0-dev (>= 2.58),
+         libgio-2.0-dev (>= 2.58),
+         libgobject-2.0-dev (>= 2.58),
+         libbluetooth-dev
+Description: Modern C++20 Bluetooth LE GATT server library (development files)
+ BzPeri is a modern C++20 Bluetooth LE GATT server library for Linux systems
+ using BlueZ over D-Bus. It provides an elegant DSL-style interface for
+ creating and managing Bluetooth LE services.
+ .
+ This package contains the development files (headers, pkg-config files).
+
+Package: bzperi-tools
+Section: utils
+Architecture: any
+Depends: bzperi (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
+Description: Modern C++20 Bluetooth LE GATT server library (tools)
+ BzPeri is a modern C++20 Bluetooth LE GATT server library for Linux systems
+ using BlueZ over D-Bus. It provides an elegant DSL-style interface for
+ creating and managing Bluetooth LE services.
+ .
+ This package contains command-line tools including bzp-standalone for testing
+ and demonstration purposes.
