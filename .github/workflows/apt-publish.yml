@@ -43,8 +43,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake pkg-config debhelper \
             dpkg-dev apt-utils gnupg apt-transport-https \
-            libglib2.0-dev \
-            libbluetooth-dev bluez
+            libglib2.0-dev libgio-2.0-dev libgobject-2.0-dev \
+            libbluetooth-dev bluez bluez-tools
 
       - name: Determine version from tag or release
         id: get_version
