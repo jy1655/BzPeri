@@ -276,7 +276,6 @@ We welcome contributions! Whether it's bug fixes, new features, or documentation
 ## 🆘 Support
 
 - **Issues**: [GitHub Issues](../../issues)
-- **Documentation**: See CLAUDE.md for comprehensive guidance
 - **Examples**: Check out `src/bzp-standalone.cpp` for a complete example
 
 ---
