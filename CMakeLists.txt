@@ -253,8 +253,6 @@ if(LINUX)
 endif()
 
 # CPack configuration for Debian packaging
-include(CPack)
-
 set(CPACK_PACKAGE_NAME "bzperi")
 set(CPACK_PACKAGE_VERSION ${BZPERI_EFFECTIVE_VERSION})
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Modern C++20 Bluetooth LE GATT server library")
@@ -332,3 +330,6 @@ endif()
 message(STATUS "  Package generator: ${CPACK_GENERATOR}")
 message(STATUS "  Debian arch:       ${BZPERI_DEB_ARCH}")
 message(STATUS "")
+
+# Include CPack after all configuration is complete
+include(CPack)
