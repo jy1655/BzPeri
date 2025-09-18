@@ -275,6 +275,10 @@ jobs:
             <li>Install:<br>
               <code>sudo apt update && sudo apt install bzperi bzperi-dev bzperi-tools</code>
             </li>
+            <li>Enable BlueZ experimental mode (required):<br>
+              <code>sudo /usr/share/bzperi/configure-bluez-experimental.sh enable</code><br>
+              <small>Tip: You can also auto-enable during install with <code>export BZPERI_AUTO_EXPERIMENTAL=1</code> then <code>sudo -E apt install bzperi</code>.</small>
+            </li>
           </ol>
           <h2>Files</h2>
           <ul>
