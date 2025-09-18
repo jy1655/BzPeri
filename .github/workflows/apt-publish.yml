@@ -110,18 +110,24 @@ jobs:
           mkdir -p public/repo/pool/main
           mkdir -p public/repo/dists/stable/main
           # Copy packages from amd64 build
-          if [ -d "merge/amd64/repo/pool/main" ]; then
-            cp -r merge/amd64/repo/pool/main/. public/repo/pool/main/
+          if [ -d "merge/amd64/repo" ]; then
+            cp -r merge/amd64/repo/. public/repo/
           fi
 
-          # Generate Packages files for amd64
-          mkdir -p public/repo/dists/stable/main/binary-amd64
-          if [ -d public/repo/pool/main ] && [ "$(ls -A public/repo/pool/main)" ]; then
-            dpkg-scanpackages public/repo/pool/main /dev/null | gzip -9c > public/repo/dists/stable/main/binary-amd64/Packages.gz
-            dpkg-scanpackages public/repo/pool/main /dev/null > public/repo/dists/stable/main/binary-amd64/Packages
+          # Generate Packages files for amd64 if packages exist
+          if [ -d public/repo/pool/main ] && [ "$(ls -A public/repo/pool/main 2>/dev/null)" ]; then
+            # Ensure dists directory structure exists
+            mkdir -p public/repo/dists/stable/main/binary-amd64
+
+            # Generate Packages files
+            cd public/repo
+            dpkg-scanpackages pool/main /dev/null | gzip -9c > dists/stable/main/binary-amd64/Packages.gz
+            dpkg-scanpackages pool/main /dev/null > dists/stable/main/binary-amd64/Packages
+            cd - >/dev/null
+
             ARCHS="amd64"
           else
-            : > public/repo/dists/stable/main/binary-amd64/Packages
+            echo "Warning: No packages found in merge/amd64/repo/pool/main"
             ARCHS=""
           fi
           ARCHS=$(echo "$ARCHS" | xargs)
