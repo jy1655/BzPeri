@@ -21,7 +21,7 @@
 ```bash
 # Add BzPeri repository
 curl -fsSL https://jy1655.github.io/BzPeri/repo/repo.key | sudo gpg --dearmor -o /usr/share/keyrings/bzperi-archive-keyring.gpg
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] https://jy1655.github.io/BzPeri/repo stable main" | sudo tee /etc/apt/sources.list.d/bzperi.list
+echo "deb [signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] https://jy1655.github.io/BzPeri/repo stable main" | sudo tee /etc/apt/sources.list.d/bzperi.list
 
 # Install BzPeri
 sudo apt update
@@ -197,21 +197,21 @@ sudo systemctl restart bluetooth
 
 ## 🏗️ Architecture Support
 
-BzPeri packages are currently available for:
+BzPeri packages are available for multiple architectures:
 - **amd64** (x86_64) - Intel/AMD 64-bit systems ✅
+- **arm64** (aarch64) - ARM 64-bit systems (Raspberry Pi 4+, Apple Silicon, etc.) ✅
 
-**Planned Architecture Support:**
-- **arm64** (aarch64) - ARM 64-bit systems (Raspberry Pi 4+, Apple Silicon, etc.) 🚧
+Both architectures are fully supported and automatically built via GitHub Actions CI/CD.
 
-*Need ARM64 support urgently? [Request it here](../../issues) and we'll prioritize it.*
-
-### Cross-Compilation (Experimental)
+### Native Compilation
 ```bash
-# ARM64 cross-compilation (experimental - not yet in official packages)
-./scripts/build-deb.sh --arch arm64
-
-# Use CMake toolchain directly
-cmake -DCMAKE_TOOLCHAIN_FILE=toolchains/aarch64-linux-gnu.cmake ..
+# Build from source on ARM64 systems
+git clone https://github.com/jy1655/BzPeri.git
+cd BzPeri
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+sudo make install
 ```
 
 ## 🔧 Advanced Features
