@@ -5,17 +5,38 @@
 
 #include "BluezAdapter.h"
 #include "BluezAdvertisement.h"
+#include "Globals.h"
+#include "Server.h"
 #include "Logger.h"
 #include "StructuredLogger.h"
 #include "GLibRAII.h"
 #include "Utils.h"
 #include <glib.h>
 #include <cstring>
+#include <algorithm>
 #include <functional>
 #include <chrono>
 #include <thread>
 
 namespace bzp {
+
+namespace {
+
+std::string currentAdvertisementPath()
+{
+	if (TheServer)
+	{
+		// Convert dots in service name to slashes for valid D-Bus object path
+		// e.g., "bzperi.myapp" becomes "/com/bzperi/myapp/advertisement0"
+		std::string serviceName = TheServer->getServiceName();
+		std::replace(serviceName.begin(), serviceName.end(), '.', '/');
+		return std::string("/com/") + serviceName + "/advertisement0";
+	}
+
+	return "/com/bzperi/advertisement0";
+}
+
+} // namespace
 
 // Singleton instance
 BluezAdapter& BluezAdapter::getInstance()
@@ -610,7 +631,7 @@ gboolean BluezAdapter::onAdvertisingRetryTimeout(gpointer user_data)
 	{
 		if (!adapter->advertisement)
 		{
-			adapter->advertisement = std::make_unique<BluezAdvertisement>("/com/bzperi/advertisement0");
+			adapter->advertisement = std::make_unique<BluezAdvertisement>(currentAdvertisementPath());
 
 			// Configure advertisement with essential service UUIDs
 			// Reduced to only 16-bit standard UUIDs to fit legacy 31-byte advertising budget
@@ -1169,7 +1190,7 @@ void BluezAdapter::setAdvertisingAsync(bool enabled, std::function<void(BluezRes
 		// Create advertisement if it doesn't exist
 		if (!advertisement)
 		{
-			advertisement = std::make_unique<BluezAdvertisement>("/com/bzperi/advertisement0");
+			advertisement = std::make_unique<BluezAdvertisement>(currentAdvertisementPath());
 
 			// Configure advertisement with essential service UUIDs
 			// Reduced to only 16-bit standard UUIDs to fit legacy 31-byte advertising budget

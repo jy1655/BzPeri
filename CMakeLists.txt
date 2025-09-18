@@ -142,6 +142,8 @@ set(BZPERI_SOURCES
     src/FormatCompat.cpp
     src/ServerTypes.cpp
     src/Server.cpp
+    src/ServiceRegistry.cpp
+    src/SampleServices.cpp
     src/ServerUtils.cpp
     src/Utils.cpp
 )
@@ -169,7 +171,7 @@ endif()
 # Library properties
 set_target_properties(bzperi PROPERTIES
     OUTPUT_NAME bzp
-    PUBLIC_HEADER "include/BzPeri.h;include/Gobbledegook.h"
+    PUBLIC_HEADER "include/BzPeri.h;include/Gobbledegook.h;include/BzPeriConfigurator.h"
 )
 
 # Link libraries

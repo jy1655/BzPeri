@@ -93,12 +93,16 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #include <signal.h>
+#include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <thread>
 #include <sstream>
 #include <cstdlib>
 
 #include "../include/BzPeri.h"
+#include "../include/BzPeriConfigurator.h"
+#include "SampleServices.h"
 
 //
 // Constants
@@ -116,6 +120,9 @@ static uint8_t serverDataBatteryLevel = 78;
 
 // The text string ("text/string") used by our custom text string service (see Server.cpp)
 static std::string serverDataTextString = "Hello, world!";
+
+// Cached D-Bus path for the sample battery characteristic
+static std::string batteryLevelObjectPath;
 
 //
 // Logging
@@ -242,6 +249,12 @@ int dataSetter(const char *pName, const void *pData)
 
 int main(int argc, char **ppArgv)
 {
+	std::string serviceName = "bzperi";
+	std::string advertisingName = "BzPeri";
+	std::string advertisingShortName = "BzPeri";
+	std::string sampleNamespace = "samples";
+	bool includeSampleServices = true;
+
 	// A basic command-line parser
 	for (int i = 1; i < argc; ++i)
 	{
@@ -270,6 +283,30 @@ int main(int argc, char **ppArgv)
 			LogStatus("Available BlueZ adapters will be listed during startup");
 			setenv("BLUEZ_LIST_ADAPTERS", "1", 1);
 		}
+		else if (arg.rfind("--service-name=", 0) == 0)
+		{
+			serviceName = arg.substr(15);
+		}
+		else if (arg.rfind("--advertise-name=", 0) == 0)
+		{
+			advertisingName = arg.substr(17);
+		}
+		else if (arg.rfind("--advertise-short=", 0) == 0)
+		{
+			advertisingShortName = arg.substr(18);
+		}
+		else if (arg == "--no-sample-services")
+		{
+			includeSampleServices = false;
+		}
+		else if (arg == "--with-sample-services")
+		{
+			includeSampleServices = true;
+		}
+		else if (arg.rfind("--sample-namespace=", 0) == 0)
+		{
+			sampleNamespace = arg.substr(19);
+		}
 		else if (arg == "--help" || arg == "-h")
 		{
 			LogAlways("Usage: standalone [options]");
@@ -284,7 +321,13 @@ int main(int argc, char **ppArgv)
 			LogAlways("  --list-adapters List available adapters and exit");
 			LogAlways("");
 			LogAlways("General options:");
-			LogAlways("  --help, -h      Show this help message");
+			LogAlways("  --service-name=NAME      Set D-Bus service namespace (default bzperi)");
+			LogAlways("  --advertise-name=NAME    Set LE advertising name (default BzPeri)");
+			LogAlways("  --advertise-short=NAME   Set LE advertising short name (default BzPeri)");
+			LogAlways("  --sample-namespace=NODE  Namespace node for example services (default samples)");
+			LogAlways("  --no-sample-services      Disable bundled example GATT services");
+			LogAlways("  --with-sample-services    Re-enable bundled example services after disabling");
+			LogAlways("  --help, -h                Show this help message");
 			return 0;
 		}
 		else
@@ -295,6 +338,66 @@ int main(int argc, char **ppArgv)
 			LogFatal("Use --help for detailed options");
 			return -1;
 		}
+	}
+
+	auto toLowerCopy = [](std::string value)
+	{
+		std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+		return value;
+	};
+
+	serviceName = toLowerCopy(serviceName);
+	sampleNamespace = toLowerCopy(sampleNamespace);
+
+	if (serviceName.empty())
+	{
+		LogFatal("Service name cannot be empty");
+		return -1;
+	}
+
+	// Validate service name follows com.bzperi.* namespace pattern
+	if (serviceName != "bzperi" && serviceName.find("bzperi.") != 0)
+	{
+		LogFatal("Service name must be 'bzperi' or start with 'bzperi.' (e.g., 'bzperi.myapp')");
+		LogFatal("This ensures D-Bus policy compatibility and prevents conflicts");
+		return -1;
+	}
+
+	if (sampleNamespace.find('/') != std::string::npos)
+	{
+		LogFatal("Sample namespace must not contain '/' characters");
+		return -1;
+	}
+
+	if (bzp::serviceConfiguratorCount() > 0)
+	{
+		LogWarn("Existing service configurators cleared for standalone configuration");
+	}
+
+	bzp::clearServiceConfigurators();
+
+	if (includeSampleServices)
+	{
+		bzp::samples::registerSampleServices(sampleNamespace);
+
+		// Convert dots in service name to slashes for valid D-Bus object path
+		// e.g., "bzperi.myapp" becomes "/com/bzperi/myapp"
+		std::string pathServiceName = serviceName;
+		std::replace(pathServiceName.begin(), pathServiceName.end(), '.', '/');
+		std::string pathBase = std::string("/com/") + pathServiceName;
+
+		if (!sampleNamespace.empty())
+		{
+			pathBase += "/" + sampleNamespace;
+		}
+
+		batteryLevelObjectPath = pathBase + "/battery/level";
+		LogStatus((std::string("Bundled example services registered under ") + pathBase).c_str());
+	}
+	else
+	{
+		batteryLevelObjectPath.clear();
+		LogStatus("Bundled example services disabled; starting with empty server");
 	}
 
 	// Setup our signal handlers
@@ -323,7 +426,7 @@ int main(int argc, char **ppArgv)
 	//     The last parameter (enableBondable=1) allows client devices to pair/bond with this server. This is typically
 	//     required for modern BLE applications. Set to 0 to disable pairing if you need an open, non-authenticated connection.
 	//
-	if (!bzpStartWithBondable("bzperi", "BzPeri", "BzPeri", dataGetter, dataSetter, kMaxAsyncInitTimeoutMS, 1))
+	if (!bzpStartWithBondable(serviceName.c_str(), advertisingName.c_str(), advertisingShortName.c_str(), dataGetter, dataSetter, kMaxAsyncInitTimeoutMS, 1))
 	{
 		return -1;
 	}
@@ -336,7 +439,10 @@ int main(int argc, char **ppArgv)
 		std::this_thread::sleep_for(std::chrono::seconds(15));
 
 		serverDataBatteryLevel = std::max(serverDataBatteryLevel - 1, 0);
-		bzpNofifyUpdatedCharacteristic("/com/bzperi/battery/level");
+		if (!batteryLevelObjectPath.empty())
+		{
+			bzpNofifyUpdatedCharacteristic(batteryLevelObjectPath.c_str());
+		}
 	}
 
 	// Wait for the server to come to a complete stop (CTRL-C from the command line)

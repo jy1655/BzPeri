@@ -35,6 +35,7 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #include <string.h>
+#include <cstddef>
 #include <string>
 #include <thread>
 #include <atomic>
@@ -48,6 +49,7 @@
 #include "Init.h"
 #include "Logger.h"
 #include "Server.h"
+#include "ServiceRegistry.h"
 
 // Macro for safe C API functions that catch C++ exceptions
 #define BZP_C_API_GUARD_BEGIN() try {
@@ -611,6 +613,17 @@ int bzpStartWithBondable(const char *pServiceName, const char *pAdvertisingName,
 
 		// Allocate our server
 		TheServer = std::make_shared<Server>(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, enableBondable != 0);
+
+		const std::size_t configuratorCount = serviceConfiguratorCount();
+		if (configuratorCount == 0)
+		{
+			Logger::info("No service configurators registered; starting with an empty GATT database");
+		}
+		else
+		{
+			applyRegisteredServiceConfigurators(*TheServer);
+			Logger::trace(SSTR << "Applied " << configuratorCount << " service configurator(s)");
+		}
 
 		// Start our server thread
 		try
