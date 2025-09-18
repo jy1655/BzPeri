@@ -172,30 +172,36 @@ jobs:
           popd >/dev/null
 
       - name: Import GPG private key and sign repository
-        if: ${{ secrets.APT_GPG_PRIVATE_KEY != '' }}
         env:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
           APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
         run: |
-          # Import GPG key
-          echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" --import
+          if [ -n "$APT_GPG_PRIVATE_KEY" ]; then
+            echo "GPG private key found, signing repository..."
 
-          # Get key ID
-          KEYID=$(gpg --list-secret-keys --keyid-format=long | awk '/sec/{print $2}' | sed 's|.*/||' | head -1)
-          echo "Using GPG key: $KEYID"
+            # Import GPG key
+            echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" --import
 
-          # Sign Release file
-          pushd public/repo/dists/stable >/dev/null
-          gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
-              --local-user "$KEYID" --detach-sign --armor -o Release.gpg Release
-          gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
-              --local-user "$KEYID" --clearsign -o InRelease Release
-          popd >/dev/null
+            # Get key ID
+            KEYID=$(gpg --list-secret-keys --keyid-format=long | awk '/sec/{print $2}' | sed 's|.*/||' | head -1)
+            echo "Using GPG key: $KEYID"
 
-          # Export public key
-          gpg --armor --export "$KEYID" > public/repo/repo.key
+            # Sign Release file
+            pushd public/repo/dists/stable >/dev/null
+            gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
+                --local-user "$KEYID" --detach-sign --armor -o Release.gpg Release
+            gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
+                --local-user "$KEYID" --clearsign -o InRelease Release
+            popd >/dev/null
 
-          echo "Repository signed successfully"
+            # Export public key
+            gpg --armor --export "$KEYID" > public/repo/repo.key
+
+            echo "Repository signed successfully"
+          else
+            echo "No GPG private key found, skipping repository signing"
+            echo "Repository will be unsigned (not recommended for production)"
+          fi
 
       - name: Add repo index page
         run: |
