@@ -12,7 +12,7 @@ This guide explains how to build BzPeri as Debian packages (.deb) and make them 
 
 ## 📦 Package Structure
 
-BzPeri is split into 3 Debian packages, currently supporting **amd64** architecture (**arm64** is in development):
+BzPeri is split into 3 Debian packages, supporting **amd64** and **arm64** architectures:
 
 ### `bzperi` (Runtime Library)
 - **Description**: BzPeri runtime library
@@ -37,8 +37,7 @@ BzPeri is split into 3 Debian packages, currently supporting **amd64** architect
 # On Ubuntu/Debian systems
 sudo apt update
 sudo apt install build-essential cmake pkg-config debhelper \
-    libglib2.0-dev libgio-2.0-dev libgobject-2.0-dev \
-    libbluetooth-dev bluez bluez-tools
+    libglib2.0-dev libbluetooth-dev bluez
 ```
 
 ### 2. Automated Build (Recommended)
@@ -49,12 +48,12 @@ Use the convenient build script:
 # Grant execution permission
 chmod +x scripts/build-deb.sh
 
-# Build using CPack (default - amd64)
+# Build using CPack (defaults to amd64)
 ./scripts/build-deb.sh
 
-# Build for specific architecture
-./scripts/build-deb.sh --arch amd64    # For x86_64 systems (supported)
-./scripts/build-deb.sh --arch arm64    # ARM64 cross-compilation (experimental)
+# Build for a specific architecture
+./scripts/build-deb.sh --arch amd64    # x86_64 (native on amd64)
+./scripts/build-deb.sh --arch arm64    # arm64 (native on ARM runner recommended; cross-compile is experimental)
 
 # Build using native Debian tools
 ./scripts/build-deb.sh --native
@@ -101,15 +100,15 @@ dpkg-buildpackage -us -uc -b
 
 ### 4. Verify Build Results
 
-After building, the following files will be created in the `packages/` directory:
+After building, the following files will be created in the `packages/` directory (filenames vary by architecture):
 
 ```
 packages/
-├── bzperi_1.0.0-1_amd64.deb              # Runtime library
-├── bzperi-dev_1.0.0-1_amd64.deb          # Development files
-├── bzperi-tools_1.0.0-1_amd64.deb        # Command-line tools
-├── bzperi_1.0.0-1_amd64.changes          # Changes (native build only)
-└── bzperi_1.0.0-1_amd64.buildinfo        # Build info (native build only)
+├── bzperi_<version>_<arch>.deb              # Runtime library
+├── bzperi-dev_<version>_<arch>.deb          # Development files
+├── bzperi-tools_<version>_<arch>.deb        # Command-line tools
+├── bzperi_<version>_<arch>.changes          # Changes (native build only)
+└── bzperi_<version>_<arch>.buildinfo        # Build info (native build only)
 ```
 
 ## 🏪 Local APT Repository Setup
@@ -134,17 +133,20 @@ sudo ./scripts/setup-apt-repo.sh --no-configure
 
 ### 2. Manual Setup
 
+**Note**: Manual setup creates a single-architecture repository. For multi-architecture support (amd64 + arm64), use the automated GitHub Actions workflow.
+
 ```bash
-# Create repository directories
-sudo mkdir -p /var/local/bzperi-repo/{pool/main,dists/stable/main/binary-amd64}
+# Create repository directories (example for current architecture)
+ARCH=$(dpkg --print-architecture)
+sudo mkdir -p /var/local/bzperi-repo/{pool/main,dists/stable/main/binary-$ARCH}
 
 # Copy packages
 sudo cp packages/*.deb /var/local/bzperi-repo/pool/main/
 
 # Generate Packages files
 cd /var/local/bzperi-repo
-sudo dpkg-scanpackages pool/main /dev/null | gzip -9c > dists/stable/main/binary-amd64/Packages.gz
-sudo dpkg-scanpackages pool/main /dev/null > dists/stable/main/binary-amd64/Packages
+sudo dpkg-scanpackages pool/main /dev/null | gzip -9c > dists/stable/main/binary-$ARCH/Packages.gz
+sudo dpkg-scanpackages pool/main /dev/null > dists/stable/main/binary-$ARCH/Packages
 
 # Create Release file
 cd dists/stable
@@ -155,6 +157,17 @@ echo "deb [trusted=yes] file:///var/local/bzperi-repo stable main" | sudo tee /e
 
 # Update APT cache
 sudo apt update
+```
+
+**For multi-architecture local repositories**, create separate pool directories:
+```bash
+# Advanced: Multi-architecture local setup
+sudo mkdir -p /var/local/bzperi-repo/pool/main/{amd64,arm64}
+sudo mkdir -p /var/local/bzperi-repo/dists/stable/main/{binary-amd64,binary-arm64}
+
+# Copy architecture-specific packages to respective directories
+# Generate Packages files for each architecture
+# This requires packages built on both architectures
 ```
 
 ## 💾 Package Installation and Usage
@@ -259,13 +272,15 @@ This repository includes a GitHub Actions workflow (`.github/workflows/apt-publi
 - Create tag: `git tag -a v1.0.0 -m "v1.0.0" && git push origin v1.0.0`
 - Or publish Release
 
+**Note**: GitHub Pages deployment may take 1-2 minutes to propagate after workflow completion.
+
 4) User installation guide
 ```bash
 # Register public key (GitHub Pages path)
 curl -fsSL https://<USER>.github.io/<REPO>/repo/repo.key | sudo gpg --dearmor -o /usr/share/keyrings/bzperi-archive-keyring.gpg
 
-# Add APT source
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] https://<USER>.github.io/<REPO>/repo stable main" | \
+# Add APT source (no arch filter; apt will select appropriate architecture)
+echo "deb [signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] https://<USER>.github.io/<REPO>/repo stable main" | \
   sudo tee /etc/apt/sources.list.d/bzperi.list
 
 sudo apt update
@@ -311,7 +326,7 @@ Steps for official repository registration:
 sudo apt install build-essential cmake pkg-config debhelper
 
 # Missing GLib development files
-sudo apt install libglib2.0-dev libgio-2.0-dev libgobject-2.0-dev
+sudo apt install libglib2.0-dev
 
 # Missing BlueZ development files
 sudo apt install libbluetooth-dev bluez

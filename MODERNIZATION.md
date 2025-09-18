@@ -170,7 +170,7 @@ target_include_directories(bzperi PRIVATE ${GLIB_INCLUDE_DIRS})
 ### 3. GitHub Actions Integration
 
 **Comprehensive CI/CD**:
-- **Multi-architecture builds** (amd64 ready, arm64 planned)
+- **Multi-architecture builds** (amd64 and arm64 fully supported)
 - **Quality checks** with lintian
 - **Automated deployment** to GitHub Pages
 - **Package validation** and testing
@@ -306,13 +306,14 @@ bzpNotifyUpdatedCharacteristic("/com/device/service/characteristic");
 
 ### Immediate (2025 Q1)
 - ✅ AMD64 APT packages
+- ✅ ARM64 APT packages
 - ✅ GitHub Actions CI/CD
 - ✅ BlueZ 5.77+ optimization
 
 ### Short-term (2025 Q2)
-- 🔄 ARM64 package support
 - 🔄 Container deployment options
 - 🔄 Enhanced debugging tools
+- 🔄 Package repository mirroring
 
 ### Medium-term (2025 Q3-Q4)
 - 📋 WebAssembly bindings

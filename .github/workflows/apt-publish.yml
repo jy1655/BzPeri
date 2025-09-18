@@ -359,7 +359,7 @@ jobs:
                 <li><strong>bzperi-dev</strong> - Development headers and pkg-config files</li>
                 <li><strong>bzperi-tools</strong> - Command-line tools (bzp-standalone)</li>
               </ul>
-              <p><strong>Supported Architecture:</strong> amd64 (x86_64) - ARM64 support coming soon!</p>
+              <p><strong>Supported Architectures:</strong> amd64 (x86_64), arm64 (aarch64)</p>
             </div>
 
             <div class="step">
