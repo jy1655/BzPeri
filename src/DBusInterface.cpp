@@ -41,10 +41,10 @@
 // modern implementations should use GLib timers (g_timeout_add) directly rather than the old event system.
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#include "DBusInterface.h"
-#include "GattProperty.h"
-#include "DBusObject.h"
-#include "Logger.h"
+#include <bzp/DBusInterface.h>
+#include <bzp/GattProperty.h>
+#include <bzp/DBusObject.h>
+#include <bzp/Logger.h>
 
 namespace bzp {
 

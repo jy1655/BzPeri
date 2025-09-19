@@ -3,7 +3,7 @@
 //
 // C++20 std::format compatibility layer
 
-#include "FormatCompat.h"
+#include <bzp/FormatCompat.h>
 #include <cstdio>
 
 namespace bzp {

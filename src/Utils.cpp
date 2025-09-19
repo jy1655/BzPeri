@@ -33,8 +33,8 @@
 #include <ranges>
 #include <cstring>
 
-#include "Utils.h"
-#include "FormatCompat.h"
+#include <bzp/Utils.h>
+#include <bzp/FormatCompat.h>
 
 namespace bzp {
 

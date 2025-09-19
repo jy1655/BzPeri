@@ -29,15 +29,15 @@
 #include <regex>
 
 #include "ServerUtils.h"
-#include "DBusObject.h"
-#include "DBusInterface.h"
-#include "GattProperty.h"
-#include "GattService.h"
-#include "GattCharacteristic.h"
-#include "GattDescriptor.h"
-#include "Server.h"
-#include "Logger.h"
-#include "Utils.h"
+#include <bzp/DBusObject.h>
+#include <bzp/DBusInterface.h>
+#include <bzp/GattProperty.h>
+#include <bzp/GattService.h>
+#include <bzp/GattCharacteristic.h>
+#include <bzp/GattDescriptor.h>
+#include <bzp/Server.h>
+#include <bzp/Logger.h>
+#include <bzp/Utils.h>
 
 namespace bzp {
 

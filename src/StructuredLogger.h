@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Logger.h"
+#include <bzp/Logger.h>
 #include <sstream>
 #include <string>
 

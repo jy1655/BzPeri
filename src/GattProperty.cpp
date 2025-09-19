@@ -24,8 +24,8 @@
 #include <gio/gio.h>
 #include <string>
 
-#include "Utils.h"
-#include "GattProperty.h"
+#include <bzp/Utils.h>
+#include <bzp/GattProperty.h>
 
 namespace bzp {
 

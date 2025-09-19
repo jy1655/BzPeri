@@ -51,8 +51,8 @@
 #include <exception>
 
 #include "Init.h"
-#include "Logger.h"
-#include "Server.h"
+#include <bzp/Logger.h>
+#include <bzp/Server.h>
 #include "ServiceRegistry.h"
 
 // Macro for safe C API functions that catch C++ exceptions

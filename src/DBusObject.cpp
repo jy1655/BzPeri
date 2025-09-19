@@ -38,13 +38,13 @@
 // objects in a hierarchy, only the root object's publish flag matters.
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#include "GattProperty.h"
-#include "DBusInterface.h"
-#include "GattService.h"
-#include "DBusObject.h"
-#include "Utils.h"
-#include "GattUuid.h"
-#include "Logger.h"
+#include <bzp/GattProperty.h>
+#include <bzp/DBusInterface.h>
+#include <bzp/GattService.h>
+#include <bzp/DBusObject.h>
+#include <bzp/Utils.h>
+#include <bzp/GattUuid.h>
+#include <bzp/Logger.h>
 
 namespace bzp {
 

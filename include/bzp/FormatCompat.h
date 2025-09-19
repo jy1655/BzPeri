@@ -9,10 +9,6 @@
 #include <cstdint>
 #include <cstdio>
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 // Try to use std::format, fall back to snprintf if not available
 #ifndef HAS_STD_FORMAT
     #if __cpp_lib_format >= 201907L

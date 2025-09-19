@@ -152,18 +152,18 @@
 
 #include <algorithm>
 
-#include "Server.h"
+#include <bzp/Server.h>
 #include "ServerUtils.h"
-#include "Utils.h"
-#include "Globals.h"
-#include "DBusObject.h"
-#include "DBusInterface.h"
-#include "GattProperty.h"
-#include "GattService.h"
-#include "GattUuid.h"
-#include "GattCharacteristic.h"
-#include "GattDescriptor.h"
-#include "Logger.h"
+#include <bzp/Utils.h>
+#include <bzp/Globals.h>
+#include <bzp/DBusObject.h>
+#include <bzp/DBusInterface.h>
+#include <bzp/GattProperty.h>
+#include <bzp/GattService.h>
+#include <bzp/GattUuid.h>
+#include <bzp/GattCharacteristic.h>
+#include <bzp/GattDescriptor.h>
+#include <bzp/Logger.h>
 
 namespace bzp {
 

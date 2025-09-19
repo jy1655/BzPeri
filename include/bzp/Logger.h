@@ -29,7 +29,7 @@
 #include <concepts>
 #include <memory>
 
-#include "../include/BzPeri.h"
+#include "../BzPeri.h"
 #include <bzp/FormatCompat.h>
 
 namespace bzp {

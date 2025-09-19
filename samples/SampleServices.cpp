@@ -77,14 +77,14 @@
 #include <glib.h>
 
 #include "ServiceRegistry.h"
-#include "Server.h"
+#include <bzp/Server.h>
 #include "ServerUtils.h"
-#include "Utils.h"
-#include "Logger.h"
-#include "DBusObject.h"
-#include "GattService.h"
-#include "GattCharacteristic.h"
-#include "GattDescriptor.h"
+#include <bzp/Utils.h>
+#include <bzp/Logger.h>
+#include <bzp/DBusObject.h>
+#include <bzp/GattService.h>
+#include <bzp/GattCharacteristic.h>
+#include <bzp/GattDescriptor.h>
 
 namespace bzp::samples {
 

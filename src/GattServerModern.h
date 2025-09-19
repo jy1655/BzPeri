@@ -18,7 +18,7 @@
 
 #include "config.h"
 #include "GattInterface.h"
-#include "Server.h"
+#include <bzp/Server.h>
 
 #ifdef BLUEZ_ADVANCED_FEATURES
 #include "BluezModern.h"

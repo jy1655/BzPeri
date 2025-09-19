@@ -71,7 +71,7 @@ Creating BLE services is **incredibly simple** with BzPeri's DSL:
 // Simple time service example
 .gattServiceBegin("time_service", "1805")
     .gattCharacteristicBegin("current_time", "2A2B", {"read", "notify"})
-        .onReadValue(CHARACTERISTIC_METHOD_CALLBACK_LAMBDA {
+        .onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
             auto now = std::chrono::system_clock::now();
             auto time_string = formatTime(now);
             self.methodReturnValue(pInvocation, time_string, true);
@@ -125,6 +125,111 @@ int main() {
 ## 📚 Documentation
 
 - **[API Reference](include/BzPeri.h)** - Complete API documentation
+- **[Configurator API](include/bzp/ConfiguratorSupport.h)** - Modern service configuration API
+
+## 📁 Header Layout
+
+All development headers install into the `bzp/` include namespace. Downstream projects should reference the configurator surface with canonical includes, for example:
+
+```cpp
+#include <bzp/ConfiguratorSupport.h>
+#include <bzp/Server.h>
+#include <bzp/GattCharacteristic.h>
+```
+
+This guarantees that code built against the `bzperi-dev` package picks up the packaged headers and stays aligned with the shared library—no copying from `src/` is required.
+
+### Service Configuration with Configurator API
+
+BzPeri now supports a modern configurator API for defining GATT services. This approach provides better modularity and maintainability compared to the legacy C API.
+
+#### Quick Start with Configurators
+
+**1. Include the configurator support header:**
+```cpp
+#include <bzp/ConfiguratorSupport.h>
+```
+
+**2. Define your service configurator:**
+```cpp
+void configureMyServices(bzp::Server& server) {
+    server.configure([](bzp::DBusObject& root) {
+        // Device Information Service
+        root.gattServiceBegin("device_info", "180A")
+            .gattCharacteristicBegin("manufacturer", "2A29", {"read"})
+                .onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+                    std::string manufacturer = "My Company";
+                    self.methodReturnValue(pInvocation, manufacturer, true);
+                })
+            .gattCharacteristicEnd()
+        .gattServiceEnd()
+
+        // Custom service example
+        .gattServiceBegin("my_service", "12345678-1234-1234-1234-123456789ABC")
+            .gattCharacteristicBegin("my_data", "87654321-4321-4321-4321-ABCDEF123456", {"read", "write", "notify"})
+                .onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+                    // Handle read requests
+                    uint32_t value = self.getDataValue<uint32_t>("my_service/data", 0);
+                    self.methodReturnValue(pInvocation, value, true);
+                })
+                .onWriteValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string&, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
+                    // Extract value from D-Bus parameters
+                    GVariant* pAyBuffer = g_variant_get_child_value(pParameters, 0);
+                    // Process the byte array as needed for your data type
+                    g_variant_unref(pAyBuffer);
+
+                    // Trigger notification handler and respond to client
+                    self.callOnUpdatedValue(pConnection, pUserData);
+                    self.methodReturnVariant(pInvocation, nullptr);
+                })
+                .onUpdatedValue([](const GattCharacteristic& self, GDBusConnection* pConnection, void*) {
+                    // Handle notifications
+                    uint32_t value = self.getDataValue<uint32_t>("my_service/data", 0);
+                    self.sendChangeNotificationValue(pConnection, value);
+                    return true;
+                })
+            .gattCharacteristicEnd()
+        .gattServiceEnd();
+    });
+}
+```
+
+**3. Register your configurator:**
+```cpp
+int main() {
+    // Register your service configurator
+    bzp::registerServiceConfigurator(configureMyServices);
+
+    // Start the server (configurators are applied automatically)
+    if (!bzpStartWithBondable("bzperi.myapp", "My App", "App",
+                             dataGetter, dataSetter, 30000, 1)) {
+        return -1;
+    }
+
+    // Rest of your application...
+}
+```
+
+#### Benefits of the Configurator API
+
+- **Modular**: Each service can be defined in separate files/modules
+- **Type Safe**: Fluent interface provides compile-time validation
+- **IntelliSense**: Modern IDEs provide auto-completion support
+- **Maintainable**: Clear separation between service definition and business logic
+- **Testable**: Services can be unit tested independently
+
+#### Available Headers
+
+The configurator API is distributed as part of the `bzperi-dev` package:
+
+- `bzp/ConfiguratorSupport.h` - All-in-one header for configurator development
+- `bzp/Server.h` - Server configuration interface
+- `bzp/DBusObject.h` - Root object for service tree
+- `bzp/GattService.h` - Service definition interface
+- `bzp/GattCharacteristic.h` - Characteristic definition interface
+- `bzp/GattDescriptor.h` - Descriptor definition interface
+- `bzp/GattUuid.h` - UUID handling utilities
+- `bzp/GattCallbacks.h` - Callback macros for event handlers
 
 ### Migration from Gobbledegook
 

@@ -32,10 +32,10 @@
 #include <string>
 #include <vector>
 
-#include "Globals.h"
-#include "DBusObjectPath.h"
-#include "Logger.h"
-#include "Server.h"
+#include <bzp/Globals.h>
+#include <bzp/DBusObjectPath.h>
+#include <bzp/Logger.h>
+#include <bzp/Server.h>
 
 namespace bzp {
 
