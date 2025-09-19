@@ -11,8 +11,9 @@
 // >>>  INSIDE THIS FILE
 // >>
 //
-// This is the money file. This is your server description and complete implementation. If you want to add or remove a Bluetooth
-// service, alter its behavior, add or remove characteristics or descriptors (and more), then this is your new home.
+// This file provides the core BzPeri server infrastructure, handling D-Bus object management, service
+// registration, and server lifecycle. For service implementations, see the samples/ directory or create
+// your own service configurators using the BzPeriConfigurator API.
 //
 // >>
 // >>>  DISCUSSION
@@ -48,9 +49,10 @@
 // I don't know about you, but when dealing with data and the concepts "multiple" and "kept in sync" come into play, my spidey
 // sense starts to tingle. The best way to ensure sychronization is to remove the need to keep things sychronized.
 //
-// The large code block below defines a description that includes all the information about our server in a way that can be easily
-// used to generate both: (1) the D-Bus object hierarchy and (2) the BlueZ services that occupy that hierarchy. In addition, we'll
-// take that a step further by including the implementation right inside the description. Everything in one place.
+// BzPeri now uses a modular service configuration system. Services are defined using service configurators
+// that are registered with the ServiceRegistry. This allows for clean separation of concerns and
+// easier testing and maintenance. The fluent DSL interface is still used within configurators to
+// define services, characteristics, and descriptors.
 //
 // >>
 // >>>  MANAGING SERVER DATA
@@ -67,8 +69,8 @@
 // >>>  UNDERSTANDING THE UNDERLYING FRAMEWORKS
 // >>
 //
-// The server description below attempts to provide a GATT-based interface in terms of GATT services, characteristics and
-// descriptors. Consider the following sample:
+// Service configurators use the fluent DSL interface to provide a GATT-based interface in terms of GATT
+// services, characteristics and descriptors. Here's how services are typically defined in configurators:
 //
 //     .gattServiceBegin("text", "00000001-1E3C-FAD4-74E2-97A033F1BFAA")
 //         .gattCharacteristicBegin("string", "00000002-1E3C-FAD4-74E2-97A033F1BFAA", {"read", "write", "notify"})
