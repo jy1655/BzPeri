@@ -137,7 +137,7 @@ set(BZPERI_SOURCES
     src/GattInterface.cpp
     src/GattProperty.cpp
     src/GattService.cpp
-    src/Gobbledegook.cpp
+    src/BluezPeripheral.cpp
     src/Init.cpp
     src/Logger.cpp
     src/FormatCompat.cpp

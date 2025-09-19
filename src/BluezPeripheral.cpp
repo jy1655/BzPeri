@@ -1,9 +1,9 @@
 // Copyright 2017-2019 Paul Nettle
+// Copyright (c) 2025 BzPeri Contributors
 //
-// This file is part of Gobbledegook.
+// This file is part of BzPeri.
 //
-// Use of this source code is governed by a BSD-style license that can be found
-// in the LICENSE file in the root of the source tree.
+// Licensed under MIT License (see LICENSE file)
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //
@@ -11,24 +11,28 @@
 // >>>  INSIDE THIS FILE
 // >>
 //
-// The methods in this file represent the complete external C interface for a Gobbledegook server.
+// The methods in this file represent the complete external C interface for a BzPeri server
+// (compatible with the legacy Gobbledegook API).
 //
 // >>
 // >>>  DISCUSSION
 // >>
 //
-// Although Gobbledegook requires customization (see Server.cpp), it still maintains a public interface (this file.) This keeps the
-// interface to the server simple and compact, while also allowing the server to be built as a library if the developer so chooses.
+// BzPeri exposes a C-friendly facade so that non-C++ applications (or legacy code originally
+// written for Gobbledegook) can embed the server without needing to dive into modern C++ code.
+// The C interface keeps the integration surface simple and compact while the implementation is
+// handled inside the library.
 //
-// As an alternative, it is also possible to publish customized Gobbledegook servers, allowing others to use the server through the
-// public interface defined in this file.
+// Service definitions are now provided by modular configurators (see ServiceRegistry). This C API
+// orchestrates server startup/shutdown, log routing, and data synchronization with those
+// configurators.
 //
-// In addition, this interface is compatible with the C language, allowing non-C++ programs to interface with Gobbledegook, even
-// though Gobbledgook is a C++ codebase. This should also simplify the use of this interface with other languages, such as Swift.
+// The interface is compatible with the C language, allowing non-C++ programs to interface with
+// BzPeri. This also simplifies bindings for other languages such as Swift or Python.
 //
 // The interface below has the following categories:
 //
-//     Log registration - used to register methods that accept all Gobbledegook logs
+//     Log registration - used to register methods that accept all BzPeri logs
 //     Update queue management - used for notifying the server that data has been updated
 //     Server state - used to track the server's current running state and health
 //     Server control - running and stopping the server

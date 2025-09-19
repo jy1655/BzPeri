@@ -7,7 +7,7 @@ Files: *
 Copyright: 2025 BzPeri Contributors
 License: MIT
 
-Files: src/Gobbledegook.cpp src/Gobbledegook.h
+Files: src/BluezPeripheral.cpp src/Gobbledegook.h
 Copyright: 2017-2019 Paul Nettle
            2025 BzPeri Contributors
 License: MIT and BSD-style
