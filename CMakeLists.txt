@@ -116,6 +116,7 @@ endif()
 # Include directories
 include_directories(include)
 include_directories(src)
+include_directories(samples)
 
 # Configure header
 configure_file(
@@ -143,7 +144,7 @@ set(BZPERI_SOURCES
     src/ServerTypes.cpp
     src/Server.cpp
     src/ServiceRegistry.cpp
-    src/SampleServices.cpp
+    samples/SampleServices.cpp
     src/ServerUtils.cpp
     src/Utils.cpp
 )
@@ -197,7 +198,7 @@ endif()
 
 # Standalone executable
 if(BUILD_STANDALONE AND LINUX)
-    add_executable(standalone src/standalone.cpp)
+    add_executable(standalone samples/standalone.cpp)
     target_link_libraries(standalone bzperi)
     set_target_properties(standalone PROPERTIES
         OUTPUT_NAME bzp-standalone
