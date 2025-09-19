@@ -30,7 +30,7 @@
 #include <memory>
 
 #include "../include/BzPeri.h"
-#include "../include/bzp/FormatCompat.h"
+#include <bzp/FormatCompat.h>
 
 namespace bzp {
 

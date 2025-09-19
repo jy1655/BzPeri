@@ -57,7 +57,7 @@
 #include <ctype.h>
 
 #include <iostream>
-#include "Logger.h"
+#include <bzp/Logger.h>
 
 namespace bzp {
 

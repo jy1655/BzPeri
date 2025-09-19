@@ -39,7 +39,7 @@
 #include <utility>
 #include <vector>
 
-#include "../include/bzp/Server.h"
+#include <bzp/Server.h>
 
 namespace bzp {
 

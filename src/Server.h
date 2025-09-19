@@ -35,7 +35,7 @@
 #include <functional>
 
 #include "../include/BzPeri.h"
-#include "../include/bzp/DBusObject.h"
+#include <bzp/DBusObject.h>
 
 namespace bzp {
 

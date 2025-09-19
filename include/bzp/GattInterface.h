@@ -26,11 +26,11 @@
 #include <string>
 #include <list>
 
-#include "DBusInterface.h"
-#include "GattProperty.h"
-#include "GattUuid.h"
-#include "Server.h"
-#include "Utils.h"
+#include <bzp/DBusInterface.h>
+#include <bzp/GattProperty.h>
+#include <bzp/GattUuid.h>
+#include <bzp/Server.h>
+#include <bzp/Utils.h>
 
 namespace bzp {
 

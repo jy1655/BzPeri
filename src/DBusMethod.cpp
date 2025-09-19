@@ -27,7 +27,7 @@
 #include <string>
 #include <vector>
 
-#include "../include/bzp/DBusMethod.h"
+#include <bzp/DBusMethod.h>
 
 namespace bzp {
 

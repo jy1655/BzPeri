@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "../include/bzp/BluezTypes.h"
+#include <bzp/BluezTypes.h>
 #include "GLibRAII.h"
 #include <gio/gio.h>
 #include <functional>

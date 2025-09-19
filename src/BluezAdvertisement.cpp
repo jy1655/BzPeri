@@ -5,7 +5,7 @@
 
 #include "BluezAdvertisement.h"
 #include "GLibRAII.h"
-#include "Logger.h"
+#include <bzp/Logger.h>
 #include <cstring>
 
 namespace bzp {

@@ -39,7 +39,7 @@
 #include <cstdint>
 #include <endian.h>
 
-#include "DBusObjectPath.h"
+#include <bzp/DBusObjectPath.h>
 
 namespace bzp {
 

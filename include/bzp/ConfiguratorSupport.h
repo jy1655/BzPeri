@@ -77,12 +77,12 @@
 #pragma once
 
 // Core configurator types
-#include "Server.h"
-#include "DBusObject.h"
-#include "GattService.h"
-#include "GattCharacteristic.h"
-#include "GattDescriptor.h"
-#include "GattUuid.h"
+#include <bzp/Server.h>
+#include <bzp/DBusObject.h>
+#include <bzp/GattService.h>
+#include <bzp/GattCharacteristic.h>
+#include <bzp/GattDescriptor.h>
+#include <bzp/GattUuid.h>
 
 // No special callback macros needed - use direct lambda functions
 

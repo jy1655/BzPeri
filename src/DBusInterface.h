@@ -26,7 +26,7 @@
 #include <string>
 #include <list>
 
-#include "../include/bzp/DBusMethod.h"
+#include <bzp/DBusMethod.h>
 
 namespace bzp {
 

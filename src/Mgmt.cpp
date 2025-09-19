@@ -26,8 +26,8 @@
 #include <string.h>
 
 #include "Mgmt.h"
-#include "Logger.h"
-#include "../include/bzp/Utils.h"
+#include <bzp/Logger.h>
+#include <bzp/Utils.h>
 
 namespace bzp {
 

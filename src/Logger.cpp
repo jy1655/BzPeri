@@ -47,7 +47,7 @@
 //    Logger::info(SSTR << "There were " << count << " entries in the list");
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#include "Logger.h"
+#include <bzp/Logger.h>
 
 namespace bzp {
 

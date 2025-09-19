@@ -127,6 +127,18 @@ int main() {
 - **[API Reference](include/BzPeri.h)** - Complete API documentation
 - **[Configurator API](include/bzp/ConfiguratorSupport.h)** - Modern service configuration API
 
+## 📁 Header Layout
+
+All development headers install into the `bzp/` include namespace. Downstream projects should reference the configurator surface with canonical includes, for example:
+
+```cpp
+#include <bzp/ConfiguratorSupport.h>
+#include <bzp/Server.h>
+#include <bzp/GattCharacteristic.h>
+```
+
+This guarantees that code built against the `bzperi-dev` package picks up the packaged headers and stays aligned with the shared library—no copying from `src/` is required.
+
 ### Service Configuration with Configurator API
 
 BzPeri now supports a modern configurator API for defining GATT services. This approach provides better modularity and maintainability compared to the legacy C API.

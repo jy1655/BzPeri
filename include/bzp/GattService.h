@@ -29,7 +29,7 @@
 #include <string>
 #include <list>
 
-#include "GattInterface.h"
+#include <bzp/GattInterface.h>
 
 namespace bzp {
 

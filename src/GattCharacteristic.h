@@ -27,9 +27,9 @@
 #include <string>
 #include <list>
 
-#include "../include/bzp/Utils.h"
+#include <bzp/Utils.h>
 #include "GattInterface.h"
-#include "../include/bzp/BluezAdapter.h"
+#include <bzp/BluezAdapter.h>
 
 namespace bzp {
 

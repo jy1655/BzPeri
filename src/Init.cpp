@@ -39,15 +39,15 @@
 #include <chrono>
 #include <thread>
 
-#include "../include/bzp/Server.h"
-#include "../include/bzp/Globals.h"
-#include "../include/bzp/BluezAdapter.h"
+#include <bzp/Server.h>
+#include <bzp/Globals.h>
+#include <bzp/BluezAdapter.h>
 // Mgmt.h removed - replaced with modern BlueZ D-Bus interface
-#include "../include/bzp/DBusObject.h"
-#include "../include/bzp/DBusInterface.h"
-#include "../include/bzp/GattCharacteristic.h"
-#include "../include/bzp/GattProperty.h"
-#include "Logger.h"
+#include <bzp/DBusObject.h>
+#include <bzp/DBusInterface.h>
+#include <bzp/GattCharacteristic.h>
+#include <bzp/GattProperty.h>
+#include <bzp/Logger.h>
 #include "Init.h"
 
 namespace bzp {

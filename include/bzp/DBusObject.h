@@ -27,7 +27,7 @@
 #include <list>
 #include <memory>
 
-#include "DBusObjectPath.h"
+#include <bzp/DBusObjectPath.h>
 
 namespace bzp {
 
