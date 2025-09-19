@@ -215,6 +215,12 @@ install(TARGETS bzperi
     PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} COMPONENT headers
 )
 
+# Install bzp/ subdirectory headers
+install(DIRECTORY include/bzp/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/bzp COMPONENT headers
+    FILES_MATCHING PATTERN "*.h"
+)
+
 if(TARGET standalone)
     install(TARGETS standalone
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT tools

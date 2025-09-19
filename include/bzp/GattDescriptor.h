@@ -26,7 +26,7 @@
 #include <string>
 #include <list>
 
-#include "../include/bzp/Utils.h"
+#include "Utils.h"
 #include "GattInterface.h"
 
 namespace bzp {

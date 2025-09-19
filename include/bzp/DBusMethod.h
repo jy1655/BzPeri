@@ -35,7 +35,7 @@
 #include "Globals.h"
 #include "DBusObjectPath.h"
 #include "Logger.h"
-#include "Server.h"
+#include "../include/bzp/Server.h"
 
 namespace bzp {
 

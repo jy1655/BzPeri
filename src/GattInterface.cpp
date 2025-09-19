@@ -21,9 +21,9 @@
 // description in Server.cpp.
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#include "GattInterface.h"
-#include "GattProperty.h"
-#include "DBusObject.h"
+#include "../include/bzp/GattInterface.h"
+#include "../include/bzp/GattProperty.h"
+#include "../include/bzp/DBusObject.h"
 #include "Logger.h"
 
 #ifdef BLUEZ_ADVANCED_FEATURES

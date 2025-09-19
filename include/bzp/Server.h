@@ -34,8 +34,8 @@
 #include <span>
 #include <functional>
 
-#include "../include/BzPeri.h"
-#include "../include/bzp/DBusObject.h"
+#include "../BzPeri.h"
+#include "DBusObject.h"
 
 namespace bzp {
 

@@ -22,10 +22,10 @@
 // detailed discussion in Server.cpp.
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#include "GattDescriptor.h"
-#include "GattProperty.h"
-#include "DBusObject.h"
-#include "Utils.h"
+#include "../include/bzp/GattDescriptor.h"
+#include "../include/bzp/GattProperty.h"
+#include "../include/bzp/DBusObject.h"
+#include "../include/bzp/Utils.h"
 #include "Logger.h"
 
 namespace bzp {

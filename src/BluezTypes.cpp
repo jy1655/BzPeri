@@ -3,7 +3,7 @@
 //
 // BlueZ type definitions and utilities
 
-#include "BluezTypes.h"
+#include "../include/bzp/BluezTypes.h"
 #include "Logger.h"
 #include <algorithm>
 #include <cmath>

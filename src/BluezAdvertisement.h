@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "BluezTypes.h"
+#include "../include/bzp/BluezTypes.h"
 #include "StructuredLogger.h"
 #include <gio/gio.h>
 #include <string>

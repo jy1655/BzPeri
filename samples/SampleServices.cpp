@@ -77,7 +77,7 @@
 #include <glib.h>
 
 #include "ServiceRegistry.h"
-#include "Server.h"
+#include "../include/bzp/Server.h"
 #include "ServerUtils.h"
 #include "Utils.h"
 #include "Logger.h"

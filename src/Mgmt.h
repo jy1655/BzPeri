@@ -29,7 +29,7 @@
 #include <string>
 
 #include "HciAdapter.h"
-#include "Utils.h"
+#include "../include/bzp/Utils.h"
 
 namespace bzp {
 

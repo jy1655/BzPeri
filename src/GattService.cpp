@@ -27,10 +27,10 @@
 #include <string>
 #include <list>
 
-#include "GattService.h"
-#include "GattInterface.h"
-#include "DBusObject.h"
-#include "GattCharacteristic.h"
+#include "../include/bzp/GattService.h"
+#include "../include/bzp/GattInterface.h"
+#include "../include/bzp/DBusObject.h"
+#include "../include/bzp/GattCharacteristic.h"
 
 namespace bzp {
 

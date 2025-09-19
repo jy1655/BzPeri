@@ -29,8 +29,8 @@
 #include <concepts>
 #include <memory>
 
-#include "../include/BzPeri.h"
-#include "../include/bzp/FormatCompat.h"
+#include "../BzPeri.h"
+#include "FormatCompat.h"
 
 namespace bzp {
 

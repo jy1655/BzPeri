@@ -3,14 +3,14 @@
 //
 // Modern BlueZ adapter management for BzPeri
 
-#include "BluezAdapter.h"
+#include "../include/bzp/BluezAdapter.h"
 #include "BluezAdvertisement.h"
-#include "Globals.h"
-#include "Server.h"
+#include "../include/bzp/Globals.h"
+#include "../include/bzp/Server.h"
 #include "Logger.h"
 #include "StructuredLogger.h"
 #include "GLibRAII.h"
-#include "Utils.h"
+#include "../include/bzp/Utils.h"
 #include <glib.h>
 #include <cstring>
 #include <algorithm>
