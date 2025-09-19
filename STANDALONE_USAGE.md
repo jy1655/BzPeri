@@ -57,6 +57,24 @@ sudo ./build/bzp-standalone -d --adapter=hci1
 sudo ./build/bzp-standalone -v --list-adapters
 ```
 
+### Service Configuration Options
+```bash
+# Override the D-Bus service namespace (updates characteristic paths)
+sudo ./build/bzp-standalone --service-name=my_device
+
+# Customize LE advertising names
+sudo ./build/bzp-standalone --advertise-name="My Device" --advertise-short=MyDev
+
+# Place bundled example services under a custom namespace node
+sudo ./build/bzp-standalone --service-name=my_device --sample-namespace=demo
+
+# Start with an empty server (no bundled example services)
+sudo ./build/bzp-standalone --no-sample-services
+
+# Re-enable bundled services after disabling them in the same invocation
+sudo ./build/bzp-standalone --no-sample-services --with-sample-services
+```
+
 ### Help
 ```bash
 # Show help message
@@ -195,7 +213,7 @@ Both signals will trigger a clean shutdown sequence that properly closes all Blu
 
 The application respects these configuration files:
 
-- **D-Bus Policy**: `/etc/dbus-1/system.d/com.bzperi.conf`
+- **D-Bus Policy**: `/etc/dbus-1/system.d/com.bzperi.conf` (adjust prefix if you override `--service-name`)
 - **Polkit Rules**: `/etc/polkit-1/rules.d/50-bzperi-bluez.rules`
 - **BlueZ Config**: `/etc/bluetooth/main.conf`
 

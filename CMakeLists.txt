@@ -116,6 +116,7 @@ endif()
 # Include directories
 include_directories(include)
 include_directories(src)
+include_directories(samples)
 
 # Configure header
 configure_file(
@@ -136,12 +137,14 @@ set(BZPERI_SOURCES
     src/GattInterface.cpp
     src/GattProperty.cpp
     src/GattService.cpp
-    src/Gobbledegook.cpp
+    src/BluezPeripheral.cpp
     src/Init.cpp
     src/Logger.cpp
     src/FormatCompat.cpp
     src/ServerTypes.cpp
     src/Server.cpp
+    src/ServiceRegistry.cpp
+    samples/SampleServices.cpp
     src/ServerUtils.cpp
     src/Utils.cpp
 )
@@ -169,7 +172,7 @@ endif()
 # Library properties
 set_target_properties(bzperi PROPERTIES
     OUTPUT_NAME bzp
-    PUBLIC_HEADER "include/BzPeri.h;include/Gobbledegook.h"
+    PUBLIC_HEADER "include/BzPeri.h;include/Gobbledegook.h;include/BzPeriConfigurator.h"
 )
 
 # Link libraries
@@ -195,7 +198,7 @@ endif()
 
 # Standalone executable
 if(BUILD_STANDALONE AND LINUX)
-    add_executable(standalone src/standalone.cpp)
+    add_executable(standalone samples/standalone.cpp)
     target_link_libraries(standalone bzperi)
     set_target_properties(standalone PROPERTIES
         OUTPUT_NAME bzp-standalone

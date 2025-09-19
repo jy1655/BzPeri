@@ -32,6 +32,7 @@
 #include <list>
 #include <memory>
 #include <span>
+#include <functional>
 
 #include "../include/BzPeri.h"
 #include "DBusObject.h"
@@ -66,6 +67,12 @@ struct Server
 
 	// Returns the set of objects that each represent the root of an object tree describing a group of services we are providing
 	const Objects& getObjects() const noexcept { return objects; }
+
+	// Returns the root object for the server's D-Bus hierarchy
+	DBusObject& getRootObject() noexcept { return *rootObject; }
+
+	// Configure the server using a builder callback to mutate the root hierarchy
+	void configure(const std::function<void(DBusObject&)>& builder);
 
 	// Returns the requested setting for BR/EDR (true = enabled, false = disabled)
 	[[nodiscard]] bool getEnableBREDR() const noexcept { return enableBREDR; }
@@ -197,6 +204,9 @@ private:
 
 	// Our server's objects
 	Objects objects;
+
+	// Cached pointer to the root object for convenient access during configuration
+	DBusObject* rootObject = nullptr;
 
 	// BR/EDR requested state
 	bool enableBREDR;

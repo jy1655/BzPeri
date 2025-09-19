@@ -11,8 +11,9 @@
 // >>>  INSIDE THIS FILE
 // >>
 //
-// This is the money file. This is your server description and complete implementation. If you want to add or remove a Bluetooth
-// service, alter its behavior, add or remove characteristics or descriptors (and more), then this is your new home.
+// This file provides the core BzPeri server infrastructure, handling D-Bus object management, service
+// registration, and server lifecycle. For service implementations, see the samples/ directory or create
+// your own service configurators using the BzPeriConfigurator API.
 //
 // >>
 // >>>  DISCUSSION
@@ -48,9 +49,10 @@
 // I don't know about you, but when dealing with data and the concepts "multiple" and "kept in sync" come into play, my spidey
 // sense starts to tingle. The best way to ensure sychronization is to remove the need to keep things sychronized.
 //
-// The large code block below defines a description that includes all the information about our server in a way that can be easily
-// used to generate both: (1) the D-Bus object hierarchy and (2) the BlueZ services that occupy that hierarchy. In addition, we'll
-// take that a step further by including the implementation right inside the description. Everything in one place.
+// BzPeri now uses a modular service configuration system. Services are defined using service configurators
+// that are registered with the ServiceRegistry. This allows for clean separation of concerns and
+// easier testing and maintenance. The fluent DSL interface is still used within configurators to
+// define services, characteristics, and descriptors.
 //
 // >>
 // >>>  MANAGING SERVER DATA
@@ -67,8 +69,8 @@
 // >>>  UNDERSTANDING THE UNDERLYING FRAMEWORKS
 // >>
 //
-// The server description below attempts to provide a GATT-based interface in terms of GATT services, characteristics and
-// descriptors. Consider the following sample:
+// Service configurators use the fluent DSL interface to provide a GATT-based interface in terms of GATT
+// services, characteristics and descriptors. Here's how services are typically defined in configurators:
 //
 //     .gattServiceBegin("text", "00000001-1E3C-FAD4-74E2-97A033F1BFAA")
 //         .gattCharacteristicBegin("string", "00000002-1E3C-FAD4-74E2-97A033F1BFAA", {"read", "write", "notify"})
@@ -230,9 +232,16 @@ std::shared_ptr<Server> TheServer = nullptr;
 Server::Server(const std::string &serviceName, const std::string &advertisingName, const std::string &advertisingShortName,
 	BZPServerDataGetter getter, BZPServerDataSetter setter, bool enableBondable)
 {
-	// Save our names
-	this->serviceName = serviceName;
-	std::transform(this->serviceName.begin(), this->serviceName.end(), this->serviceName.begin(), ::tolower);
+	// Validate and save service name
+	std::string lowerServiceName = serviceName;
+	std::transform(lowerServiceName.begin(), lowerServiceName.end(), lowerServiceName.begin(), ::tolower);
+
+	// Enforce com.bzperi namespace for D-Bus compatibility
+	if (lowerServiceName != "bzperi" && lowerServiceName.find("bzperi.") != 0) {
+		throw std::invalid_argument("Service name must be 'bzperi' or start with 'bzperi.' (e.g., 'bzperi.myapp')");
+	}
+
+	this->serviceName = lowerServiceName;
 	this->advertisingName = advertisingName;
 	this->advertisingShortName = advertisingShortName;
 
@@ -253,276 +262,17 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 	//
 
 	// Create the root D-Bus object and push it into the list
-	objects.push_back(DBusObject(DBusObjectPath() + "com" + getServiceName()));
+	// Convert dots in service name to slashes for valid D-Bus object path
+	// e.g., "bzperi.myapp" becomes "/com/bzperi/myapp"
+	std::string pathServiceName = getServiceName();
+	std::replace(pathServiceName.begin(), pathServiceName.end(), '.', '/');
+	objects.push_back(DBusObject(DBusObjectPath() + "com" + pathServiceName));
 
-	// We're going to build off of this object, so we need to get a reference to the instance of the object as it resides in the
-	// list (and not the object that would be added to the list.)
-	objects.back()
+	// Cache the root node for downstream configurators (example services, application-defined services, etc.)
+	rootObject = &objects.back();
 
-	// Service: Device Information (0x180A)
-	//
-	// See: https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.service.device_information.xml
-	.gattServiceBegin("device", "180A")
-
-		// Characteristic: Manufacturer Name String (0x2A29)
-		//
-		// See: https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.characteristic.manufacturer_name_string.xml
-		.gattCharacteristicBegin("mfgr_name", "2A29", {"read"})
-
-			// Standard characteristic "ReadValue" method call
-			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-				self.methodReturnValue(pInvocation, "Acme Inc.", true);
-			})
-
-		.gattCharacteristicEnd()
-
-		// Characteristic: Model Number String (0x2A24)
-		//
-		// See: https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.characteristic.model_number_string.xml
-		.gattCharacteristicBegin("model_num", "2A24", {"read"})
-
-			// Standard characteristic "ReadValue" method call
-			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-				self.methodReturnValue(pInvocation, "Marvin-PA", true);
-			})
-
-		.gattCharacteristicEnd()
-
-	.gattServiceEnd()
-
-	// Battery Service (0x180F)
-	//
-	// This is a fake battery service that conforms to org.bluetooth.service.battery_service. For details, see:
-	//
-	//     https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.service.battery_service.xml
-	//
-	// We also handle updates to the battery level from inside the server (see onUpdatedValue). There is an external method
-	// (see main.cpp) that updates our battery level and posts an update using bzpPushUpdateQueue. Those updates are used
-	// to notify us that our value has changed, which translates into a call to `onUpdatedValue` from the idleFunc (see
-	// Init.cpp).
-	.gattServiceBegin("battery", "180F")
-
-		// Characteristic: Battery Level (0x2A19)
-		//
-		// See: https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.characteristic.battery_level.xml
-		.gattCharacteristicBegin("level", "2A19", {"read", "notify"})
-
-			// Standard characteristic "ReadValue" method call
-			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-				uint8_t batteryLevel = self.getDataValue<uint8_t>("battery/level", 0);
-				self.methodReturnValue(pInvocation, batteryLevel, true);
-			})
-
-			// Handle updates to the battery level
-			//
-			// Here we use the onUpdatedValue to set a callback that isn't exposed to BlueZ, but rather allows us to manage
-			// updates to our value. These updates may have come from our own server or some other source.
-			//
-			// We can handle updates in any way we wish, but the most common use is to send a change notification.
-			.onUpdatedValue([](const GattCharacteristic& self, GDBusConnection* pConnection, void* pUserData) {
-				uint8_t batteryLevel = self.getDataValue<uint8_t>("battery/level", 0);
-				self.sendChangeNotificationValue(pConnection, batteryLevel);
-				return true;
-			})
-
-		.gattCharacteristicEnd()
-	.gattServiceEnd()
-
-	// Current Time Service (0x1805)
-	//
-	// This is a time service that conforms to org.bluetooth.service.current_time. For details, see:
-	//
-	//    https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.service.current_time.xml
-	//
-	// Note: The old TickEvent system has been removed in modernization. For periodic updates,
-	// use GLib timers (g_timeout_add) directly. This example now shows only the read operation;
-	// periodic notifications would be implemented separately using modern timer patterns.
-	.gattServiceBegin("time", "1805")
-
-		// Characteristic: Current Time (0x2A2B)
-		//
-		// See: https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.characteristic.current_time.xml
-		.gattCharacteristicBegin("current", "2A2B", {"read", "notify"})
-
-			// Standard characteristic "ReadValue" method call
-			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-				self.methodReturnVariant(pInvocation, ServerUtils::gvariantCurrentTime(), true);
-			})
-
-			// Note: TickEvent system removed in modernization
-			// For periodic notifications, use g_timeout_add() to create a GLib timer:
-			// g_timeout_add_seconds(1, [](gpointer data) -> gboolean {
-			//     // Send time notifications to subscribed clients
-			//     return G_SOURCE_CONTINUE; // or G_SOURCE_REMOVE to stop
-			// }, nullptr);
-
-		.gattCharacteristicEnd()
-
-		// Characteristic: Local Time Information (0x2A0F)
-		//
-		// See: https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.characteristic.local_time_information.xml
-		.gattCharacteristicBegin("local", "2A0F", {"read"})
-
-			// Standard characteristic "ReadValue" method call
-			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-				self.methodReturnVariant(pInvocation, ServerUtils::gvariantLocalTime(), true);
-			})
-
-		.gattCharacteristicEnd()
-	.gattServiceEnd()
-
-	// Custom read/write text string service (00000001-1E3C-FAD4-74E2-97A033F1BFAA)
-	//
-	// This service will return a text string value (default: 'Hello, world!'). If the text value is updated, it will notify
-	// that the value has been updated and provide the new text from that point forward.
-	.gattServiceBegin("text", "00000001-1E3C-FAD4-74E2-97A033F1BFAA")
-
-		// Characteristic: String value (custom: 00000002-1E3C-FAD4-74E2-97A033F1BFAA)
-		.gattCharacteristicBegin("string", "00000002-1E3C-FAD4-74E2-97A033F1BFAA", {"read", "write", "notify"})
-
-			// Standard characteristic "ReadValue" method call
-			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-				const char *pTextString = self.getDataPointer<const char *>("text/string", "");
-				self.methodReturnValue(pInvocation, pTextString, true);
-			})
-
-			// Standard characteristic "WriteValue" method call
-			.onWriteValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-				// Update the text string value
-				GVariant *pAyBuffer = g_variant_get_child_value(pParameters, 0);
-				self.setDataPointer("text/string", Utils::stringFromGVariantByteArray(pAyBuffer).c_str());
-
-				// Since all of these methods (onReadValue, onWriteValue, onUpdateValue) are all part of the same
-				// Characteristic interface (which just so happens to be the same interface passed into our self
-				// parameter) we can that parameter to call our own onUpdatedValue method
-				self.callOnUpdatedValue(pConnection, pUserData);
-
-				// Note: Even though the WriteValue method returns void, it's important to return like this, so that a
-				// dbus "method_return" is sent, otherwise the client gets an error (ATT error code 0x0e"unlikely").
-				// Only "write-without-response" works without this
-				self.methodReturnVariant(pInvocation, NULL);
-			})
-
-			// Here we use the onUpdatedValue to set a callback that isn't exposed to BlueZ, but rather allows us to manage
-			// updates to our value. These updates may have come from our own server or some other source.
-			//
-			// We can handle updates in any way we wish, but the most common use is to send a change notification.
-			.onUpdatedValue([](const GattCharacteristic& self, GDBusConnection* pConnection, void* pUserData) {
-				const char *pTextString = self.getDataPointer<const char *>("text/string", "");
-				self.sendChangeNotificationValue(pConnection, pTextString);
-				return true;
-			})
-
-			// GATT Descriptor: Characteristic User Description (0x2901)
-			// 
-			// See: https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.descriptor.gatt.characteristic_user_description.xml
-			.gattDescriptorBegin("description", "2901", {"read"})
-
-				// Standard descriptor "ReadValue" method call
-				.onReadValue([](const GattDescriptor& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-					const char *pDescription = "A mutable text string used for testing. Read and write to me, it tickles!";
-					self.methodReturnValue(pInvocation, pDescription, true);
-				})
-
-			.gattDescriptorEnd()
-
-		.gattCharacteristicEnd()
-	.gattServiceEnd()
-
-	// Custom ASCII time string service
-	//
-	// This service will simply return the result of asctime() of the current local time. It's a nice test service to provide
-	// a new value each time it is read.
-
-	// Service: ASCII Time (custom: 00000001-1E3D-FAD4-74E2-97A033F1BFEE)
-	.gattServiceBegin("ascii_time", "00000001-1E3D-FAD4-74E2-97A033F1BFEE")
-
-		// Characteristic: ASCII Time String (custom: 00000002-1E3D-FAD4-74E2-97A033F1BFEE)
-		.gattCharacteristicBegin("string", "00000002-1E3D-FAD4-74E2-97A033F1BFEE", {"read"})
-
-			// Standard characteristic "ReadValue" method call
-			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-				// Get our local time string using asctime()
-				time_t timeVal = time(nullptr);
-				struct tm *pTimeStruct = localtime(&timeVal);
-				std::string timeString = Utils::trim(asctime(pTimeStruct));
-
-				self.methodReturnValue(pInvocation, timeString, true);
-			})
-
-			// GATT Descriptor: Characteristic User Description (0x2901)
-			// 
-			// See: https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.descriptor.gatt.characteristic_user_description.xml
-			.gattDescriptorBegin("description", "2901", {"read"})
-
-				// Standard descriptor "ReadValue" method call
-				.onReadValue([](const GattDescriptor& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-					const char *pDescription = "Returns the local time (as reported by POSIX asctime()) each time it is read";
-					self.methodReturnValue(pInvocation, pDescription, true);
-				})
-
-			.gattDescriptorEnd()
-
-		.gattCharacteristicEnd()
-	.gattServiceEnd()
-
-	// Custom CPU information service (custom: 0000B001-1E3D-FAD4-74E2-97A033F1BFEE)
-	//
-	// This is a cheezy little service that reads the CPU info from /proc/cpuinfo and returns the count and model of the
-	// CPU. It may not work on all platforms, but it does provide yet another example of how to do things.
-
-	// Service: CPU Information (custom: 0000B001-1E3D-FAD4-74E2-97A033F1BFEE)
-	.gattServiceBegin("cpu", "0000B001-1E3D-FAD4-74E2-97A033F1BFEE")
-
-		// Characteristic: CPU Count (custom: 0000B002-1E3D-FAD4-74E2-97A033F1BFEE)
-		.gattCharacteristicBegin("count", "0000B002-1E3D-FAD4-74E2-97A033F1BFEE", {"read"})
-
-			// Standard characteristic "ReadValue" method call
-			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-				int16_t cpuCount = 0;
-				ServerUtils::getCpuInfo(cpuCount);
-				self.methodReturnValue(pInvocation, cpuCount, true);
-			})
-
-			// GATT Descriptor: Characteristic User Description (0x2901)
-			// 
-			// See: https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.descriptor.gatt.characteristic_user_description.xml
-			.gattDescriptorBegin("description", "2901", {"read"})
-
-				// Standard descriptor "ReadValue" method call
-				.onReadValue([](const GattDescriptor& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-					const char *pDescription = "This might represent the number of CPUs in the system";
-					self.methodReturnValue(pInvocation, pDescription, true);
-				})
-
-			.gattDescriptorEnd()
-
-		.gattCharacteristicEnd()
-
-		// Characteristic: CPU Model (custom: 0000B003-1E3D-FAD4-74E2-97A033F1BFEE)
-		.gattCharacteristicBegin("model", "0000B003-1E3D-FAD4-74E2-97A033F1BFEE", {"read"})
-
-			// Standard characteristic "ReadValue" method call
-			.onReadValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-				int16_t cpuCount = 0;
-				self.methodReturnValue(pInvocation, ServerUtils::getCpuInfo(cpuCount), true);
-			})
-
-			// GATT Descriptor: Characteristic User Description (0x2901)
-			// 
-			// See: https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.descriptor.gatt.characteristic_user_description.xml
-			.gattDescriptorBegin("description", "2901", {"read"})
-
-				// Standard descriptor "ReadValue" method call
-				.onReadValue([](const GattDescriptor& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-					const char *pDescription = "Possibly the model of the CPU in the system";
-					self.methodReturnValue(pInvocation, pDescription, true);
-				})
-
-			.gattDescriptorEnd()
-
-		.gattCharacteristicEnd()
-	.gattServiceEnd(); // << -- NOTE THE SEMICOLON
+	// No GATT services are installed here. Consumers can register configurators that will populate the hierarchy
+	// using ServiceRegistry prior to the server thread being launched.
 
 	//  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -
 	//                                                ____ _____ ___  _____
@@ -578,11 +328,23 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 	omInterface->addMethod("GetManagedObjects", pInArgs, pOutArgs, [](const DBusInterface& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
 		ServerUtils::getManagedObjects(pInvocation);
 	});
+
 }
+
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Utilitarian
 // ---------------------------------------------------------------------------------------------------------------------------------
+
+void Server::configure(const std::function<void(DBusObject&)>& builder)
+{
+	if (!builder || rootObject == nullptr)
+	{
+		return;
+	}
+
+	builder(*rootObject);
+}
 
 // Find a D-Bus interface within the given D-Bus object
 //

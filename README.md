@@ -102,7 +102,8 @@ int dataSetter(const char* name, const void* data) {
 
 int main() {
     // Start BzPeri server with bonding enabled (recommended)
-    if (!bzpStartWithBondable("my_device", "My BLE Device", "MyDev",
+    // Service name must be 'bzperi' or start with 'bzperi.' for D-Bus compatibility
+    if (!bzpStartWithBondable("bzperi.mydevice", "My BLE Device", "MyDev",
                   dataGetter, dataSetter, 30000, 1)) {
         return -1;
     }
@@ -111,8 +112,9 @@ int main() {
     while (bzpIsServerRunning()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
 
-        // Notify clients of data changes
-        bzpNofifyUpdatedCharacteristic("/com/my_device/battery/level");
+        // Notify clients of data changes (note the path structure)
+        // Service name "bzperi.mydevice" becomes path "/com/bzperi/mydevice/..."
+        bzpNofifyUpdatedCharacteristic("/com/bzperi/mydevice/samples/battery/level");
     }
 
     bzpShutdownAndWait();
@@ -129,11 +131,11 @@ int main() {
 If you're coming from the original Gobbledegook library, BzPeri maintains API compatibility while providing enhanced features:
 
 ```cpp
-// Old API (still supported)
-ggkStart("device", "name", "short", getter, setter, timeout);
+// Old API (still supported) - note service name requirements
+ggkStart("bzperi.device", "name", "short", getter, setter, timeout);
 
 // New API with bonding control
-bzpStartWithBondable("device", "name", "short", getter, setter, timeout, true);
+bzpStartWithBondable("bzperi.myapp", "name", "short", getter, setter, timeout, true);
 ```
 
 ## ⚙️ Configuration
@@ -142,7 +144,14 @@ bzpStartWithBondable("device", "name", "short", getter, setter, timeout, true);
 
 **🎉 Automatic Setup**: When installed via package manager (`apt install bzperi`), D-Bus permissions are automatically configured and applied. No manual setup or restart required!
 
-For manual builds, create `/etc/dbus-1/system.d/com.bzperi.conf`:
+**🔒 Service Name Requirements**: All service names must be `bzperi` or start with `bzperi.` (e.g., `bzperi.myapp`, `bzperi.company.device`) to ensure D-Bus policy compatibility and prevent conflicts.
+
+**📍 Path Structure**: Service names with dots become D-Bus object paths with slashes:
+- `bzperi` → `/com/bzperi/...`
+- `bzperi.myapp` → `/com/bzperi/myapp/...`
+- `bzperi.company.device` → `/com/bzperi/company/device/...`
+
+The included D-Bus policy supports all `com.bzperi.*` service names automatically:
 ```xml
 <!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN">
 <busconfig>
@@ -219,10 +228,10 @@ sudo make install
 ### Bonding/Pairing Control
 ```cpp
 // Enable bonding (recommended for security)
-bzpStartWithBondable("device", "name", "short", getter, setter, 30000, 1);
+bzpStartWithBondable("bzperi.secure", "name", "short", getter, setter, 30000, 1);
 
 // Disable bonding (open access)
-bzpStartWithBondable("device", "name", "short", getter, setter, 30000, 0);
+bzpStartWithBondable("bzperi.open", "name", "short", getter, setter, 30000, 0);
 ```
 
 ### Error Handling
