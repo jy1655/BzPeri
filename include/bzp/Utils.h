@@ -193,16 +193,16 @@ struct Utils
 	static constexpr uint8_t endianToHci(uint8_t value) noexcept {return value;}
 
 	// Convert a 16-bit value from HCI format to host format
-	static constexpr uint16_t endianToHost(uint16_t value) noexcept {return le16toh(value);}
+	static uint16_t endianToHost(uint16_t value) noexcept {return le16toh(value);}
 
 	// Convert a 16-bit value from host format to HCI format
-	static constexpr uint16_t endianToHci(uint16_t value) noexcept {return htole16(value);}
+	static uint16_t endianToHci(uint16_t value) noexcept {return htole16(value);}
 
 	// Convert a 32-bit value from HCI format to host format
-	static constexpr uint32_t endianToHost(uint32_t value) noexcept {return le32toh(value);}
+	static uint32_t endianToHost(uint32_t value) noexcept {return le32toh(value);}
 
 	// Convert a 32-bit value from host format to HCI format
-	static constexpr uint32_t endianToHci(uint32_t value) noexcept {return htole32(value);}
+	static uint32_t endianToHci(uint32_t value) noexcept {return htole32(value);}
 
 	// -----------------------------------------------------------------------------------------------------------------------------
 	// BlueZ name truncation utilities (moved from deprecated Mgmt class)
