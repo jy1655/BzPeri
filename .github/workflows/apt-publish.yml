@@ -69,7 +69,7 @@ jobs:
 
       - name: Install lintian and check package quality
         run: |
-          sudo apt-get install -y lintian
+          apt-get install -y lintian
           echo "::group::Lintian Package Quality Check"
           for deb in packages/*.deb; do
             if [ -f "$deb" ]; then
