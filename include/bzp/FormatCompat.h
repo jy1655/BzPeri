@@ -32,7 +32,8 @@ template<typename... Args>
 #if HAS_STD_FORMAT
     try
     {
-        return std::format(format_str, std::forward<Args>(args)...);
+        // Use vformat for runtime format strings (std::format requires constexpr)
+        return std::vformat(format_str, std::make_format_args(args...));
     }
     catch (const std::exception&)
     {
