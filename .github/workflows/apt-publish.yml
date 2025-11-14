@@ -29,21 +29,37 @@ jobs:
           - arch: amd64
             runner: ubuntu-latest
             deb_arch: amd64
+            use_container: true
           - arch: arm64
             runner: [self-hosted, Linux, ARM64]
             deb_arch: arm64
+            use_container: false
     runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.use_container && 'debian:bookworm' || null }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake pkg-config debhelper \
-            dpkg-dev apt-utils gnupg apt-transport-https \
-            libglib2.0-dev libbluetooth-dev bluez bluez-tools
+          if [ "${{ matrix.use_container }}" = "true" ]; then
+            # Inside container (already root)
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              build-essential cmake pkg-config debhelper \
+              dpkg-dev apt-utils gnupg apt-transport-https ca-certificates \
+              libglib2.0-dev libbluetooth-dev bluez bluez-tools git
+          else
+            # On self-hosted runner (need sudo)
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends \
+              build-essential cmake pkg-config debhelper \
+              dpkg-dev apt-utils gnupg apt-transport-https \
+              libglib2.0-dev libbluetooth-dev bluez bluez-tools
+          fi
 
       - name: Determine version from tag or release
         id: get_version
@@ -66,7 +82,11 @@ jobs:
 
       - name: Install lintian and check package quality
         run: |
-          sudo apt-get install -y lintian
+          if [ "${{ matrix.use_container }}" = "true" ]; then
+            apt-get install -y lintian
+          else
+            sudo apt-get install -y lintian
+          fi
           echo "::group::Lintian Package Quality Check"
           for deb in packages/*.deb; do
             if [ -f "$deb" ]; then
@@ -100,6 +120,9 @@ jobs:
     name: Sign and publish APT repo
     needs: build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Download amd64 repo fragment
         uses: actions/download-artifact@v4

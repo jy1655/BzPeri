@@ -95,23 +95,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang
     endif()
 endif()
 
-# Check for std::format availability
-include(CheckCXXSourceCompiles)
-check_cxx_source_compiles("
-    #include <format>
-    #include <string>
-    int main() {
-        std::string result = std::format(\"test {}\", 42);
-        return 0;
-    }
-" HAS_STD_FORMAT)
-
-if(HAS_STD_FORMAT)
-    add_compile_definitions(HAS_STD_FORMAT=1)
-else()
-    add_compile_definitions(HAS_STD_FORMAT=0)
-    message(STATUS "std::format not available, using fallback implementation")
-endif()
+# Force disable std::format for maximum compatibility with Debian 12 (GCC 12)
+# std::format requires GLIBCXX_3.4.31+ (GCC 13+) which is not available in Debian 12
+# Using snprintf fallback for broader compatibility across Debian/Ubuntu LTS versions
+add_compile_definitions(HAS_STD_FORMAT=0)
+message(STATUS "std::format disabled for Debian 12 compatibility (using snprintf fallback)")
 
 # Include directories
 include_directories(include)
@@ -314,8 +302,8 @@ if(NOT BZPERI_DEB_ARCH)
 endif()
 set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "${BZPERI_DEB_ARCH}")
 
-# Dependencies
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.34), libgcc-s1 (>= 3.0), libstdc++6 (>= 11), libglib2.0-0 (>= 2.58), bluez (>= 5.42)")
+# Dependencies - Compatible with Debian 12 bookworm (GCC 12, GLIBCXX_3.4.30)
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.34), libgcc-s1 (>= 3.0), libstdc++6 (>= 12), libglib2.0-0 (>= 2.58), bluez (>= 5.42)")
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "bluez (>= 5.77)")
 set(CPACK_DEBIAN_PACKAGE_SUGGESTS "bluez-tools")
 
