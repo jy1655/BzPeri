@@ -135,7 +135,7 @@ std::string Utils::hex(const uint8_t *pData, int count)
 	std::vector<std::string> hexData;
 	for (int i = 0; i < count; ++i)
 	{
-		line += std::format("{:02X} ", pData[i]);
+		line += safeFormat("{:02X} ", pData[i]);
 
 		if (line.length() >= 16 * 3)
 		{
