@@ -44,6 +44,11 @@ mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 
+# Configure D-Bus and BlueZ (required before first run)
+# See "Configuration" section below for detailed instructions
+sudo cp ../dbus/com.bzperi.conf /etc/dbus-1/system.d/
+sudo ../scripts/configure-bluez-experimental.sh enable
+
 # Run example server
 sudo ./bzp-standalone -d
 ```
@@ -124,8 +129,19 @@ int main() {
 
 ## 📚 Documentation
 
+### For Users
 - **[API Reference](include/BzPeri.h)** - Complete API documentation
 - **[Configurator API](include/bzp/ConfiguratorSupport.h)** - Modern service configuration API
+- **[Standalone Usage](STANDALONE_USAGE.md)** - Command-line options and adapter selection guide
+
+### For Developers & Contributors
+- **[Build Guide](BUILD.md)** - Detailed build instructions, dependencies, and CMake options
+- **[Repository Guidelines](AGENTS.md)** - Coding standards, project structure, and contribution workflow
+
+### Technical Documentation
+- **[Packaging Guide](README-PACKAGING.md)** - Debian package building and APT repository setup
+- **[BlueZ Migration](BLUEZ_MIGRATION.md)** - HCI Management API → D-Bus migration details
+- **[Modernization Guide](MODERNIZATION.md)** - 2019→2025 upgrade overview and architecture changes
 
 ## 📁 Header Layout
 
@@ -247,30 +263,102 @@ bzpStartWithBondable("bzperi.myapp", "name", "short", getter, setter, timeout, t
 
 ### D-Bus Permissions
 
-**🎉 Automatic Setup**: When installed via package manager (`apt install bzperi`), D-Bus permissions are automatically configured and applied. No manual setup or restart required!
+#### Automatic Setup (Package Installation)
 
-**🔒 Service Name Requirements**: All service names must be `bzperi` or start with `bzperi.` (e.g., `bzperi.myapp`, `bzperi.company.device`) to ensure D-Bus policy compatibility and prevent conflicts.
+**🎉 Automatic**: When installed via package manager (`apt install bzperi`), D-Bus permissions are automatically configured and applied. No manual setup required!
+
+#### Manual Installation (Build from Source)
+
+**📋 For builds from source or troubleshooting**, manually install the D-Bus policy:
+
+```bash
+# Copy the policy file to system D-Bus directory
+sudo cp dbus/com.bzperi.conf /etc/dbus-1/system.d/
+
+# Verify file permissions
+sudo chmod 644 /etc/dbus-1/system.d/com.bzperi.conf
+
+# D-Bus auto-detects changes, but you can force reload if needed
+sudo systemctl reload dbus
+```
+
+**Alternative method** - Install via CMake:
+```bash
+cd build
+sudo cmake --install . --component dbus-policy
+```
+
+#### Service Name Requirements
+
+**🔒 Important**: All service names must be `bzperi` or start with `bzperi.` (e.g., `bzperi.myapp`, `bzperi.company.device`) to ensure D-Bus policy compatibility and prevent conflicts.
 
 **📍 Path Structure**: Service names with dots become D-Bus object paths with slashes:
 - `bzperi` → `/com/bzperi/...`
 - `bzperi.myapp` → `/com/bzperi/myapp/...`
 - `bzperi.company.device` → `/com/bzperi/company/device/...`
 
-The included D-Bus policy supports all `com.bzperi.*` service names automatically:
+#### D-Bus Policy File
+
+The included policy file (`dbus/com.bzperi.conf`) provides comprehensive permissions:
+
 ```xml
-<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN">
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN">
 <busconfig>
+  <!-- Root user permissions -->
   <policy user="root">
     <allow own="com.bzperi"/>
     <allow send_destination="com.bzperi"/>
     <allow send_destination="org.bluez"/>
+    <allow receive_sender="org.bluez"/>
+  </policy>
+
+  <!-- Bluetooth group permissions -->
+  <policy group="bluetooth">
+    <allow send_destination="com.bzperi"/>
+    <allow receive_sender="com.bzperi"/>
+  </policy>
+
+  <!-- Introspection for debugging -->
+  <policy context="default">
+    <allow send_destination="com.bzperi"
+           send_interface="org.freedesktop.DBus.Introspectable"/>
+    <allow send_destination="com.bzperi"
+           send_interface="org.freedesktop.DBus.Properties"/>
   </policy>
 </busconfig>
 ```
 
-D-Bus will automatically detect and apply the new policy. If you encounter permission issues, you can manually reload D-Bus configuration:
+#### Troubleshooting D-Bus Permissions
+
+**Check if policy is installed:**
 ```bash
-sudo systemctl reload dbus  # Only if needed for troubleshooting
+ls -la /etc/dbus-1/system.d/com.bzperi.conf
+# Should show: -rw-r--r-- root root
+```
+
+**Verify D-Bus can see your service:**
+```bash
+# List all D-Bus services
+dbus-send --system --print-reply --dest=org.freedesktop.DBus \
+  /org/freedesktop/DBus org.freedesktop.DBus.ListNames
+```
+
+**Check D-Bus logs for permission errors:**
+```bash
+sudo journalctl -u dbus -f
+# Then run your BzPeri application and watch for errors
+```
+
+**Common issues:**
+- ❌ **"Connection refused"** → D-Bus policy not installed or incorrect permissions
+- ❌ **"Access denied"** → Service name doesn't start with `bzperi.`
+- ❌ **"Name already in use"** → Another instance is running
+
+**Force D-Bus to reload policies:**
+```bash
+sudo systemctl reload dbus
+# Or restart D-Bus (may affect other services):
+sudo systemctl restart dbus
 ```
 
 ### BlueZ Configuration
