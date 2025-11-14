@@ -315,12 +315,12 @@ endif()
 set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "${BZPERI_DEB_ARCH}")
 
 # Dependencies
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.34), libgcc-s1 (>= 3.0), libstdc++6 (>= 11), libglib2.0-0 (>= 2.58), libgio-2.0-0 (>= 2.58), libgobject-2.0-0 (>= 2.58), bluez (>= 5.42)")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.34), libgcc-s1 (>= 3.0), libstdc++6 (>= 11), libglib2.0-0 (>= 2.58), bluez (>= 5.42)")
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "bluez (>= 5.77)")
 set(CPACK_DEBIAN_PACKAGE_SUGGESTS "bluez-tools")
 
 # Development package
-set(CPACK_DEBIAN_PACKAGE_BUILDS_DEPENDS "build-essential, cmake (>= 3.16), pkg-config, libglib2.0-dev (>= 2.58), libgio-2.0-dev (>= 2.58), libgobject-2.0-dev (>= 2.58), libbluetooth-dev, bluez")
+set(CPACK_DEBIAN_PACKAGE_BUILDS_DEPENDS "build-essential, cmake (>= 3.16), pkg-config, libglib2.0-dev (>= 2.58), libbluetooth-dev, bluez")
 
 # Package file naming
 set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
