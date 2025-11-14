@@ -238,8 +238,9 @@ jobs:
 
             popd >/dev/null
 
-            # Export public key
+            # Export public key (both filenames for compatibility)
             gpg --armor --export "$KEYID" > public/repo/repo.key
+            gpg --armor --export "$KEYID" > public/repo/public.gpg
 
             # Verify signatures
             echo "Verifying signatures..."
@@ -282,7 +283,7 @@ jobs:
           </ol>
           <h2>Files</h2>
           <ul>
-            <li><a href="/BzPeri/repo/repo.key">repo.key</a></li>
+            <li><a href="/BzPeri/repo/repo.key">repo.key</a> / <a href="/BzPeri/repo/public.gpg">public.gpg</a></li>
             <li><a href="/BzPeri/repo/dists/stable/Release">Release</a> (<a href="/BzPeri/repo/dists/stable/InRelease">InRelease</a>, <a href="/BzPeri/repo/dists/stable/Release.gpg">Release.gpg</a>)</li>
             <li><a href="/BzPeri/repo/dists/stable/main/binary-amd64/Packages.gz">Packages.gz</a></li>
           </ul>
