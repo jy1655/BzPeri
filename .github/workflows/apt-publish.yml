@@ -36,6 +36,9 @@ jobs:
             use_container: false
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.use_container && 'debian:bookworm' || null }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -117,6 +120,9 @@ jobs:
     name: Sign and publish APT repo
     needs: build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Download amd64 repo fragment
         uses: actions/download-artifact@v4
