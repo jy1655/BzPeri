@@ -1,0 +1,171 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }}, ${{ matrix.build_type }})
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Debian 12 (Bookworm) - Primary target
+          - os: ubuntu-latest
+            container: debian:bookworm
+            build_type: Release
+            name: Debian 12
+          
+          # Ubuntu 24.04
+          - os: ubuntu-24.04
+            container: null
+            build_type: Release
+            name: Ubuntu 24.04
+
+          # Debug build for development
+          - os: ubuntu-latest
+            container: debian:bookworm
+            build_type: Debug
+            name: Debian 12 Debug
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.container }}" ]; then
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              build-essential cmake pkg-config git \
+              libglib2.0-dev libbluetooth-dev
+          else
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends \
+              build-essential cmake pkg-config \
+              libglib2.0-dev libbluetooth-dev
+          fi
+
+      - name: Configure CMake
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DBUILD_STANDALONE=ON \
+            -DBUILD_SHARED_LIBS=ON
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Check build artifacts
+        run: |
+          echo "=== Build Artifacts ==="
+          ls -la build/
+          
+          echo ""
+          echo "=== Library ==="
+          ls -la build/libbzp.so* || ls -la build/libbzp.a || echo "No library found"
+          
+          echo ""
+          echo "=== Executable ==="
+          ls -la build/bzp-standalone || echo "No executable found"
+          
+          echo ""
+          echo "=== Library Dependencies ==="
+          ldd build/libbzp.so 2>/dev/null || echo "Static build or ldd not available"
+
+      - name: Verify executable
+        run: |
+          # Check if executable exists and is runnable (will fail without BlueZ but should show help)
+          if [ -f "build/bzp-standalone" ]; then
+            echo "Executable exists"
+            file build/bzp-standalone
+            # Try to run with --help (may fail on container without BlueZ runtime)
+            build/bzp-standalone --help 2>/dev/null || echo "Help not available (expected in container)"
+          else
+            echo "ERROR: bzp-standalone not built"
+            exit 1
+          fi
+
+  lint:
+    name: Code Style Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check clang-format
+        run: |
+          # Install clang-format
+          sudo apt-get update
+          sudo apt-get install -y clang-format
+          
+          echo "=== Checking code style ==="
+          
+          # Find all C++ files and check formatting
+          CHANGED=0
+          for file in $(find src include samples -name "*.cpp" -o -name "*.h" 2>/dev/null); do
+            if ! clang-format --dry-run --Werror "$file" 2>/dev/null; then
+              echo "Style issue in: $file"
+              CHANGED=1
+            fi
+          done
+          
+          if [ $CHANGED -eq 1 ]; then
+            echo ""
+            echo "::warning::Some files need formatting. Run 'clang-format -i' on the above files."
+          else
+            echo "All files pass style check"
+          fi
+          
+          # Don't fail the build for now (warning only)
+          exit 0
+
+  package:
+    name: Package Test
+    runs-on: ubuntu-latest
+    container: debian:bookworm
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config dpkg-dev \
+            libglib2.0-dev libbluetooth-dev
+
+      - name: Build and package
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_STANDALONE=ON \
+            -DBUILD_SHARED_LIBS=ON
+          
+          cmake --build build --parallel $(nproc)
+          
+          cd build
+          cpack -G DEB
+
+      - name: Verify packages
+        run: |
+          echo "=== Generated Packages ==="
+          ls -la build/*.deb
+          
+          echo ""
+          echo "=== Package Info ==="
+          for deb in build/*.deb; do
+            echo "--- $(basename $deb) ---"
+            dpkg-deb --info "$deb"
+            echo ""
+          done

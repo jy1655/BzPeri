@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 project(bzperi
-    VERSION 1.0.0
+    VERSION 0.1.9
     DESCRIPTION "BzPeri - Modern C++20 Bluetooth LE GATT server using BlueZ over D-Bus"
     LANGUAGES CXX)
 

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/jy1655/BzPeri/blob/main/README.md
+    about: Check the documentation before opening an issue
+  - name: Build Guide
+    url: https://github.com/jy1655/BzPeri/blob/main/BUILD.md
+    about: Detailed build instructions and troubleshooting
