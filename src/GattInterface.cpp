@@ -68,6 +68,11 @@ void GattInterface::methodReturnVariant(GDBusMethodInvocation *pInvocation, GVar
 	g_dbus_method_invocation_return_value(pInvocation, pVariant);
 }
 
+void GattInterface::methodReturnVariant(DBusMethodInvocationRef invocation, DBusVariantRef variant, bool wrapInTuple) const
+{
+	methodReturnVariant(invocation.get(), variant.get(), wrapInTuple);
+}
+
 // Locates a `GattProperty` within the interface
 //
 // This method returns a pointer to the property or nullptr if not found

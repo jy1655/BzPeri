@@ -45,14 +45,15 @@
 #include <bzp/Utils.h>
 #include <bzp/GattUuid.h>
 #include <bzp/Logger.h>
+#include <bzp/Server.h>
 
 namespace bzp {
 
 // Construct a root object with no parent
 //
 // We'll include a publish flag since only root objects can be published
-DBusObject::DBusObject(const DBusObjectPath &path, bool publish)
-: publish(publish), path(path), pParent(nullptr)
+DBusObject::DBusObject(Server &server, const DBusObjectPath &path, bool publish)
+: server_(&server), publish(publish), path(path), pParent(nullptr)
 {
 }
 
@@ -60,7 +61,7 @@ DBusObject::DBusObject(const DBusObjectPath &path, bool publish)
 //
 // Nodes inherit their parent's publish path
 DBusObject::DBusObject(DBusObject *pParent, const DBusObjectPath &pathElement)
-: publish(pParent->publish), path(pathElement), pParent(pParent)
+: server_(pParent->server_), publish(pParent->publish), path(pathElement), pParent(pParent)
 {
 }
 
@@ -117,6 +118,26 @@ std::optional<std::reference_wrapper<DBusObject>> DBusObject::getParent()
 const std::list<DBusObject> &DBusObject::getChildren() const
 {
 	return children;
+}
+
+BZPServerDataGetter DBusObject::getDataGetter() const noexcept
+{
+	return server_ != nullptr ? server_->getDataGetter() : nullptr;
+}
+
+BZPServerDataSetter DBusObject::getDataSetter() const noexcept
+{
+	return server_ != nullptr ? server_->getDataSetter() : nullptr;
+}
+
+Server& DBusObject::getServer() const
+{
+	return *server_;
+}
+
+const std::string &DBusObject::getServiceName() const
+{
+	return server_->getServiceName();
 }
 
 // Add a child to this object
@@ -202,6 +223,11 @@ bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &inter
 	return false;
 }
 
+bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData, const DBusObjectPath &basePath) const
+{
+	return callMethod(path, interfaceName, methodName, connection.get(), parameters.get(), invocation.get(), pUserData, basePath);
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------------
 // XML generation for a D-Bus introspection
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -221,7 +247,7 @@ std::string DBusObject::generateIntrospectionXML(int depth) const
 	}
 
 	xml += prefix + "<node name='" + getPathNode().toString() + "'>\n";
-	xml += prefix + "  <annotation name='" + TheServer->getServiceName() + ".DBusObject.path' value='" + getPath().toString() + "' />\n";
+	xml += prefix + "  <annotation name='" + getServiceName() + ".DBusObject.path' value='" + getPath().toString() + "' />\n";
 
 	for (std::shared_ptr<const DBusInterface> interface : interfaces)
 	{
@@ -248,8 +274,7 @@ std::string DBusObject::generateIntrospectionXML(int depth) const
 // D-Bus signals
 // ---------------------------------------------------------------------------------------------------------------------------------
 
-// Emits a signal on the bus from the given path, interface name and signal name, containing a GVariant set of parameters
-void DBusObject::emitSignal(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters)
+bool DBusObject::emitSignalChecked(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters)
 {
 	GError *pError = nullptr;
 	gboolean result = g_dbus_connection_emit_signal
@@ -266,7 +291,25 @@ void DBusObject::emitSignal(GDBusConnection *pBusConnection, const std::string &
 	if (0 == result)
 	{
 		Logger::error(SSTR << "Failed to emit signal named '" << signalName << "': " << (nullptr == pError ? "Unknown" : pError->message));
+		if (nullptr != pError)
+		{
+			g_error_free(pError);
+		}
+		return false;
 	}
+
+	if (nullptr != pError)
+	{
+		g_error_free(pError);
+	}
+
+	return true;
+}
+
+// Emits a signal on the bus from the given path, interface name and signal name, containing a GVariant set of parameters
+void DBusObject::emitSignal(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters)
+{
+	(void)emitSignalChecked(pBusConnection, interfaceName, signalName, pParameters);
 }
 
 

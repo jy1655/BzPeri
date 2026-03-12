@@ -116,6 +116,15 @@ extern "C"
 	// SERVER DATA UPDATE MANAGEMENT
 	// -----------------------------------------------------------------------------------------------------------------------------
 
+	// Detailed result codes for update-queue operations.
+	enum BZPUpdateQueueResult
+	{
+		BZP_UPDATE_QUEUE_OK = 1,
+		BZP_UPDATE_QUEUE_EMPTY = 0,
+		BZP_UPDATE_QUEUE_BUFFER_TOO_SMALL = -1,
+		BZP_UPDATE_QUEUE_INVALID_ARGUMENT = -2
+	};
+
 	// Adds an update to the front of the queue for a characteristic at the given object path
 	//
 	// Returns non-zero value on success or 0 on failure.
@@ -160,6 +169,15 @@ extern "C"
 	// Returns 1 on success, 0 if the queue is empty, -1 on error (such as the length too small to store the element)
 	int bzpPopUpdateQueue(char *pElement, int elementLen, int keep);
 
+	// Detailed variant of bzpPopUpdateQueue().
+	//
+	// Returns:
+	//   BZP_UPDATE_QUEUE_OK on success
+	//   BZP_UPDATE_QUEUE_EMPTY if the queue is empty
+	//   BZP_UPDATE_QUEUE_BUFFER_TOO_SMALL if the buffer cannot hold the entry
+	//   BZP_UPDATE_QUEUE_INVALID_ARGUMENT if pElement is null or elementLen <= 0
+	enum BZPUpdateQueueResult bzpPopUpdateQueueEx(char *pElement, int elementLen, int keep);
+
 	// Returns 1 if the queue is empty, otherwise 0
 	int bzpUpdateQueueIsEmpty();
 
@@ -203,7 +221,7 @@ extern "C"
 	//
 	//     This value will be stored as lower-case only.
 	//
-	//     Retrieve this value using the `TheServer->getName()` method
+	//     Retrieve this value using the active Server instance (for example via `getActiveServer()` in C++).
 	//
 	// advertisingName: The name for this controller, as advertised over LE
 	//

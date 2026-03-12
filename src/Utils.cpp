@@ -437,11 +437,19 @@ GVariant *Utils::gvariantFromByteArray(const gint64 data)
 // Extracts a string from an array of bytes ("ay")
 std::string Utils::stringFromGVariantByteArray(const GVariant *pVariant)
 {
-	gsize size;
+	if (!pVariant)
+	{
+		return {};
+	}
+
+	gsize size = 0;
 	gconstpointer pPtr = g_variant_get_fixed_array(const_cast<GVariant *>(pVariant), &size, 1);
-	std::vector<gchar> array(size + 1, 0);
-	std::memcpy(array.data(), pPtr, size);
-	return array.data();
+	if (!pPtr || size == 0)
+	{
+		return {};
+	}
+
+	return std::string(static_cast<const gchar *>(pPtr), static_cast<std::size_t>(size));
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------

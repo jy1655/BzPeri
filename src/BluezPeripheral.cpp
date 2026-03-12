@@ -299,7 +299,25 @@ int bzpPushUpdateQueue(const char *pObjectPath, const char *pInterfaceName)
 int bzpPopUpdateQueue(char *pElementBuffer, int elementLen, int keep)
 {
 	BZP_C_API_GUARD_BEGIN()
-	if (!pElementBuffer || elementLen <= 0) return -1;
+	auto result = bzpPopUpdateQueueEx(pElementBuffer, elementLen, keep);
+	switch (result)
+	{
+		case BZP_UPDATE_QUEUE_OK:
+			return 1;
+		case BZP_UPDATE_QUEUE_EMPTY:
+			return 0;
+		case BZP_UPDATE_QUEUE_BUFFER_TOO_SMALL:
+		case BZP_UPDATE_QUEUE_INVALID_ARGUMENT:
+		default:
+			return -1;
+	}
+	BZP_C_API_GUARD_END_RETURN_INT(-1)
+}
+
+enum BZPUpdateQueueResult bzpPopUpdateQueueEx(char *pElementBuffer, int elementLen, int keep)
+{
+	BZP_C_API_GUARD_BEGIN()
+	if (!pElementBuffer || elementLen <= 0) return BZP_UPDATE_QUEUE_INVALID_ARGUMENT;
 
 	std::string result;
 
@@ -307,7 +325,7 @@ int bzpPopUpdateQueue(char *pElementBuffer, int elementLen, int keep)
 		std::lock_guard<std::mutex> guard(updateQueueMutex);
 
 		// Check for an empty queue
-		if (updateQueue.empty()) { return 0; }
+		if (updateQueue.empty()) { return BZP_UPDATE_QUEUE_EMPTY; }
 
 		// Get the last element
 		QueueEntry t = updateQueue.back();
@@ -316,7 +334,7 @@ int bzpPopUpdateQueue(char *pElementBuffer, int elementLen, int keep)
 		result = std::get<0>(t) + "|" + std::get<1>(t);
 
 		// Ensure there's enough room for it
-		if (result.length() + 1 > static_cast<size_t>(elementLen)) { return -1; }
+		if (result.length() + 1 > static_cast<size_t>(elementLen)) { return BZP_UPDATE_QUEUE_BUFFER_TOO_SMALL; }
 
 		if (keep == 0)
 		{
@@ -328,8 +346,8 @@ int bzpPopUpdateQueue(char *pElementBuffer, int elementLen, int keep)
 	strncpy(pElementBuffer, result.c_str(), elementLen - 1);
 	pElementBuffer[elementLen - 1] = '\0';
 
-	return 1;
-	BZP_C_API_GUARD_END_RETURN_INT(-1)
+	return BZP_UPDATE_QUEUE_OK;
+	BZP_C_API_GUARD_END_RETURN_INT(BZP_UPDATE_QUEUE_INVALID_ARGUMENT)
 }
 
 // Returns 1 if the queue is empty, otherwise 0
@@ -637,7 +655,8 @@ int bzpStartWithBondable(const char *pServiceName, const char *pAdvertisingName,
 		Logger::info(SSTR << "Starting BzPeri server '" << pAdvertisingName << "'");
 
 		// Allocate our server
-		TheServer = std::make_shared<Server>(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, enableBondable != 0);
+		auto server = std::make_shared<Server>(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, enableBondable != 0);
+		setActiveServer(server);
 
 		const std::size_t configuratorCount = serviceConfiguratorCount();
 		if (configuratorCount == 0)
@@ -646,7 +665,7 @@ int bzpStartWithBondable(const char *pServiceName, const char *pAdvertisingName,
 		}
 		else
 		{
-			applyRegisteredServiceConfigurators(*TheServer);
+			applyRegisteredServiceConfigurators(*server);
 			Logger::trace(SSTR << "Applied " << configuratorCount << " service configurator(s)");
 		}
 

@@ -22,13 +22,14 @@
 
 #pragma once
 
-#include <gio/gio.h>
+#include <bzp/GLibTypes.h>
 #include <string>
 #include <list>
 #include <memory>
 #include <optional>
 #include <functional>
 
+#include <BzPeri.h>
 #include <bzp/DBusObjectPath.h>
 
 namespace bzp {
@@ -37,6 +38,7 @@ struct GattProperty;
 struct GattService;
 struct GattUuid;
 struct DBusInterface;
+struct Server;
 
 struct DBusObject
 {
@@ -46,7 +48,7 @@ struct DBusObject
 	// Construct a root object with no parent
 	//
 	// We'll include a publish flag since only root objects can be published
-	DBusObject(const DBusObjectPath &path, bool publish = true);
+	DBusObject(Server &server, const DBusObjectPath &path, bool publish = true);
 
 	// Construct a node object
 	//
@@ -78,6 +80,14 @@ struct DBusObject
 
 	// Returns the list of children objects
 	const std::list<DBusObject> &getChildren() const;
+
+	// Returns the server data getter/setter associated with this object tree.
+	BZPServerDataGetter getDataGetter() const noexcept;
+	BZPServerDataSetter getDataSetter() const noexcept;
+	Server& getServer() const;
+
+	// Returns the logical service name used for annotations and D-Bus naming.
+	const std::string &getServiceName() const;
 
 	// Add a child to this object
 	DBusObject &addChild(const DBusObjectPath &pathElement);
@@ -112,15 +122,20 @@ struct DBusObject
 
 	// Finds a BlueZ method by name within the specified D-Bus interface
 	bool callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData, const DBusObjectPath &basePath = DBusObjectPath()) const;
+	bool callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData, const DBusObjectPath &basePath = DBusObjectPath()) const;
 
 	// -----------------------------------------------------------------------------------------------------------------------------
 	// D-Bus signals
 	// -----------------------------------------------------------------------------------------------------------------------------
 
+	// Emits a signal and returns whether GLib accepted it for delivery.
+	bool emitSignalChecked(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters);
+
 	// Emits a signal on the bus from the given path, interface name and signal name, containing a GVariant set of parameters
 	void emitSignal(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters);
 
 private:
+	Server *server_;
 	bool publish;
 	DBusObjectPath path;
 	InterfaceList interfaces;

@@ -155,7 +155,6 @@
 #include <bzp/Server.h>
 #include "ServerUtils.h"
 #include <bzp/Utils.h>
-#include <bzp/Globals.h>
 #include <bzp/DBusObject.h>
 #include <bzp/DBusInterface.h>
 #include <bzp/GattProperty.h>
@@ -181,8 +180,39 @@ namespace bzp {
 // Globals
 // ---------------------------------------------------------------------------------------------------------------------------------
 
-// Our one and only server. It's global.
+#if defined(__GNUC__) && defined(__clang__)
+	#pragma clang diagnostic push
+	#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
+// Legacy compatibility storage for callers that still reference TheServer directly.
 std::shared_ptr<Server> TheServer = nullptr;
+
+std::shared_ptr<Server> getActiveServer()
+{
+	return TheServer;
+}
+
+Server* getActiveServerPtr() noexcept
+{
+	return TheServer.get();
+}
+
+void setActiveServer(std::shared_ptr<Server> server)
+{
+	TheServer = std::move(server);
+}
+
+#if defined(__GNUC__) && defined(__clang__)
+	#pragma clang diagnostic pop
+#endif
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic pop
+#endif
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Object implementation
@@ -266,7 +296,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 	// e.g., "bzperi.myapp" becomes "/com/bzperi/myapp"
 	std::string pathServiceName = getServiceName();
 	std::replace(pathServiceName.begin(), pathServiceName.end(), '.', '/');
-	objects.push_back(DBusObject(DBusObjectPath() + "com" + pathServiceName));
+	objects.push_back(DBusObject(*this, DBusObjectPath() + "com" + pathServiceName));
 
 	// Cache the root node for downstream configurators (example services, application-defined services, etc.)
 	rootObject = &objects.back();
@@ -308,7 +338,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 	// This is a non-published object (as specified by the 'false' parameter in the DBusObject constructor.) This way, we can
 	// include this within our server hieararchy (i.e., within the `objects` list) but it won't be exposed by BlueZ as a Bluetooth
 	// service to clietns.
-	objects.push_back(DBusObject(DBusObjectPath(), false));
+	objects.push_back(DBusObject(*this, DBusObjectPath(), false));
 
 	// Get a reference to the new object as it resides in the list
 	DBusObject &objectManager = objects.back();
@@ -325,8 +355,8 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 	// 'org.freedesktop.DBus.ObjectManager' interface.
 	const char *pInArgs[] = { nullptr };
 	const char *pOutArgs = "a{oa{sa{sv}}}";
-	omInterface->addMethod("GetManagedObjects", pInArgs, pOutArgs, [](const DBusInterface& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-		ServerUtils::getManagedObjects(pInvocation);
+	omInterface->addMethod("GetManagedObjects", pInArgs, pOutArgs, [](const DBusInterface& self, DBusConnectionRef, const std::string&, DBusVariantRef, DBusMethodInvocationRef invocation, void*) {
+		ServerUtils::getManagedObjects(self.getOwner().getServer(), invocation.get());
 	});
 
 }
@@ -377,6 +407,11 @@ bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view inter
 	}
 
 	return false;
+}
+
+bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view interfaceName, std::string_view methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const
+{
+	return callMethod(objectPath, interfaceName, methodName, connection.get(), parameters.get(), invocation.get(), pUserData);
 }
 
 // Find a GATT Property within the given D-Bus object on the given D-Bus interface

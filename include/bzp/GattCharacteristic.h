@@ -22,8 +22,7 @@
 
 #pragma once
 
-#include <glib.h>
-#include <gio/gio.h>
+#include <bzp/GLibTypes.h>
 #include <string>
 #include <list>
 
@@ -50,10 +49,12 @@ struct DBusObject;
 
 #include <functional>
 
-namespace bzp::callbacks {
+namespace callbacks {
 	// Modern typed callback helpers - no more macro magic
-	using CharacteristicMethodFunc = std::function<void(const GattCharacteristic&, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation*, void*)>;
-	using CharacteristicUpdateFunc = std::function<bool(const GattCharacteristic&, GDBusConnection*, void*)>;
+	using CharacteristicMethodFunc BZP_DEPRECATED("Use callbacks::CharacteristicMethodHandler instead") = std::function<void(const GattCharacteristic&, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation*, void*)>;
+	using CharacteristicUpdateFunc BZP_DEPRECATED("Use callbacks::CharacteristicUpdateHandler instead") = std::function<bool(const GattCharacteristic&, GDBusConnection*, void*)>;
+	using CharacteristicMethodHandler = std::function<void(const GattCharacteristic&, DBusConnectionRef, const std::string&, DBusVariantRef, DBusMethodInvocationRef, void*)>;
+	using CharacteristicUpdateHandler = std::function<bool(const GattCharacteristic&, DBusConnectionRef, void*)>;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -65,8 +66,10 @@ struct GattCharacteristic : GattInterface
 	// Our interface type
 	static constexpr const char *kInterfaceType = "GattCharacteristic";
 
-	typedef void (*MethodCallback)(const GattCharacteristic &self, GDBusConnection *pConnection, const std::string &methodName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData);
-	typedef bool (*UpdatedValueCallback)(const GattCharacteristic &self, GDBusConnection *pConnection, void *pUserData);
+	using RawMethodCallback = void (*)(const GattCharacteristic &self, GDBusConnection *pConnection, const std::string &methodName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData);
+	using MethodCallback BZP_DEPRECATED("Use callbacks::CharacteristicMethodHandler instead of raw GDBus callback typedefs") = RawMethodCallback;
+	using RawUpdatedValueCallback = bool (*)(const GattCharacteristic &self, GDBusConnection *pConnection, void *pUserData);
+	using UpdatedValueCallback BZP_DEPRECATED("Use callbacks::CharacteristicUpdateHandler instead of raw GDBus callback typedefs") = RawUpdatedValueCallback;
 
 	// Construct a GattCharacteristic
 	//
@@ -85,6 +88,7 @@ struct GattCharacteristic : GattInterface
 
 	// Locates a D-Bus method within this D-Bus interface and invokes the method
 	virtual bool callMethod(const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const;
+	bool callMethod(const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const;
 
 	// Modern periodic updates: Use GLib timers directly
 	// Example: g_timeout_add_seconds(60, [](gpointer data) -> gboolean {
@@ -101,7 +105,8 @@ struct GattCharacteristic : GattInterface
 	//
 	//     Input args:  options - "a{sv}"
 	//     Output args: value   - "ay"
-	GattCharacteristic &onReadValue(MethodCallback callback);
+	GattCharacteristic &onReadValue(RawMethodCallback callback);
+	GattCharacteristic &onReadValue(const callbacks::CharacteristicMethodHandler &callback);
 
 	// Specialized support for Characteristic WriteValue method
 	//
@@ -112,7 +117,8 @@ struct GattCharacteristic : GattInterface
 	//     Input args:  value   - "ay"
 	//                  options - "a{sv}"
 	//     Output args: void
-	GattCharacteristic &onWriteValue(MethodCallback callback);
+	GattCharacteristic &onWriteValue(RawMethodCallback callback);
+	GattCharacteristic &onWriteValue(const callbacks::CharacteristicMethodHandler &callback);
 
 	// Custom support for handling updates to our characteristic's value
 	//
@@ -124,7 +130,8 @@ struct GattCharacteristic : GattInterface
 	// If you need to perform the same action(s) when a value is updated from the client (via `onWriteValue`) or from this server,
 	// then it may be beneficial to call this method from within your onWriteValue callback to reduce duplicated code. See
 	// `callOnUpdatedValue` for more information.
-	GattCharacteristic &onUpdatedValue(UpdatedValueCallback callback);
+	GattCharacteristic &onUpdatedValue(RawUpdatedValueCallback callback);
+	GattCharacteristic &onUpdatedValue(const callbacks::CharacteristicUpdateHandler &callback);
 
 	// Calls the onUpdatedValue method, if one was set.
 	//
@@ -144,6 +151,7 @@ struct GattCharacteristic : GattInterface
 	//          self.callOnUpdatedValue(pConnection, pUserData);
 	//      })
 	bool callOnUpdatedValue(GDBusConnection *pConnection, void *pUserData) const;
+	bool callOnUpdatedValue(DBusConnectionRef connection, void *pUserData) const;
 
 	// Convenience functions to add a GATT descriptor to the hierarchy
 	//
@@ -173,6 +181,11 @@ struct GattCharacteristic : GattInterface
 	// The caller may choose to consult BluezAdapter::getInstance().getActiveConnectionCount() in order to determine if there are any
 	// active connections before sending a change notification.
 	void sendChangeNotificationVariant(GDBusConnection *pBusConnection, GVariant *pNewValue) const;
+	void sendChangeNotificationVariant(DBusConnectionRef busConnection, DBusVariantRef newValue) const;
+
+	// Checked variant of sendChangeNotificationVariant(). Returns false if the signal could not be emitted.
+	bool sendChangeNotificationVariantChecked(GDBusConnection *pBusConnection, GVariant *pNewValue) const;
+	bool sendChangeNotificationVariantChecked(DBusConnectionRef busConnection, DBusVariantRef newValue) const;
 
 	// Sends a change notification to subscribers to this characteristic
 	//
@@ -188,16 +201,26 @@ struct GattCharacteristic : GattInterface
 		sendChangeNotificationVariant(pBusConnection, pVariant);
 	}
 
+	template<typename T>
+	void sendChangeNotificationValue(DBusConnectionRef busConnection, T value) const
+	{
+		GVariant *pVariant = Utils::gvariantFromByteArray(value);
+		sendChangeNotificationVariant(busConnection, DBusVariantRef(pVariant));
+	}
+
 protected:
 
 	GattService &service;
-	UpdatedValueCallback pOnUpdatedValueFunc;
+	RawUpdatedValueCallback pOnUpdatedValueFunc;
 
 private:
 
 	// Stored callbacks for static thunk pattern
-	MethodCallback readCallback_ = nullptr;
-	MethodCallback writeCallback_ = nullptr;
+	RawMethodCallback readCallback_ = nullptr;
+	RawMethodCallback writeCallback_ = nullptr;
+	callbacks::CharacteristicMethodHandler readHandler_;
+	callbacks::CharacteristicMethodHandler writeHandler_;
+	callbacks::CharacteristicUpdateHandler updateHandler_;
 
 	// Static thunks for function pointer compatibility
 	static void ReadThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u);

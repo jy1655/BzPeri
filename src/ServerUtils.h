@@ -29,10 +29,12 @@
 
 namespace bzp {
 
+struct Server;
+
 struct ServerUtils
 {
 	// Builds the response to the method call `GetManagedObjects` from the D-Bus interface `org.freedesktop.DBus.ObjectManager`
-	static void getManagedObjects(GDBusMethodInvocation *pInvocation);
+	static void getManagedObjects(const Server& server, GDBusMethodInvocation *pInvocation);
 
 	// WARNING: Hacky code - don't count on this working properly on all systems
 	//

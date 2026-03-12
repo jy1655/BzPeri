@@ -29,7 +29,7 @@
 
 #pragma once
 
-#include <gio/gio.h>
+#include <bzp/GLibTypes.h>
 #include <string>
 #include <atomic>
 #include <functional>
@@ -53,6 +53,7 @@ public:
 	// Initialization and cleanup with adapter discovery
 	BluezResult<void> initialize(const std::string& preferredAdapter = "");
 	void shutdown();
+	void setServiceNameContext(std::string serviceName);
 
 	// Adapter discovery and selection
 	BluezResult<std::vector<AdapterInfo>> discoverAdapters();
@@ -155,6 +156,7 @@ private:
 
 	// Member variables
 	std::string adapterPath;
+	std::string serviceNameContext_ = "bzperi";
 	GDBusConnection* dbusConnection = nullptr;
 	GDBusObjectManager* objectManager = nullptr;
 	bool initialized = false;
@@ -205,16 +207,22 @@ private:
 	// Static callback for g_timeout_add
 	static gboolean onRetryTimeout(gpointer user_data);
 	static gboolean onAdvertisingRetryTimeout(gpointer user_data);
+	static gboolean onReconnectTimeout(gpointer user_data);
+	static gboolean onDelayedReconnectTimeout(gpointer user_data);
 	void scheduleAsyncRetry(std::function<BluezResult<void>()> operation,
 	                       const RetryPolicy& policy,
 	                       std::function<void(BluezResult<void>)> completionCallback = nullptr);
 	void scheduleAdvertisingRetry(bool enabled, const RetryPolicy& policy, std::function<void(BluezResult<void>)> callback = nullptr);
+	void clearReconnectTimers();
+	void scheduleReconnectAttempt(unsigned int delaySeconds, bool delayedRetry);
 
 	// Callback for connection events
 	ConnectionCallback connectionCallback;
 
 	// Flag to cancel pending reconnect timers on shutdown
 	std::atomic<bool> reconnectCancelled_{false};
+	guint reconnectTimerId_ = 0;
+	guint delayedReconnectTimerId_ = 0;
 };
 
 } // namespace bzp

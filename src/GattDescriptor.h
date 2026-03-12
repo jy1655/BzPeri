@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include <gio/gio.h>
+#include <bzp/GLibTypes.h>
 #include <string>
 #include <list>
 
@@ -46,10 +46,12 @@ struct DBusObject;
 
 #include <functional>
 
-namespace bzp::callbacks {
+namespace callbacks {
 	// Modern typed callback helpers - no more macro magic
-	using DescriptorMethodFunc = std::function<void(const GattDescriptor&, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation*, void*)>;
-	using DescriptorUpdateFunc = std::function<bool(const GattDescriptor&, GDBusConnection*, void*)>;
+	using DescriptorMethodFunc BZP_DEPRECATED("Use callbacks::DescriptorMethodHandler instead") = std::function<void(const GattDescriptor&, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation*, void*)>;
+	using DescriptorUpdateFunc BZP_DEPRECATED("Use callbacks::DescriptorUpdateHandler instead") = std::function<bool(const GattDescriptor&, GDBusConnection*, void*)>;
+	using DescriptorMethodHandler = std::function<void(const GattDescriptor&, DBusConnectionRef, const std::string&, DBusVariantRef, DBusMethodInvocationRef, void*)>;
+	using DescriptorUpdateHandler = std::function<bool(const GattDescriptor&, DBusConnectionRef, void*)>;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -61,8 +63,10 @@ struct GattDescriptor : GattInterface
 	// Our interface type
 	static constexpr const char *kInterfaceType = "GattDescriptor";
 
-	typedef void (*MethodCallback)(const GattDescriptor &self, GDBusConnection *pConnection, const std::string &methodName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData);
-	typedef bool (*UpdatedValueCallback)(const GattDescriptor &self, GDBusConnection *pConnection, void *pUserData);
+	using RawMethodCallback = void (*)(const GattDescriptor &self, GDBusConnection *pConnection, const std::string &methodName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData);
+	using MethodCallback BZP_DEPRECATED("Use callbacks::DescriptorMethodHandler instead of raw GDBus callback typedefs") = RawMethodCallback;
+	using RawUpdatedValueCallback = bool (*)(const GattDescriptor &self, GDBusConnection *pConnection, void *pUserData);
+	using UpdatedValueCallback BZP_DEPRECATED("Use callbacks::DescriptorUpdateHandler instead of raw GDBus callback typedefs") = RawUpdatedValueCallback;
 
 	//
 	// Standard constructor
@@ -85,6 +89,7 @@ struct GattDescriptor : GattInterface
 
 	// Locates a D-Bus method within this D-Bus interface and invokes the method
 	virtual bool callMethod(const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const;
+	bool callMethod(const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const;
 
 	// Modern periodic updates: Use GLib timers directly
 	// Example: g_timeout_add_seconds(interval, callback, userData)
@@ -97,7 +102,8 @@ struct GattDescriptor : GattInterface
 	//
 	//     Input args:  options - "a{sv}"
 	//     Output args: value   - "ay"
-	GattDescriptor &onReadValue(MethodCallback callback);
+	GattDescriptor &onReadValue(RawMethodCallback callback);
+	GattDescriptor &onReadValue(const callbacks::DescriptorMethodHandler &callback);
 
 	// Specialized support for Descriptor WriteValue method
 	//
@@ -108,7 +114,8 @@ struct GattDescriptor : GattInterface
 	//     Input args:  value   - "ay"
 	//                  options - "a{sv}"
 	//     Output args: void
-	GattDescriptor &onWriteValue(MethodCallback callback);
+	GattDescriptor &onWriteValue(RawMethodCallback callback);
+	GattDescriptor &onWriteValue(const callbacks::DescriptorMethodHandler &callback);
 
 	// Custom support for handling updates to our descriptor's value
 	//
@@ -120,7 +127,8 @@ struct GattDescriptor : GattInterface
 	// If you need to perform the same action(s) when a value is updated from the client (via `onWriteValue`) or from this server,
 	// then it may be beneficial to call this method from within your onWriteValue callback to reduce duplicated code. See
 	// `callOnUpdatedValue` for more information.
-	GattDescriptor &onUpdatedValue(UpdatedValueCallback callback);
+	GattDescriptor &onUpdatedValue(RawUpdatedValueCallback callback);
+	GattDescriptor &onUpdatedValue(const callbacks::DescriptorUpdateHandler &callback);
 
 	// Calls the onUpdatedValue method, if one was set.
 	//
@@ -140,17 +148,21 @@ struct GattDescriptor : GattInterface
 	//          self.callOnUpdatedValue(pConnection, pUserData);
 	//      })
 	bool callOnUpdatedValue(GDBusConnection *pConnection, void *pUserData) const;
+	bool callOnUpdatedValue(DBusConnectionRef connection, void *pUserData) const;
 
 protected:
 
 	GattCharacteristic &characteristic;
-	UpdatedValueCallback pOnUpdatedValueFunc;
+	RawUpdatedValueCallback pOnUpdatedValueFunc;
 
 private:
 
 	// Stored callbacks for static thunk pattern
-	MethodCallback readCallback_ = nullptr;
-	MethodCallback writeCallback_ = nullptr;
+	RawMethodCallback readCallback_ = nullptr;
+	RawMethodCallback writeCallback_ = nullptr;
+	callbacks::DescriptorMethodHandler readHandler_;
+	callbacks::DescriptorMethodHandler writeHandler_;
+	callbacks::DescriptorUpdateHandler updateHandler_;
 
 	// Static thunks for function pointer compatibility
 	static void ReadThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u);

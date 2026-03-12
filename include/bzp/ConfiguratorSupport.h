@@ -24,8 +24,8 @@
 //        server.configure([](bzp::DBusObject& root) {
 //            root.gattServiceBegin("my_service", "12345678-1234-1234-1234-123456789ABC")
 //                .gattCharacteristicBegin("my_char", "87654321-4321-4321-4321-ABCDEF123456", {"read", "write"})
-//                    .onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) { ... })
-//                    .onWriteValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) { ... })
+//                    .onReadValue([](const GattCharacteristic& self, DBusConnectionRef, const std::string&, DBusVariantRef, DBusMethodInvocationRef invocation, void*) { ... })
+//                    .onWriteValue([](const GattCharacteristic& self, DBusConnectionRef, const std::string&, DBusVariantRef parameters, DBusMethodInvocationRef invocation, void*) { ... })
 //                .gattCharacteristicEnd()
 //            .gattServiceEnd();
 //        });
@@ -68,9 +68,9 @@
 //   {"read", "write", "notify"} - Full-featured characteristic
 //
 // Event Handlers:
-//   .onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) { ... })
-//   .onWriteValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) { ... })
-//   .onUpdatedValue([](const GattCharacteristic& self, GDBusConnection*, void*) { ... })
+//   .onReadValue([](const GattCharacteristic& self, DBusConnectionRef, const std::string&, DBusVariantRef, DBusMethodInvocationRef invocation, void*) { ... })
+//   .onWriteValue([](const GattCharacteristic& self, DBusConnectionRef, const std::string&, DBusVariantRef parameters, DBusMethodInvocationRef invocation, void*) { ... })
+//   .onUpdatedValue([](const GattCharacteristic& self, DBusConnectionRef connection, void*) { ... })
 //
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

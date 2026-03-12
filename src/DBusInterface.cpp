@@ -44,6 +44,7 @@
 #include <bzp/DBusInterface.h>
 #include <bzp/GattProperty.h>
 #include <bzp/DBusObject.h>
+#include <bzp/Server.h>
 #include <bzp/Logger.h>
 
 namespace bzp {
@@ -107,9 +108,15 @@ DBusObjectPath DBusInterface::getPath() const
 // Add a named method to this interface
 //
 // This method returns a reference to `this` in order to enable chaining inside the server description.
-DBusInterface &DBusInterface::addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, DBusMethod::Callback callback)
+DBusInterface &DBusInterface::addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, RawMethodCallback callback)
 {
 	methods.push_back(DBusMethod(this, name, pInArgs, pOutArgs, callback));
+	return *this;
+}
+
+DBusInterface &DBusInterface::addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, const MethodHandler &handler)
+{
+	methods.push_back(DBusMethod(this, name, pInArgs, pOutArgs, handler));
 	return *this;
 }
 
@@ -126,12 +133,18 @@ bool DBusInterface::callMethod(const std::string &methodName, GDBusConnection *p
 	{
 		if (methodName == method.getName())
 		{
-			method.call<DBusInterface>(pConnection, getPath(), getName(), methodName, pParameters, pInvocation, pUserData);
+			const std::string notImplementedErrorName = owner.getServer().getOwnedName() + ".NotImplemented";
+			method.call<DBusInterface>(pConnection, getPath(), getName(), methodName, notImplementedErrorName, pParameters, pInvocation, pUserData);
 			return true;
 		}
 	}
 
 	return false;
+}
+
+bool DBusInterface::callMethod(const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const
+{
+	return callMethod(methodName, connection.get(), parameters.get(), invocation.get(), pUserData);
 }
 
 // Internal method used to generate introspection XML used to describe our services on D-Bus

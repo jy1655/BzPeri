@@ -41,7 +41,6 @@
 #include <thread>
 
 #include <bzp/Server.h>
-#include <bzp/Globals.h>
 #include <bzp/BluezAdapter.h>
 // Mgmt.h removed - replaced with modern BlueZ D-Bus interface
 #include <bzp/DBusObject.h>
@@ -88,6 +87,7 @@ static bool bOwnedNameAcquired = false;
 static bool bAdapterConfigured = false;
 static bool bApplicationRegistered = false;
 static std::string bluezGattManagerInterfaceName = "";
+static Server* pServerContext = nullptr;
 
 //
 // Externs
@@ -102,6 +102,11 @@ extern void setServerHealth(enum BZPServerHealth newHealth);
 
 static void initializationStateProcessor();
 
+static Server& serverContext()
+{
+	return *pServerContext;
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------------
 //  ___    _ _           __      _       _                                             _
 // |_ _|__| | | ___     / /   __| | __ _| |_ __ _    _ __  _ __ ___   ___ ___  ___ ___(_)_ __   __ _
@@ -111,7 +116,7 @@ static void initializationStateProcessor();
 //                                                  |_|                                        |___/
 //
 // Our idle funciton is what processes data updates. We handle this in a simple way. We update the data directly in our global
-// `TheServer` object, then call `bzpPushUpdateQueue` to trigger that data to be updated (in whatever way the service responsible
+// active server object, then call `bzpPushUpdateQueue` to trigger that data to be updated (in whatever way the service responsible
 // for that data() sees fit.
 //
 // This is done using the `bzpPushUpdateQueue` / `bzpPopUpdateQueue` methods to manage the queue of pending update messages. Each
@@ -159,7 +164,7 @@ bool idleFunc(void *pUserData)
 	std::string interfaceName = entryString.substr(token+1);
 
 	// We have an update - call the onUpdatedValue method on the interface
-	std::shared_ptr<const DBusInterface> pInterface = TheServer->findInterface(objectPath, interfaceName);
+	std::shared_ptr<const DBusInterface> pInterface = serverContext().findInterface(objectPath, interfaceName);
 	if (nullptr == pInterface)
 	{
 		Logger::warn(SSTR << "Unable to find interface for update: path[" << objectPath << "], name[" << interfaceName << "]");
@@ -191,8 +196,9 @@ bool idleFunc(void *pUserData)
 // Perform final cleanup of various resources that were allocated while the server was initialized and/or running
 void uninit()
 {
-  	// We've left our main loop - nullify its pointer so we know we're no longer running
+	// We've left our main loop - nullify its pointer so we know we're no longer running
   	pMainLoop = nullptr;
+	pServerContext = nullptr;
 
 	if (nullptr != pBluezAdapterObject)
 	{
@@ -371,10 +377,11 @@ void onMethodCall
 	// Convert our input path into our custom type for path management
 	DBusObjectPath objectPath(pObjectPath);
 
-	if (!TheServer->callMethod(objectPath, pInterfaceName, pMethodName, pConnection, pParameters, pInvocation, pUserData))
+	if (!serverContext().callMethod(objectPath, pInterfaceName, pMethodName, pConnection, pParameters, pInvocation, pUserData))
 	{
 		Logger::error(SSTR << " + Method not found: [" << pSender << "]:[" << objectPath << "]:[" << pInterfaceName << "]:[" << pMethodName << "]");
-		g_dbus_method_invocation_return_dbus_error(pInvocation, kErrorNotImplemented.c_str(), "This method is not implemented");
+		const std::string notImplementedErrorName = serverContext().getOwnedName() + ".NotImplemented";
+		g_dbus_method_invocation_return_dbus_error(pInvocation, notImplementedErrorName.c_str(), "This method is not implemented");
 		return;
 	}
 
@@ -396,7 +403,7 @@ GVariant *onGetProperty
 	// Convert our input path into our custom type for path management
 	DBusObjectPath objectPath(pObjectPath);
 
-	const GattProperty *pProperty = TheServer->findProperty(objectPath, pInterfaceName, pPropertyName);
+	const GattProperty *pProperty = serverContext().findProperty(objectPath, pInterfaceName, pPropertyName);
 
 	std::string propertyPath = std::string("[") + pSender + "]:[" + objectPath.toString() + "]:[" + pInterfaceName + "]:[" + pPropertyName + "]";
 	if (!pProperty)
@@ -406,7 +413,8 @@ GVariant *onGetProperty
 		return nullptr;
 	}
 
-	if (!pProperty->getGetterFunc())
+	const auto &getterHandler = pProperty->getGetterHandler();
+	if (!getterHandler && !pProperty->getGetterFunc())
 	{
 		Logger::error(SSTR << "Property(get) func not found: " << propertyPath);
 	    g_set_error(ppError, G_IO_ERROR, G_IO_ERROR_FAILED, ("Property(get) func not found: " + propertyPath).c_str(), pSender);
@@ -414,10 +422,29 @@ GVariant *onGetProperty
 	}
 
 	Logger::info(SSTR << "Calling property getter: " << propertyPath);
-	GVariant *pResult = pProperty->getGetterFunc()(pConnection, pSender, objectPath.c_str(), pInterfaceName, pPropertyName, ppError, pUserData);
+	GVariant *pResult = nullptr;
+	if (getterHandler)
+	{
+		pResult = getterHandler(
+			DBusConnectionRef(pConnection),
+			pSender != nullptr ? std::string_view(pSender) : std::string_view(),
+			objectPath.toString(),
+			pInterfaceName != nullptr ? std::string_view(pInterfaceName) : std::string_view(),
+			pPropertyName != nullptr ? std::string_view(pPropertyName) : std::string_view(),
+			DBusErrorRef(ppError),
+			pUserData).get();
+	}
+	else
+	{
+		pResult = pProperty->getGetterFunc()(pConnection, pSender, objectPath.c_str(), pInterfaceName, pPropertyName, ppError, pUserData);
+	}
 
 	if (nullptr == pResult)
 	{
+		if (ppError != nullptr && *ppError != nullptr)
+		{
+			return nullptr;
+		}
 	    g_set_error(ppError, G_IO_ERROR, G_IO_ERROR_FAILED, ("Property(get) failed: " + propertyPath).c_str(), pSender);
 	    return nullptr;
 	}
@@ -441,7 +468,7 @@ gboolean onSetProperty
 	// Convert our input path into our custom type for path management
 	DBusObjectPath objectPath(pObjectPath);
 
-	const GattProperty *pProperty = TheServer->findProperty(objectPath, pInterfaceName, pPropertyName);
+	const GattProperty *pProperty = serverContext().findProperty(objectPath, pInterfaceName, pPropertyName);
 
 	std::string propertyPath = std::string("[") + pSender + "]:[" + objectPath.toString() + "]:[" + pInterfaceName + "]:[" + pPropertyName + "]";
 	if (!pProperty)
@@ -451,16 +478,32 @@ gboolean onSetProperty
 		return false;
 	}
 
-	if (!pProperty->getSetterFunc())
+	const auto &setterHandler = pProperty->getSetterHandler();
+	if (!setterHandler && !pProperty->getSetterFunc())
 	{
 		Logger::error(SSTR << "Property(set) func not found: " << propertyPath);
 	    g_set_error(ppError, G_IO_ERROR, G_IO_ERROR_FAILED, ("Property(set) func not found: " + propertyPath).c_str(), pSender);
 		return false;
 	}
 
-	Logger::info(SSTR << "Calling property getter: " << propertyPath);
-	if (!pProperty->getSetterFunc()(pConnection, pSender, objectPath.c_str(), pInterfaceName, pPropertyName, pValue, ppError, pUserData))
+	Logger::info(SSTR << "Calling property setter: " << propertyPath);
+	const bool success = setterHandler
+		? setterHandler(
+			DBusConnectionRef(pConnection),
+			pSender != nullptr ? std::string_view(pSender) : std::string_view(),
+			objectPath.toString(),
+			pInterfaceName != nullptr ? std::string_view(pInterfaceName) : std::string_view(),
+			pPropertyName != nullptr ? std::string_view(pPropertyName) : std::string_view(),
+			DBusVariantRef(pValue),
+			DBusErrorRef(ppError),
+			pUserData)
+		: pProperty->getSetterFunc()(pConnection, pSender, objectPath.c_str(), pInterfaceName, pPropertyName, pValue, ppError, pUserData);
+	if (!success)
 	{
+		if (ppError != nullptr && *ppError != nullptr)
+		{
+			return false;
+		}
 	    g_set_error(ppError, G_IO_ERROR, G_IO_ERROR_FAILED, ("Property(set) failed: " + propertyPath).c_str(), pSender);
 	    return false;
 	}
@@ -615,7 +658,7 @@ void registerNodeHierarchy(GDBusNodeInfo *pNode, const DBusObjectPath &basePath 
 void registerObjects()
 {
 	// Parse each object into an XML interface tree
-	for (const DBusObject &object : TheServer->getObjects())
+	for (const DBusObject &object : serverContext().getObjects())
 	{
 		GError *pError = nullptr;
 		std::string xmlString = object.generateIntrospectionXML();
@@ -663,6 +706,7 @@ void configureAdapter()
 	const char* listAdapters = std::getenv("BLUEZ_LIST_ADAPTERS");
 
 	std::string adapterName = preferredAdapter ? preferredAdapter : "";
+	BluezAdapter::getInstance().setServiceNameContext(serverContext().getServiceName());
 
 	// Initialize the modern BlueZ adapter with discovery
 	auto result = BluezAdapter::getInstance().initialize(adapterName);
@@ -704,8 +748,8 @@ void configureAdapter()
 
 	// Get our properly truncated advertising names
 	// Note: Using Mgmt for now, but these could be moved to Utils
-	std::string advertisingName = Utils::truncateName(TheServer->getAdvertisingName());
-	std::string advertisingShortName = Utils::truncateShortName(TheServer->getAdvertisingShortName());
+	std::string advertisingName = Utils::truncateName(serverContext().getAdvertisingName());
+	std::string advertisingShortName = Utils::truncateShortName(serverContext().getAdvertisingShortName());
 
 	BluezAdapter& adapter = BluezAdapter::getInstance();
 
@@ -724,7 +768,7 @@ void configureAdapter()
 	}
 
 	// Set bondable state
-	auto bondableResult = adapter.setBondable(TheServer->getEnableBondable());
+	auto bondableResult = adapter.setBondable(serverContext().getEnableBondable());
 	if (bondableResult.hasError())
 	{
 		Logger::warn(SSTR << "Failed to set bondable state: " << bondableResult.errorMessage());
@@ -734,7 +778,7 @@ void configureAdapter()
 	// BLE advertising handles connectable state automatically
 
 	// Set discoverable state
-	if (TheServer->getEnableDiscoverable())
+	if (serverContext().getEnableDiscoverable())
 	{
 		auto discoverableResult = adapter.setDiscoverable(true);
 		if (discoverableResult.hasError())
@@ -744,7 +788,7 @@ void configureAdapter()
 	}
 
 	// Enable advertising (this also ensures the adapter is powered and connectable)
-	if (TheServer->getEnableAdvertising())
+	if (serverContext().getEnableAdvertising())
 	{
 		auto advertisingResult = adapter.setAdvertising(true);
 		if (advertisingResult.hasError())
@@ -930,7 +974,7 @@ void doOwnedNameAcquire()
 	ownedNameId = g_bus_own_name_on_connection
 	(
 		pBusConnection,                    // GDBusConnection *connection
-		TheServer->getOwnedName().c_str(), // const gchar *name
+		serverContext().getOwnedName().c_str(), // const gchar *name
 		G_BUS_NAME_OWNER_FLAGS_NONE,       // GBusNameOwnerFlags flags
 
 		// GBusNameAcquiredCallback name_acquired_handler
@@ -961,13 +1005,13 @@ void doOwnedNameAcquire()
 			// If we don't have a periodicTimeout (which we use for error recovery) then we're sunk
 			if (0 == periodicTimeoutId)
 			{
-				Logger::fatal(SSTR << "Unable to acquire an owned name ('" << TheServer->getOwnedName() << "') on the bus");
+				Logger::fatal(SSTR << "Unable to acquire an owned name ('" << serverContext().getOwnedName() << "') on the bus");
 				setServerHealth(EFailedInit);
 				shutdown();
 			}
 			else
 			{
-				Logger::warn(SSTR << "Owned name ('" << TheServer->getOwnedName() << "') lost");
+				Logger::warn(SSTR << "Owned name ('" << serverContext().getOwnedName() << "') lost");
 				setRetryFailure();
 				return;
 			}
@@ -1058,7 +1102,7 @@ void initializationStateProcessor()
 	//
 	if (!bOwnedNameAcquired)
 	{
-		Logger::debug(SSTR << "Acquiring owned name: '" << TheServer->getOwnedName() << "'");
+		Logger::debug(SSTR << "Acquiring owned name: '" << serverContext().getOwnedName() << "'");
 		doOwnedNameAcquire();
 		return;
 	}
@@ -1140,6 +1184,8 @@ void initializationStateProcessor()
 // This method should not be called directly, instead, direct your attention over to `bzpStart()`
 void runServerThread()
 {
+	pServerContext = getActiveServerPtr();
+
 	// Set the initialization state
 	setServerRunState(EInitializing);
 

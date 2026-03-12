@@ -180,12 +180,12 @@ static void addManagedObjectsNode(const DBusObject &object, const DBusObjectPath
 }
 
 // Builds the response to the method call `GetManagedObjects` from the D-Bus interface `org.freedesktop.DBus.ObjectManager`
-void ServerUtils::getManagedObjects(GDBusMethodInvocation *pInvocation)
+void ServerUtils::getManagedObjects(const Server& server, GDBusMethodInvocation *pInvocation)
 {
 	Logger::debug(SSTR << "Reporting managed objects");
 
 	GVariantBuilder *pObjectArray = g_variant_builder_new(G_VARIANT_TYPE_ARRAY);
-	for (const DBusObject &object : TheServer->getObjects())
+	for (const DBusObject &object : server.getObjects())
 	{
 		addManagedObjectsNode(object, DBusObjectPath(""), pObjectArray);
 	}

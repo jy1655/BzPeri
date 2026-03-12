@@ -23,7 +23,7 @@
 
 #pragma once
 
-#include <gio/gio.h>
+#include <glib.h>
 #include <string>
 #include <variant>
 #include <vector>

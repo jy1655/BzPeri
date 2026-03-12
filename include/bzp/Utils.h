@@ -31,7 +31,6 @@
 #pragma once
 
 #include <glib.h>
-#include <gio/gio.h>
 #include <vector>
 #include <string>
 #include <string_view>

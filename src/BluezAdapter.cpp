@@ -5,8 +5,6 @@
 
 #include <bzp/BluezAdapter.h>
 #include "BluezAdvertisement.h"
-#include <bzp/Globals.h>
-#include <bzp/Server.h>
 #include <bzp/Logger.h>
 #include "StructuredLogger.h"
 #include "GLibRAII.h"
@@ -14,6 +12,7 @@
 #include <glib.h>
 #include <cstring>
 #include <algorithm>
+#include <cctype>
 #include <functional>
 #include <chrono>
 #include <thread>
@@ -22,18 +21,131 @@ namespace bzp {
 
 namespace {
 
-std::string currentAdvertisementPath()
+std::string currentAdvertisementPath(const std::string& serviceName)
 {
-	if (TheServer)
+	if (!serviceName.empty())
 	{
 		// Convert dots in service name to slashes for valid D-Bus object path
 		// e.g., "bzperi.myapp" becomes "/com/bzperi/myapp/advertisement0"
-		std::string serviceName = TheServer->getServiceName();
-		std::replace(serviceName.begin(), serviceName.end(), '.', '/');
-		return std::string("/com/") + serviceName + "/advertisement0";
+		std::string pathServiceName = serviceName;
+		std::replace(pathServiceName.begin(), pathServiceName.end(), '.', '/');
+		return std::string("/com/") + pathServiceName + "/advertisement0";
 	}
 
 	return "/com/bzperi/advertisement0";
+}
+
+std::optional<std::pair<int, int>> parseBluezMajorMinor(const std::string& version)
+{
+	size_t index = 0;
+	while (index < version.size() && !std::isdigit(static_cast<unsigned char>(version[index])))
+	{
+		++index;
+	}
+	if (index >= version.size())
+	{
+		return std::nullopt;
+	}
+
+	size_t next = index;
+	while (next < version.size() && std::isdigit(static_cast<unsigned char>(version[next])))
+	{
+		++next;
+	}
+	int major = std::stoi(version.substr(index, next - index));
+
+	if (next >= version.size() || version[next] != '.')
+	{
+		return std::make_pair(major, 0);
+	}
+
+	index = next + 1;
+	next = index;
+	while (next < version.size() && std::isdigit(static_cast<unsigned char>(version[next])))
+	{
+		++next;
+	}
+	if (index == next)
+	{
+		return std::make_pair(major, 0);
+	}
+
+	return std::make_pair(major, std::stoi(version.substr(index, next - index)));
+}
+
+std::string detectBluezVersionString()
+{
+	const std::pair<const char*, const char*> candidates[] = {
+		{"bluetoothd", "-v"},
+		{"bluetoothctl", "-v"},
+	};
+
+	for (const auto& [binary, flag] : candidates)
+	{
+		gchar* stdoutText = nullptr;
+		gchar* stderrText = nullptr;
+		GError* error = nullptr;
+		gint exitStatus = 0;
+		gchar* argv[] = {g_strdup(binary), g_strdup(flag), nullptr};
+
+		gboolean ok = g_spawn_sync(
+			nullptr,
+			argv,
+			nullptr,
+			G_SPAWN_SEARCH_PATH,
+			nullptr,
+			nullptr,
+			&stdoutText,
+			&stderrText,
+			&exitStatus,
+			&error);
+
+		g_free(argv[0]);
+		g_free(argv[1]);
+
+		if (!ok)
+		{
+			if (error) g_error_free(error);
+			g_free(stdoutText);
+			g_free(stderrText);
+			continue;
+		}
+
+		std::string output;
+		if (stdoutText && *stdoutText)
+		{
+			output = stdoutText;
+		}
+		else if (stderrText && *stderrText)
+		{
+			output = stderrText;
+		}
+
+		g_free(stdoutText);
+		g_free(stderrText);
+		if (error) g_error_free(error);
+
+		if (exitStatus != 0)
+		{
+			continue;
+		}
+
+		size_t begin = output.find_first_of("0123456789");
+		if (begin == std::string::npos)
+		{
+			continue;
+		}
+
+		size_t end = begin;
+		while (end < output.size() &&
+			   (std::isdigit(static_cast<unsigned char>(output[end])) || output[end] == '.'))
+		{
+			++end;
+		}
+		return output.substr(begin, end - begin);
+	}
+
+	return {};
 }
 
 } // namespace
@@ -43,6 +155,11 @@ BluezAdapter& BluezAdapter::getInstance()
 {
 	static BluezAdapter instance;
 	return instance;
+}
+
+void BluezAdapter::setServiceNameContext(std::string serviceName)
+{
+	serviceNameContext_ = serviceName.empty() ? "bzperi" : std::move(serviceName);
 }
 
 BluezAdapter::~BluezAdapter()
@@ -212,11 +329,12 @@ BluezResult<void> BluezAdapter::initialize(const std::string& preferredAdapter)
 // Shutdown and cleanup
 void BluezAdapter::shutdown()
 {
-	if (!initialized)
-		return;
-
 	// Cancel any pending reconnect timers immediately
 	reconnectCancelled_.store(true);
+	clearReconnectTimers();
+
+	if (!initialized)
+		return;
 
 	// Unsubscribe from D-Bus signals
 	if (dbusConnection)
@@ -642,7 +760,7 @@ gboolean BluezAdapter::onAdvertisingRetryTimeout(gpointer user_data)
 	{
 		if (!adapter->advertisement)
 		{
-			adapter->advertisement = std::make_unique<BluezAdvertisement>(currentAdvertisementPath());
+			adapter->advertisement = std::make_unique<BluezAdvertisement>(currentAdvertisementPath(adapter->serviceNameContext_));
 
 			// Configure advertisement with essential service UUIDs
 			// Reduced to only 16-bit standard UUIDs to fit legacy 31-byte advertising budget
@@ -806,8 +924,23 @@ BluezResult<BluezCapabilities> BluezAdapter::detectCapabilities()
 	}
 
 	// Store interface support for quick lookup
+	caps.bluezVersion = detectBluezVersionString();
+	if (!caps.bluezVersion.empty())
+	{
+		if (auto version = parseBluezMajorMinor(caps.bluezVersion))
+		{
+			const auto [major, minor] = *version;
+			caps.hasAcquireWrite = major > 5 || (major == 5 && minor >= 68);
+			caps.hasAcquireNotify = major > 5 || (major == 5 && minor >= 68);
+			caps.hasExtendedAdvertising = major > 5 || (major == 5 && minor >= 77);
+		}
+	}
+
 	supportedInterfaces["org.bluez.LEAdvertisingManager1"] = caps.hasLEAdvertisingManager;
 	supportedInterfaces["org.bluez.GattManager1"] = caps.hasGattManager;
+	supportedInterfaces["org.bluez.GattCharacteristic1.AcquireWrite"] = caps.hasAcquireWrite;
+	supportedInterfaces["org.bluez.GattCharacteristic1.AcquireNotify"] = caps.hasAcquireNotify;
+	supportedInterfaces["org.bluez.LEAdvertisingManager1.ExtendedAdvertising"] = caps.hasExtendedAdvertising;
 
 	return BluezResult<BluezCapabilities>(caps);
 }
@@ -834,42 +967,56 @@ BluezResult<std::vector<DeviceInfo>> BluezAdapter::getConnectedDevices()
 // Device connection tracking
 void BluezAdapter::handleDeviceConnected(const std::string& devicePath)
 {
-	std::lock_guard<std::mutex> lock(connectedDevicesMutex_);
-	auto it = connectedDevices.find(devicePath);
-	if (it == connectedDevices.end())
+	bool shouldNotify = false;
+	ConnectionCallback callback;
 	{
-		// New connection
-		DeviceInfo info;
-		info.path = devicePath;
-		info.connected = true;
-		connectedDevices[devicePath] = info;
-
-		int newCount = activeConnections.fetch_add(1) + 1;
-		Logger::debug(SSTR << "Device connected: " << devicePath << " (total: " << newCount << ")");
-
-		if (connectionCallback)
+		std::lock_guard<std::mutex> lock(connectedDevicesMutex_);
+		auto it = connectedDevices.find(devicePath);
+		if (it == connectedDevices.end())
 		{
-			connectionCallback(true, devicePath);
+			// New connection
+			DeviceInfo info;
+			info.path = devicePath;
+			info.connected = true;
+			connectedDevices[devicePath] = info;
+
+			int newCount = activeConnections.fetch_add(1) + 1;
+			Logger::debug(SSTR << "Device connected: " << devicePath << " (total: " << newCount << ")");
+
+			shouldNotify = true;
+			callback = connectionCallback;
 		}
+	}
+
+	if (shouldNotify && callback)
+	{
+		callback(true, devicePath);
 	}
 }
 
 void BluezAdapter::handleDeviceDisconnected(const std::string& devicePath)
 {
-	std::lock_guard<std::mutex> lock(connectedDevicesMutex_);
-	auto it = connectedDevices.find(devicePath);
-	if (it != connectedDevices.end() && it->second.connected)
+	bool shouldNotify = false;
+	ConnectionCallback callback;
 	{
-		// Mark as disconnected
-		it->second.connected = false;
-
-		int newCount = activeConnections.fetch_sub(1) - 1;
-		Logger::debug(SSTR << "Device disconnected: " << devicePath << " (total: " << newCount << ")");
-
-		if (connectionCallback)
+		std::lock_guard<std::mutex> lock(connectedDevicesMutex_);
+		auto it = connectedDevices.find(devicePath);
+		if (it != connectedDevices.end() && it->second.connected)
 		{
-			connectionCallback(false, devicePath);
+			// Mark as disconnected
+			it->second.connected = false;
+
+			int newCount = activeConnections.fetch_sub(1) - 1;
+			Logger::debug(SSTR << "Device disconnected: " << devicePath << " (total: " << newCount << ")");
+
+			shouldNotify = true;
+			callback = connectionCallback;
 		}
+	}
+
+	if (shouldNotify && callback)
+	{
+		callback(false, devicePath);
 	}
 }
 
@@ -976,6 +1123,52 @@ void BluezAdapter::onInterfacesAdded(GDBusConnection* connection,
 			}
 			if (connected) g_variant_unref(connected);
 		}
+		else if (g_strcmp0(interfaceName, "org.bluez.Adapter1") == 0 &&
+				 (!adapter->initialized || adapter->adapterPath.empty()))
+		{
+			Logger::info(SSTR << "Bluetooth adapter available: " << objectPath << " - refreshing adapter selection");
+
+			auto adaptersResult = adapter->discoverAdapters();
+			if (adaptersResult.hasError())
+			{
+				Logger::warn(SSTR << "Failed to refresh adapter list after adapter add: "
+								  << adaptersResult.errorMessage());
+			}
+			else
+			{
+				adapter->availableAdapters = adaptersResult.value();
+				auto selectResult = adapter->selectAdapter(objectPath);
+				if (selectResult.hasError())
+				{
+					Logger::warn(SSTR << "Failed to select recovered adapter " << objectPath
+									  << ": " << selectResult.errorMessage());
+				}
+				else
+				{
+					auto capabilitiesResult = adapter->detectCapabilities();
+					if (capabilitiesResult.isSuccess())
+					{
+						adapter->capabilities = capabilitiesResult.value();
+					}
+
+					adapter->initialized = true;
+					adapter->reconnectCancelled_.store(false);
+					Logger::info(SSTR << "Recovered Bluetooth adapter: " << objectPath);
+
+					if (adapter->advertisement)
+					{
+						adapter->setAdvertisingAsync(true, [](BluezResult<void> advResult) {
+							if (advResult.isSuccess()) {
+								Logger::info("Advertising re-registered after adapter recovery");
+							} else {
+								Logger::warn(SSTR << "Failed to re-register advertising after adapter recovery: "
+												  << advResult.errorMessage());
+							}
+						});
+					}
+				}
+			}
+		}
 		g_variant_unref(properties);
 	}
 
@@ -1074,6 +1267,11 @@ void BluezAdapter::onNameOwnerChanged(GDBusConnection* connection,
 	(void)interface_name;
 	(void)signal_name;
 
+	if (!g_variant_is_of_type(parameters, G_VARIANT_TYPE("(sss)"))) {
+		Logger::warn("onNameOwnerChanged: unexpected parameter type, skipping");
+		return;
+	}
+
 	const gchar* name = nullptr;
 	const gchar* old_owner = nullptr;
 	const gchar* new_owner = nullptr;
@@ -1084,68 +1282,9 @@ void BluezAdapter::onNameOwnerChanged(GDBusConnection* connection,
 		if (strlen(new_owner) == 0)
 		{
 			Logger::warn("BlueZ service disappeared - attempting reconnection");
-			// Reset cancellation flag before scheduling reconnect
 			adapter->reconnectCancelled_.store(false);
-			// Schedule reconnection on a timeout to avoid blocking
-			g_timeout_add_seconds(5, [](gpointer user_data) -> gboolean {
-				BluezAdapter* adapter = static_cast<BluezAdapter*>(user_data);
-
-				if (adapter->reconnectCancelled_.load())
-				{
-					return G_SOURCE_REMOVE;
-				}
-
-				// Proper cleanup before reinitializing
-				Logger::info("Cleaning up stale BlueZ connections before reconnection");
-				adapter->shutdown();  // This properly cleans up signals, objectManager, dbusConnection
-
-				// Reset flag after shutdown so next reconnect can proceed
-				adapter->reconnectCancelled_.store(false);
-
-				// Attempt to reinitialize
-				auto result = adapter->initialize();
-				if (result.isSuccess())
-				{
-					Logger::info("BlueZ reconnection successful");
-
-					// Re-register advertising if it was previously active
-					if (adapter->advertisement)
-					{
-						adapter->setAdvertisingAsync(true, [](BluezResult<void> advResult) {
-							if (advResult.isSuccess()) {
-								Logger::info("Advertising re-registered after BlueZ restart");
-							} else {
-								Logger::warn(SSTR << "Failed to re-register advertising: " << advResult.errorMessage());
-							}
-						});
-					}
-				}
-				else
-				{
-					Logger::error(SSTR << "BlueZ reconnection failed: " << result.errorMessage());
-					// Schedule another retry after longer delay
-					adapter->reconnectCancelled_.store(false);
-					g_timeout_add_seconds(15, [](gpointer user_data) -> gboolean {
-						BluezAdapter* adapter = static_cast<BluezAdapter*>(user_data);
-						if (adapter->reconnectCancelled_.load())
-						{
-							return G_SOURCE_REMOVE;
-						}
-						auto result = adapter->initialize();
-						if (result.isSuccess())
-						{
-							Logger::info("BlueZ delayed reconnection successful");
-						}
-						else
-						{
-							Logger::error(SSTR << "BlueZ delayed reconnection failed: " << result.errorMessage());
-						}
-						return G_SOURCE_REMOVE;
-					}, adapter);
-				}
-
-				return G_SOURCE_REMOVE;  // Remove the timeout
-			}, adapter);
+			adapter->clearReconnectTimers();
+			adapter->scheduleReconnectAttempt(5, false);
 		}
 		else
 		{
@@ -1191,6 +1330,103 @@ bool BluezAdapter::isRetryableError(const GError* error) const
 	}
 
 	return false;
+}
+
+void BluezAdapter::clearReconnectTimers()
+{
+	if (reconnectTimerId_ > 0)
+	{
+		g_source_remove(reconnectTimerId_);
+		reconnectTimerId_ = 0;
+	}
+
+	if (delayedReconnectTimerId_ > 0)
+	{
+		g_source_remove(delayedReconnectTimerId_);
+		delayedReconnectTimerId_ = 0;
+	}
+}
+
+void BluezAdapter::scheduleReconnectAttempt(unsigned int delaySeconds, bool delayedRetry)
+{
+	if (reconnectCancelled_.load())
+	{
+		return;
+	}
+
+	guint& timerId = delayedRetry ? delayedReconnectTimerId_ : reconnectTimerId_;
+	if (timerId > 0)
+	{
+		g_source_remove(timerId);
+		timerId = 0;
+	}
+
+	timerId = g_timeout_add_seconds(
+		delaySeconds,
+		delayedRetry ? onDelayedReconnectTimeout : onReconnectTimeout,
+		this);
+}
+
+gboolean BluezAdapter::onReconnectTimeout(gpointer user_data)
+{
+	BluezAdapter* adapter = static_cast<BluezAdapter*>(user_data);
+	adapter->reconnectTimerId_ = 0;
+
+	if (adapter->reconnectCancelled_.load())
+	{
+		return G_SOURCE_REMOVE;
+	}
+
+	Logger::info("Cleaning up stale BlueZ connections before reconnection");
+	adapter->shutdown();
+	adapter->reconnectCancelled_.store(false);
+
+	auto result = adapter->initialize();
+	if (result.isSuccess())
+	{
+		Logger::info("BlueZ reconnection successful");
+
+		if (adapter->advertisement)
+		{
+			adapter->setAdvertisingAsync(true, [](BluezResult<void> advResult) {
+				if (advResult.isSuccess()) {
+					Logger::info("Advertising re-registered after BlueZ restart");
+				} else {
+					Logger::warn(SSTR << "Failed to re-register advertising: " << advResult.errorMessage());
+				}
+			});
+		}
+
+		return G_SOURCE_REMOVE;
+	}
+
+	Logger::error(SSTR << "BlueZ reconnection failed: " << result.errorMessage());
+	adapter->reconnectCancelled_.store(false);
+	adapter->scheduleReconnectAttempt(15, true);
+	return G_SOURCE_REMOVE;
+}
+
+gboolean BluezAdapter::onDelayedReconnectTimeout(gpointer user_data)
+{
+	BluezAdapter* adapter = static_cast<BluezAdapter*>(user_data);
+	adapter->delayedReconnectTimerId_ = 0;
+
+	if (adapter->reconnectCancelled_.load())
+	{
+		return G_SOURCE_REMOVE;
+	}
+
+	auto result = adapter->initialize();
+	if (result.isSuccess())
+	{
+		Logger::info("BlueZ delayed reconnection successful");
+	}
+	else
+	{
+		Logger::error(SSTR << "BlueZ delayed reconnection failed: " << result.errorMessage());
+	}
+
+	return G_SOURCE_REMOVE;
 }
 
 BluezResult<void> BluezAdapter::setAdvertising(bool enabled)
@@ -1257,7 +1493,7 @@ void BluezAdapter::setAdvertisingAsync(bool enabled, std::function<void(BluezRes
 		// Create advertisement if it doesn't exist
 		if (!advertisement)
 		{
-			advertisement = std::make_unique<BluezAdvertisement>(currentAdvertisementPath());
+			advertisement = std::make_unique<BluezAdvertisement>(currentAdvertisementPath(serviceNameContext_));
 
 			// Configure advertisement with essential service UUIDs
 			// Reduced to only 16-bit standard UUIDs to fit legacy 31-byte advertising budget

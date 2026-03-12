@@ -28,6 +28,7 @@
 #include <bzp/GattUuid.h>
 #include <bzp/DBusObject.h>
 #include <bzp/GattService.h>
+#include <bzp/Server.h>
 #include <bzp/Utils.h>
 #include <bzp/Logger.h>
 
@@ -61,12 +62,18 @@ bool GattCharacteristic::callMethod(const std::string &methodName, GDBusConnecti
 	{
 		if (methodName == method.getName())
 		{
-			method.call<GattCharacteristic>(pConnection, getPath(), getName(), methodName, pParameters, pInvocation, pUserData);
+			const std::string notImplementedErrorName = owner.getServer().getOwnedName() + ".NotImplemented";
+			method.call<GattCharacteristic>(pConnection, getPath(), getName(), methodName, notImplementedErrorName, pParameters, pInvocation, pUserData);
 			return true;
 		}
 	}
 
 	return false;
+}
+
+bool GattCharacteristic::callMethod(const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const
+{
+	return callMethod(methodName, connection.get(), parameters.get(), invocation.get(), pUserData);
 }
 
 // Modern approach: Use GLib timers directly for periodic updates
@@ -80,7 +87,7 @@ bool GattCharacteristic::callMethod(const std::string &methodName, GDBusConnecti
 //
 //     Input args:  options - "a{sv}"
 //     Output args: value   - "ay"
-GattCharacteristic &GattCharacteristic::onReadValue(MethodCallback callback)
+GattCharacteristic &GattCharacteristic::onReadValue(RawMethodCallback callback)
 {
 	// array{byte} ReadValue(dict options)
 	static const char *inArgs[] = {"a{sv}", nullptr};
@@ -95,6 +102,20 @@ GattCharacteristic &GattCharacteristic::onReadValue(MethodCallback callback)
 	return *this;
 }
 
+GattCharacteristic &GattCharacteristic::onReadValue(const callbacks::CharacteristicMethodHandler &callback)
+{
+	static const char *inArgs[] = {"a{sv}", nullptr};
+	if (readCallback_ != nullptr || static_cast<bool>(readHandler_)) {
+		Logger::warn("GattCharacteristic::onReadValue() called twice — replacing callback without re-adding method");
+		readCallback_ = nullptr;
+		readHandler_ = callback;
+		return *this;
+	}
+	readHandler_ = callback;
+	addMethod("ReadValue", inArgs, "ay", &GattCharacteristic::ReadThunk);
+	return *this;
+}
+
 // Specialized support for WriteValue method
 //
 // Defined as: void WriteValue(array{byte} value, dict options)
@@ -104,7 +125,7 @@ GattCharacteristic &GattCharacteristic::onReadValue(MethodCallback callback)
 //     Input args:  value   - "ay"
 //                  options - "a{sv}"
 //     Output args: void
-GattCharacteristic &GattCharacteristic::onWriteValue(MethodCallback callback)
+GattCharacteristic &GattCharacteristic::onWriteValue(RawMethodCallback callback)
 {
 	static const char *inArgs[] = {"ay", "a{sv}", nullptr};
 	if (writeCallback_ != nullptr) {
@@ -114,6 +135,20 @@ GattCharacteristic &GattCharacteristic::onWriteValue(MethodCallback callback)
 	}
 	// Store callback and use static thunk
 	this->writeCallback_ = callback;
+	addMethod("WriteValue", inArgs, nullptr, &GattCharacteristic::WriteThunk);
+	return *this;
+}
+
+GattCharacteristic &GattCharacteristic::onWriteValue(const callbacks::CharacteristicMethodHandler &callback)
+{
+	static const char *inArgs[] = {"ay", "a{sv}", nullptr};
+	if (writeCallback_ != nullptr || static_cast<bool>(writeHandler_)) {
+		Logger::warn("GattCharacteristic::onWriteValue() called twice — replacing callback without re-adding method");
+		writeCallback_ = nullptr;
+		writeHandler_ = callback;
+		return *this;
+	}
+	writeHandler_ = callback;
 	addMethod("WriteValue", inArgs, nullptr, &GattCharacteristic::WriteThunk);
 	return *this;
 }
@@ -128,9 +163,17 @@ GattCharacteristic &GattCharacteristic::onWriteValue(MethodCallback callback)
 // If you need to perform the same action(s) when a value is updated from the client (via `onWriteValue`) or from this server,
 // then it may be beneficial to call this method from within your onWriteValue callback to reduce duplicated code. See
 // `callOnUpdatedValue` for more information.
-GattCharacteristic &GattCharacteristic::onUpdatedValue(UpdatedValueCallback callback)
+GattCharacteristic &GattCharacteristic::onUpdatedValue(RawUpdatedValueCallback callback)
 {
+	updateHandler_ = {};
 	pOnUpdatedValueFunc = callback;
+	return *this;
+}
+
+GattCharacteristic &GattCharacteristic::onUpdatedValue(const callbacks::CharacteristicUpdateHandler &callback)
+{
+	pOnUpdatedValueFunc = nullptr;
+	updateHandler_ = callback;
 	return *this;
 }
 
@@ -153,6 +196,12 @@ GattCharacteristic &GattCharacteristic::onUpdatedValue(UpdatedValueCallback call
 //      })
 bool GattCharacteristic::callOnUpdatedValue(GDBusConnection *pConnection, void *pUserData) const
 {
+	if (updateHandler_)
+	{
+		Logger::debug(SSTR << "Calling OnUpdatedValue function for interface at path '" << getPath() << "'");
+		return updateHandler_(*this, DBusConnectionRef(pConnection), pUserData);
+	}
+
 	if (nullptr == pOnUpdatedValueFunc)
 	{
 		return false;
@@ -160,6 +209,11 @@ bool GattCharacteristic::callOnUpdatedValue(GDBusConnection *pConnection, void *
 
 	Logger::debug(SSTR << "Calling OnUpdatedValue function for interface at path '" << getPath() << "'");
 	return pOnUpdatedValueFunc(*this, pConnection, pUserData);
+}
+
+bool GattCharacteristic::callOnUpdatedValue(DBusConnectionRef connection, void *pUserData) const
+{
+	return callOnUpdatedValue(connection.get(), pUserData);
 }
 
 // Convenience functions to add a GATT descriptor to the hierarchy
@@ -200,11 +254,26 @@ GattDescriptor &GattCharacteristic::gattDescriptorBegin(const std::string &pathE
 // active connections before sending a change notification.
 void GattCharacteristic::sendChangeNotificationVariant(GDBusConnection *pBusConnection, GVariant *pNewValue) const
 {
+	(void)sendChangeNotificationVariantChecked(pBusConnection, pNewValue);
+}
+
+void GattCharacteristic::sendChangeNotificationVariant(DBusConnectionRef busConnection, DBusVariantRef newValue) const
+{
+	sendChangeNotificationVariant(busConnection.get(), newValue.get());
+}
+
+bool GattCharacteristic::sendChangeNotificationVariantChecked(GDBusConnection *pBusConnection, GVariant *pNewValue) const
+{
 	g_auto(GVariantBuilder) builder;
 	g_variant_builder_init(&builder, G_VARIANT_TYPE_ARRAY);
 	g_variant_builder_add(&builder, "{sv}", "Value", pNewValue);
 	GVariant *pSasv = g_variant_new("(sa{sv})", "org.bluez.GattCharacteristic1", &builder);
-	owner.emitSignal(pBusConnection, "org.freedesktop.DBus.Properties", "PropertiesChanged", pSasv);
+	return owner.emitSignalChecked(pBusConnection, "org.freedesktop.DBus.Properties", "PropertiesChanged", pSasv);
+}
+
+bool GattCharacteristic::sendChangeNotificationVariantChecked(DBusConnectionRef busConnection, DBusVariantRef newValue) const
+{
+	return sendChangeNotificationVariantChecked(busConnection.get(), newValue.get());
 }
 
 // Static thunk implementations for function pointer compatibility
@@ -217,8 +286,12 @@ void GattCharacteristic::ReadThunk(const DBusInterface& self, GDBusConnection* c
 		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", "Type error");
 		return;
 	}
-	if (!ch->readCallback_) return;
+	if (!ch->readCallback_ && !ch->readHandler_) return;
 	try {
+		if (ch->readHandler_) {
+			ch->readHandler_(*ch, DBusConnectionRef(c), mn, DBusVariantRef(p), DBusMethodInvocationRef(inv), u);
+			return;
+		}
 		ch->readCallback_(*ch, c, mn, p, inv, u);
 	} catch (const std::exception& e) {
 		Logger::error(SSTR << "ReadThunk: user callback threw exception: " << e.what());
@@ -237,8 +310,12 @@ void GattCharacteristic::WriteThunk(const DBusInterface& self, GDBusConnection* 
 		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", "Type error");
 		return;
 	}
-	if (!ch->writeCallback_) return;
+	if (!ch->writeCallback_ && !ch->writeHandler_) return;
 	try {
+		if (ch->writeHandler_) {
+			ch->writeHandler_(*ch, DBusConnectionRef(c), mn, DBusVariantRef(p), DBusMethodInvocationRef(inv), u);
+			return;
+		}
 		ch->writeCallback_(*ch, c, mn, p, inv, u);
 	} catch (const std::exception& e) {
 		Logger::error(SSTR << "WriteThunk: user callback threw exception: " << e.what());

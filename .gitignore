@@ -121,6 +121,8 @@ __pycache__/
 local-*
 test-output/
 scratch/
+.claude/
+REPORT.md
 
 # CLI
 CLAUDE.md

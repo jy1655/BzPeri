@@ -28,26 +28,32 @@
 
 #pragma once
 
-#include <gio/gio.h>
+#include <bzp/GLibTypes.h>
+#include <functional>
 #include <string>
 #include <vector>
 
-#include <bzp/Globals.h>
 #include <bzp/DBusObjectPath.h>
 #include <bzp/Logger.h>
-#include <bzp/Server.h>
 
 namespace bzp {
 
 struct DBusInterface;
 
+namespace callbacks {
+	using InterfaceMethodHandler = std::function<void(const DBusInterface&, DBusConnectionRef, const std::string&, DBusVariantRef, DBusMethodInvocationRef, void*)>;
+}
+
 struct DBusMethod
 {
 	// A method callback delegate
-	typedef void (*Callback)(const DBusInterface &self, GDBusConnection *pConnection, const std::string &methodName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData);
+	using RawCallback = void (*)(const DBusInterface &self, GDBusConnection *pConnection, const std::string &methodName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData);
+	using Callback BZP_DEPRECATED("Use DBusMethod::Handler instead of raw GDBus callback typedefs") = RawCallback;
+	using Handler = callbacks::InterfaceMethodHandler;
 
 	// Instantiate a named method on a given interface (pOwner) with a given set of arguments and a callback delegate
-	DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, Callback callback);
+	DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, RawCallback callback);
+	DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, const Handler &handler);
 
 	//
 	// Accessors
@@ -85,18 +91,24 @@ struct DBusMethod
 	//
 	// If a callback delegate has been set, then this method will call that delegate, otherwise this method will do nothing
 	template<typename T>
-	void call(GDBusConnection *pConnection, const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData) const
+	void call(GDBusConnection *pConnection, const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, const std::string &notImplementedErrorName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData) const
 	{
 		// This should never happen, but technically possible if instantiated with a nullptr for `callback`
-		if (!callback)
+		if (!callback && !handler)
 		{
 			Logger::error(SSTR << "DBusMethod contains no callback: [" << path << "]:[" << interfaceName << "]:[" << methodName << "]");
-			g_dbus_method_invocation_return_dbus_error(pInvocation, kErrorNotImplemented.c_str(), "This method is not implemented");
+			g_dbus_method_invocation_return_dbus_error(pInvocation, notImplementedErrorName.c_str(), "This method is not implemented");
 			return;
 		}
 
 		Logger::info(SSTR << "Calling method: [" << path << "]:[" << interfaceName << "]:[" << methodName << "]");
 		try {
+			if (handler)
+			{
+				handler(*static_cast<const T *>(pOwner), DBusConnectionRef(pConnection), methodName, DBusVariantRef(pParameters), DBusMethodInvocationRef(pInvocation), pUserData);
+				return;
+			}
+
 			callback(*static_cast<const T *>(pOwner), pConnection, methodName, pParameters, pInvocation, pUserData);
 		} catch (const std::exception& e) {
 			Logger::error(SSTR << "DBusMethod::call: callback threw exception: " << e.what());
@@ -115,7 +127,8 @@ private:
 	std::string name;
 	std::vector<std::string> inArgs;
 	std::string outArgs;
-	Callback callback;
+	RawCallback callback;
+	Handler handler;
 };
 
 }; // namespace bzp

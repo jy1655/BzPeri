@@ -32,8 +32,24 @@
 namespace bzp {
 
 // Instantiate a named method on a given interface (pOwner) with a given set of arguments and a callback delegate
-DBusMethod::DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, Callback callback)
+DBusMethod::DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, RawCallback callback)
 : pOwner(pOwner), name(name), callback(callback)
+{
+	const char **ppInArg = pInArgs;
+	while(*ppInArg)
+	{
+		this->inArgs.push_back(std::string(*ppInArg));
+		ppInArg++;
+	}
+
+	if (nullptr != pOutArgs)
+	{
+		this->outArgs = pOutArgs;
+	}
+}
+
+DBusMethod::DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, const Handler &handler)
+: pOwner(pOwner), name(name), callback(nullptr), handler(handler)
 {
 	const char **ppInArg = pInArgs;
 	while(*ppInArg)

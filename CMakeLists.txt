@@ -193,6 +193,36 @@ if(BUILD_STANDALONE AND LINUX)
     )
 endif()
 
+# Tests
+if(BUILD_TESTING)
+    enable_testing()
+
+    if(LINUX)
+        add_executable(bzperi-tests
+            tests/bzperi_tests.cpp
+        )
+        target_link_libraries(bzperi-tests PRIVATE
+            bzperi
+            ${GLIB_LIBRARIES}
+            ${GIO_LIBRARIES}
+            ${GOBJECT_LIBRARIES}
+        )
+        target_include_directories(bzperi-tests PRIVATE
+            ${GLIB_INCLUDE_DIRS}
+            ${GIO_INCLUDE_DIRS}
+            ${GOBJECT_INCLUDE_DIRS}
+        )
+        target_compile_options(bzperi-tests PRIVATE
+            ${GLIB_CFLAGS_OTHER}
+            ${GIO_CFLAGS_OTHER}
+            ${GOBJECT_CFLAGS_OTHER}
+        )
+        add_test(NAME bzperi-unit COMMAND bzperi-tests)
+    else()
+        message(WARNING "BUILD_TESTING is enabled, but tests are only available on Linux")
+    endif()
+endif()
+
 # Installation
 include(GNUInstallDirs)
 
