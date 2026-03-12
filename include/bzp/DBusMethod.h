@@ -96,7 +96,15 @@ struct DBusMethod
 		}
 
 		Logger::info(SSTR << "Calling method: [" << path << "]:[" << interfaceName << "]:[" << methodName << "]");
-		callback(*static_cast<const T *>(pOwner), pConnection, methodName, pParameters, pInvocation, pUserData);
+		try {
+			callback(*static_cast<const T *>(pOwner), pConnection, methodName, pParameters, pInvocation, pUserData);
+		} catch (const std::exception& e) {
+			Logger::error(SSTR << "DBusMethod::call: callback threw exception: " << e.what());
+			g_dbus_method_invocation_return_dbus_error(pInvocation, "com.bzperi.Error.InternalError", e.what());
+		} catch (...) {
+			Logger::error("DBusMethod::call: callback threw unknown exception");
+			g_dbus_method_invocation_return_dbus_error(pInvocation, "com.bzperi.Error.InternalError", "Unknown internal error");
+		}
 	}
 
 	// Internal method used to generate introspection XML used to describe our services on D-Bus

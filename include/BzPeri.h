@@ -119,12 +119,25 @@ extern "C"
 	// Adds an update to the front of the queue for a characteristic at the given object path
 	//
 	// Returns non-zero value on success or 0 on failure.
+	[[deprecated("Use bzpNotifyUpdatedCharacteristic() instead")]]
 	int bzpNofifyUpdatedCharacteristic(const char *pObjectPath);
 
 	// Adds an update to the front of the queue for a descriptor at the given object path
 	//
 	// Returns non-zero value on success or 0 on failure.
+	[[deprecated("Use bzpNotifyUpdatedDescriptor() instead")]]
 	int bzpNofifyUpdatedDescriptor(const char *pObjectPath);
+
+	// Correctly-spelled versions (preferred)
+	// Adds an update to the front of the queue for a characteristic at the given object path
+	//
+	// Returns non-zero value on success or 0 on failure.
+	int bzpNotifyUpdatedCharacteristic(const char *pObjectPath);
+
+	// Adds an update to the front of the queue for a descriptor at the given object path
+	//
+	// Returns non-zero value on success or 0 on failure.
+	int bzpNotifyUpdatedDescriptor(const char *pObjectPath);
 
 	// Adds a named update to the front of the queue. Generally, this routine should not be used directly. Instead, use the
 	// `bzpNofifyUpdatedCharacteristic()` instead.

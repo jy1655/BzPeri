@@ -91,10 +91,42 @@ namespace bzp
 	static std::condition_variable stateChangedCV;
 	static std::mutex stateChangedMutex;
 
-	// We store the old GLib print handler and error print handler so we can restore if
-	static GPrintFunc printHandlerGLib;
-	static GPrintFunc printerrHandlerGLib;
-	static GLogFunc logHandlerGLib;
+	// RAII guard that saves and restores GLib global handlers
+	struct GLibHandlerGuard {
+		GPrintFunc savedPrint = nullptr;
+		GPrintFunc savedPrinterr = nullptr;
+		GLogFunc savedLog = nullptr;
+		bool active = false;
+
+		void install() {
+			savedPrint = g_set_print_handler([](const gchar* s) { Logger::info(s); });
+			savedPrinterr = g_set_printerr_handler([](const gchar* s) { Logger::error(s); });
+			savedLog = g_log_set_default_handler(
+				[](const gchar* d, GLogLevelFlags f, const gchar* m, gpointer) {
+					std::string str = std::string(d ? d : "") + ": " + (m ? m : "");
+					if ((f & (G_LOG_FLAG_RECURSION|G_LOG_FLAG_FATAL)) != 0) Logger::fatal(str);
+					else if ((f & (G_LOG_LEVEL_CRITICAL|G_LOG_LEVEL_ERROR)) != 0) Logger::error(str);
+					else if ((f & G_LOG_LEVEL_WARNING) != 0) Logger::warn(str);
+					else if ((f & G_LOG_LEVEL_DEBUG) != 0) Logger::debug(str);
+					else Logger::info(str);
+				}, nullptr);
+			active = true;
+		}
+
+		void restore() {
+			if (active) {
+				g_set_print_handler(savedPrint);
+				g_set_printerr_handler(savedPrinterr);
+				g_log_set_default_handler(savedLog, nullptr);
+				active = false;
+			}
+		}
+
+		~GLibHandlerGuard() { restore(); }
+	};
+
+	// GLib handler guard (replaces the three separate static handler variables)
+	static GLibHandlerGuard glibHandlerGuard;
 
 	// Our update queue
 	typedef std::tuple<std::string, std::string> QueueEntry;
@@ -212,6 +244,23 @@ int bzpNofifyUpdatedDescriptor(const char *pObjectPath)
 	BZP_C_API_GUARD_END_RETURN_INT(0)
 }
 
+// Correctly-spelled versions of the notify functions
+int bzpNotifyUpdatedCharacteristic(const char *pObjectPath)
+{
+	BZP_C_API_GUARD_BEGIN()
+	if (!pObjectPath) return 0;
+	return bzpPushUpdateQueue(pObjectPath, "org.bluez.GattCharacteristic1") != 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpNotifyUpdatedDescriptor(const char *pObjectPath)
+{
+	BZP_C_API_GUARD_BEGIN()
+	if (!pObjectPath) return 0;
+	return bzpPushUpdateQueue(pObjectPath, "org.bluez.GattDescriptor1") != 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
 // Adds a named update to the front of the queue. Generally, this routine should not be used directly. Instead, use the
 // `bzpNofifyUpdatedCharacteristic()` instead.
 //
@@ -221,9 +270,14 @@ int bzpPushUpdateQueue(const char *pObjectPath, const char *pInterfaceName)
 	BZP_C_API_GUARD_BEGIN()
 	if (!pObjectPath || !pInterfaceName) return 0;
 
+	static constexpr size_t kMaxUpdateQueueSize = 1024;
 	QueueEntry t(pObjectPath, pInterfaceName);
 
 	std::lock_guard<std::mutex> guard(updateQueueMutex);
+	if (updateQueue.size() >= kMaxUpdateQueueSize) {
+		Logger::warn("Update queue full — dropping oldest entry");
+		updateQueue.pop_back();
+	}
 	updateQueue.push_front(t);
 	return 1;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
@@ -463,10 +517,8 @@ int bzpWait()
 		}
 	}
 
-	// Restore the GLib output functions
-	g_set_print_handler(printHandlerGLib);
-	g_set_printerr_handler(printerrHandlerGLib);
-	g_log_set_default_handler(logHandlerGLib, nullptr);
+	// Restore the GLib output functions via RAII guard
+	glibHandlerGuard.restore();
 
 	return result;
 }
@@ -579,39 +631,8 @@ int bzpStartWithBondable(const char *pServiceName, const char *pAdvertisingName,
 		// Start by capturing the GLib output
 		//
 
-		// Redirect GLib output to this log method
-		printHandlerGLib = g_set_print_handler([](const gchar *string)
-		{
-			Logger::info(string);
-		});
-		printerrHandlerGLib = g_set_printerr_handler([](const gchar *string)
-		{
-			Logger::error(string);
-		});
-		logHandlerGLib = g_log_set_default_handler([](const gchar *log_domain, GLogLevelFlags log_levels, const gchar *message, gpointer /*user_data*/)
-		{
-			std::string str = std::string(log_domain) + ": " + message;
-			if ((log_levels & (G_LOG_FLAG_RECURSION|G_LOG_FLAG_FATAL)) != 0)
-			{
-				Logger::fatal(str);
-			}
-			else if ((log_levels & (G_LOG_LEVEL_CRITICAL|G_LOG_LEVEL_ERROR)) != 0)
-			{
-				Logger::error(str);
-			}
-			else if ((log_levels & G_LOG_LEVEL_WARNING) != 0)
-			{
-				Logger::warn(str);
-			}
-			else if ((log_levels & G_LOG_LEVEL_DEBUG) != 0)
-			{
-				Logger::debug(str);
-			}
-			else
-			{
-				Logger::info(str);
-			}
-		}, nullptr);
+		// Install GLib handler guard (RAII — restores handlers on destruction)
+		glibHandlerGuard.install();
 
 		Logger::info(SSTR << "Starting BzPeri server '" << pAdvertisingName << "'");
 

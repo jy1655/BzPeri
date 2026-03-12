@@ -26,6 +26,8 @@
 #include <string>
 #include <list>
 #include <memory>
+#include <optional>
+#include <functional>
 
 #include <bzp/DBusObjectPath.h>
 
@@ -68,8 +70,11 @@ struct DBusObject
 	// This method returns the full path. To get the current node, use `getPathNode()`
 	DBusObjectPath getPath() const;
 
-	// Returns the parent object in the hierarchy
-	DBusObject &getParent();
+	// Returns whether this object has a parent
+	bool hasParent() const noexcept;
+
+	// Returns the parent object in the hierarchy (nullopt if root)
+	std::optional<std::reference_wrapper<DBusObject>> getParent();
 
 	// Returns the list of children objects
 	const std::list<DBusObject> &getChildren() const;

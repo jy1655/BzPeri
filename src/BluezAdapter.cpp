@@ -215,6 +215,9 @@ void BluezAdapter::shutdown()
 	if (!initialized)
 		return;
 
+	// Cancel any pending reconnect timers immediately
+	reconnectCancelled_.store(true);
+
 	// Unsubscribe from D-Bus signals
 	if (dbusConnection)
 	{
@@ -341,13 +344,13 @@ BluezResult<std::vector<AdapterInfo>> BluezAdapter::discoverAdapters()
 			GVariant* connectable = g_dbus_proxy_get_cached_property(proxy, "Connectable");
 			GVariant* pairable = g_dbus_proxy_get_cached_property(proxy, "Pairable");
 
-			if (address) { info.address = g_variant_get_string(address, nullptr); g_variant_unref(address); }
-			if (name) { info.name = g_variant_get_string(name, nullptr); g_variant_unref(name); }
-			if (alias) { info.alias = g_variant_get_string(alias, nullptr); g_variant_unref(alias); }
-			if (powered) { info.powered = g_variant_get_boolean(powered); g_variant_unref(powered); }
-			if (discoverable) { info.discoverable = g_variant_get_boolean(discoverable); g_variant_unref(discoverable); }
-			if (connectable) { info.connectable = g_variant_get_boolean(connectable); g_variant_unref(connectable); }
-			if (pairable) { info.pairable = g_variant_get_boolean(pairable); g_variant_unref(pairable); }
+			if (address && g_variant_is_of_type(address, G_VARIANT_TYPE_STRING)) { info.address = g_variant_get_string(address, nullptr); g_variant_unref(address); } else if (address) { g_variant_unref(address); }
+			if (name && g_variant_is_of_type(name, G_VARIANT_TYPE_STRING)) { info.name = g_variant_get_string(name, nullptr); g_variant_unref(name); } else if (name) { g_variant_unref(name); }
+			if (alias && g_variant_is_of_type(alias, G_VARIANT_TYPE_STRING)) { info.alias = g_variant_get_string(alias, nullptr); g_variant_unref(alias); } else if (alias) { g_variant_unref(alias); }
+			if (powered && g_variant_is_of_type(powered, G_VARIANT_TYPE_BOOLEAN)) { info.powered = g_variant_get_boolean(powered); g_variant_unref(powered); } else if (powered) { g_variant_unref(powered); }
+			if (discoverable && g_variant_is_of_type(discoverable, G_VARIANT_TYPE_BOOLEAN)) { info.discoverable = g_variant_get_boolean(discoverable); g_variant_unref(discoverable); } else if (discoverable) { g_variant_unref(discoverable); }
+			if (connectable && g_variant_is_of_type(connectable, G_VARIANT_TYPE_BOOLEAN)) { info.connectable = g_variant_get_boolean(connectable); g_variant_unref(connectable); } else if (connectable) { g_variant_unref(connectable); }
+			if (pairable && g_variant_is_of_type(pairable, G_VARIANT_TYPE_BOOLEAN)) { info.pairable = g_variant_get_boolean(pairable); g_variant_unref(pairable); } else if (pairable) { g_variant_unref(pairable); }
 
 			adapters.push_back(info);
 			Logger::debug(SSTR << "Found adapter: " << info.path << " (" << info.address << ") - Powered: " << info.powered);
@@ -532,6 +535,14 @@ void BluezAdapter::scheduleAsyncRetry(std::function<BluezResult<void>()> operati
                                      const RetryPolicy& policy,
                                      std::function<void(BluezResult<void>)> completionCallback)
 {
+	static constexpr size_t kMaxActiveRetries = 16;
+	if (activeRetries.size() >= kMaxActiveRetries) {
+		Logger::warn(SSTR << "Max active retries (" << kMaxActiveRetries << ") reached, dropping operation");
+		if (completionCallback) {
+			completionCallback(BluezResult<void>(BluezError::Failed, "Too many concurrent retries"));
+		}
+		return;
+	}
 	auto retryState = std::make_unique<RetryState>();
 	retryState->operation = operation;
 	retryState->policy = policy;
@@ -811,6 +822,7 @@ bool BluezAdapter::hasCapability(const std::string& interface) const
 // Get connected devices
 BluezResult<std::vector<DeviceInfo>> BluezAdapter::getConnectedDevices()
 {
+	std::lock_guard<std::mutex> lock(connectedDevicesMutex_);
 	std::vector<DeviceInfo> devices;
 	for (const auto& pair : connectedDevices)
 	{
@@ -822,6 +834,7 @@ BluezResult<std::vector<DeviceInfo>> BluezAdapter::getConnectedDevices()
 // Device connection tracking
 void BluezAdapter::handleDeviceConnected(const std::string& devicePath)
 {
+	std::lock_guard<std::mutex> lock(connectedDevicesMutex_);
 	auto it = connectedDevices.find(devicePath);
 	if (it == connectedDevices.end())
 	{
@@ -843,6 +856,7 @@ void BluezAdapter::handleDeviceConnected(const std::string& devicePath)
 
 void BluezAdapter::handleDeviceDisconnected(const std::string& devicePath)
 {
+	std::lock_guard<std::mutex> lock(connectedDevicesMutex_);
 	auto it = connectedDevices.find(devicePath);
 	if (it != connectedDevices.end() && it->second.connected)
 	{
@@ -875,6 +889,11 @@ void BluezAdapter::onPropertiesChanged(GDBusConnection* connection,
 	(void)sender_name;
 	(void)interface_name;
 	(void)signal_name;
+
+	if (!g_variant_is_of_type(parameters, G_VARIANT_TYPE("(sa{sv}as)"))) {
+		Logger::warn("onPropertiesChanged: unexpected parameter type, skipping");
+		return;
+	}
 
 	const gchar* changedInterface = nullptr;
 	GVariant* changedProperties = nullptr;
@@ -929,6 +948,11 @@ void BluezAdapter::onInterfacesAdded(GDBusConnection* connection,
 	(void)interface_name;
 	(void)signal_name;
 
+	if (!g_variant_is_of_type(parameters, G_VARIANT_TYPE("(oa{sa{sv}})"))) {
+		Logger::warn("onInterfacesAdded: unexpected parameter type, skipping");
+		return;
+	}
+
 	const gchar* objectPath = nullptr;
 	GVariant* interfaces = nullptr;
 
@@ -975,6 +999,11 @@ void BluezAdapter::onInterfacesRemoved(GDBusConnection* connection,
 	(void)interface_name;
 	(void)signal_name;
 
+	if (!g_variant_is_of_type(parameters, G_VARIANT_TYPE("(oas)"))) {
+		Logger::warn("onInterfacesRemoved: unexpected parameter type, skipping");
+		return;
+	}
+
 	const gchar* objectPath = nullptr;
 	GVariant* interfaces = nullptr;
 
@@ -990,14 +1019,37 @@ void BluezAdapter::onInterfacesRemoved(GDBusConnection* connection,
 		if (g_strcmp0(interfaceName, "org.bluez.Device1") == 0)
 		{
 			// Device was removed, clean up from tracking
-			auto it = adapter->connectedDevices.find(objectPath);
-			if (it != adapter->connectedDevices.end())
+			bool wasConnected = false;
 			{
-				if (it->second.connected)
+				std::lock_guard<std::mutex> lock(adapter->connectedDevicesMutex_);
+				auto it = adapter->connectedDevices.find(objectPath);
+				if (it != adapter->connectedDevices.end())
 				{
-					adapter->handleDeviceDisconnected(objectPath);
+					wasConnected = it->second.connected;
+					adapter->connectedDevices.erase(it);
+					if (wasConnected) {
+						adapter->activeConnections.fetch_sub(1);
+					}
 				}
-				adapter->connectedDevices.erase(it);
+			}
+			if (wasConnected && adapter->connectionCallback)
+			{
+				adapter->connectionCallback(false, objectPath);
+			}
+		}
+		else if (g_strcmp0(interfaceName, "org.bluez.Adapter1") == 0
+		         && adapter->adapterPath == objectPath)
+		{
+			Logger::error(SSTR << "Active Bluetooth adapter removed: " << objectPath);
+			adapter->initialized = false;
+			adapter->adapterPath.clear();
+
+			// Cancel any pending reconnect timers
+			adapter->reconnectCancelled_.store(true);
+
+			// Notify application via connection callback if registered
+			if (adapter->connectionCallback) {
+				adapter->connectionCallback(false, objectPath);
 			}
 		}
 	}
@@ -1032,13 +1084,23 @@ void BluezAdapter::onNameOwnerChanged(GDBusConnection* connection,
 		if (strlen(new_owner) == 0)
 		{
 			Logger::warn("BlueZ service disappeared - attempting reconnection");
+			// Reset cancellation flag before scheduling reconnect
+			adapter->reconnectCancelled_.store(false);
 			// Schedule reconnection on a timeout to avoid blocking
 			g_timeout_add_seconds(5, [](gpointer user_data) -> gboolean {
 				BluezAdapter* adapter = static_cast<BluezAdapter*>(user_data);
 
+				if (adapter->reconnectCancelled_.load())
+				{
+					return G_SOURCE_REMOVE;
+				}
+
 				// Proper cleanup before reinitializing
 				Logger::info("Cleaning up stale BlueZ connections before reconnection");
 				adapter->shutdown();  // This properly cleans up signals, objectManager, dbusConnection
+
+				// Reset flag after shutdown so next reconnect can proceed
+				adapter->reconnectCancelled_.store(false);
 
 				// Attempt to reinitialize
 				auto result = adapter->initialize();
@@ -1062,8 +1124,13 @@ void BluezAdapter::onNameOwnerChanged(GDBusConnection* connection,
 				{
 					Logger::error(SSTR << "BlueZ reconnection failed: " << result.errorMessage());
 					// Schedule another retry after longer delay
+					adapter->reconnectCancelled_.store(false);
 					g_timeout_add_seconds(15, [](gpointer user_data) -> gboolean {
 						BluezAdapter* adapter = static_cast<BluezAdapter*>(user_data);
+						if (adapter->reconnectCancelled_.load())
+						{
+							return G_SOURCE_REMOVE;
+						}
 						auto result = adapter->initialize();
 						if (result.isSuccess())
 						{

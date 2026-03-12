@@ -84,6 +84,11 @@ GattCharacteristic &GattCharacteristic::onReadValue(MethodCallback callback)
 {
 	// array{byte} ReadValue(dict options)
 	static const char *inArgs[] = {"a{sv}", nullptr};
+	if (readCallback_ != nullptr) {
+		Logger::warn("GattCharacteristic::onReadValue() called twice — replacing callback without re-adding method");
+		this->readCallback_ = callback;
+		return *this;
+	}
 	// Store callback and use static thunk
 	this->readCallback_ = callback;
 	addMethod("ReadValue", inArgs, "ay", &GattCharacteristic::ReadThunk);
@@ -102,6 +107,11 @@ GattCharacteristic &GattCharacteristic::onReadValue(MethodCallback callback)
 GattCharacteristic &GattCharacteristic::onWriteValue(MethodCallback callback)
 {
 	static const char *inArgs[] = {"ay", "a{sv}", nullptr};
+	if (writeCallback_ != nullptr) {
+		Logger::warn("GattCharacteristic::onWriteValue() called twice — replacing callback without re-adding method");
+		this->writeCallback_ = callback;
+		return *this;
+	}
 	// Store callback and use static thunk
 	this->writeCallback_ = callback;
 	addMethod("WriteValue", inArgs, nullptr, &GattCharacteristic::WriteThunk);
@@ -201,17 +211,41 @@ void GattCharacteristic::sendChangeNotificationVariant(GDBusConnection *pBusConn
 
 void GattCharacteristic::ReadThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u)
 {
-	auto& ch = static_cast<const GattCharacteristic&>(self);
-	if (ch.readCallback_) {
-		ch.readCallback_(ch, c, mn, p, inv, u);
+	const auto* ch = dynamic_cast<const GattCharacteristic*>(&self);
+	if (!ch) {
+		Logger::error("ReadThunk: type mismatch — expected GattCharacteristic");
+		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", "Type error");
+		return;
+	}
+	if (!ch->readCallback_) return;
+	try {
+		ch->readCallback_(*ch, c, mn, p, inv, u);
+	} catch (const std::exception& e) {
+		Logger::error(SSTR << "ReadThunk: user callback threw exception: " << e.what());
+		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", e.what());
+	} catch (...) {
+		Logger::error("ReadThunk: user callback threw unknown exception");
+		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", "Unknown internal error");
 	}
 }
 
 void GattCharacteristic::WriteThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u)
 {
-	auto& ch = static_cast<const GattCharacteristic&>(self);
-	if (ch.writeCallback_) {
-		ch.writeCallback_(ch, c, mn, p, inv, u);
+	const auto* ch = dynamic_cast<const GattCharacteristic*>(&self);
+	if (!ch) {
+		Logger::error("WriteThunk: type mismatch — expected GattCharacteristic");
+		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", "Type error");
+		return;
+	}
+	if (!ch->writeCallback_) return;
+	try {
+		ch->writeCallback_(*ch, c, mn, p, inv, u);
+	} catch (const std::exception& e) {
+		Logger::error(SSTR << "WriteThunk: user callback threw exception: " << e.what());
+		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", e.what());
+	} catch (...) {
+		Logger::error("WriteThunk: user callback threw unknown exception");
+		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", "Unknown internal error");
 	}
 }
 

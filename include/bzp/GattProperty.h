@@ -38,6 +38,9 @@ struct GattProperty
 	// interface using one of the the interface's `addProperty` methods.
 	GattProperty(const std::string &name, GVariant *pValue, GDBusInterfaceGetPropertyFunc getter = nullptr, GDBusInterfaceSetPropertyFunc setter = nullptr);
 
+	// Destructor — releases the GVariant reference
+	~GattProperty();
+
 	//
 	// Name
 	//

@@ -34,8 +34,17 @@ namespace bzp {
 // In general, properties should not be constructed directly as properties are typically instanticated by adding them to to an
 // interface using one of the the interface's `addProperty` methods.
 GattProperty::GattProperty(const std::string &name, GVariant *pValue, GDBusInterfaceGetPropertyFunc getter, GDBusInterfaceSetPropertyFunc setter)
-: name(name), pValue(pValue), getterFunc(getter), setterFunc(setter)
+: name(name), pValue(pValue != nullptr ? g_variant_ref(pValue) : nullptr), getterFunc(getter), setterFunc(setter)
 {
+}
+
+GattProperty::~GattProperty()
+{
+	if (pValue != nullptr)
+	{
+		g_variant_unref(pValue);
+		pValue = nullptr;
+	}
 }
 
 //
@@ -74,7 +83,11 @@ const GVariant *GattProperty::getValue() const
 // interface's `addProperty` methods.
 GattProperty &GattProperty::setValue(GVariant *pValue)
 {
-	this->pValue = pValue;
+	if (this->pValue != nullptr)
+	{
+		g_variant_unref(this->pValue);
+	}
+	this->pValue = (pValue != nullptr) ? g_variant_ref(pValue) : nullptr;
 	return *this;
 }
 

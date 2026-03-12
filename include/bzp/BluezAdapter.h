@@ -36,6 +36,7 @@
 #include <vector>
 #include <memory>
 #include <unordered_map>
+#include <mutex>
 #include <bzp/BluezTypes.h>
 
 namespace bzp {
@@ -175,6 +176,7 @@ private:
 
 	// Connected devices tracking
 	std::unordered_map<std::string, DeviceInfo> connectedDevices;
+	mutable std::mutex connectedDevicesMutex_;
 
 	// Configuration
 	RetryPolicy defaultRetryPolicy;
@@ -210,6 +212,9 @@ private:
 
 	// Callback for connection events
 	ConnectionCallback connectionCallback;
+
+	// Flag to cancel pending reconnect timers on shutdown
+	std::atomic<bool> reconnectCancelled_{false};
 };
 
 } // namespace bzp

@@ -120,8 +120,8 @@ public:
 struct ErrorContext
 {
     std::error_code error;
-    std::string_view component;
-    std::string_view operation;
+    std::string component;   // was string_view — changed to std::string to avoid dangling refs
+    std::string operation;   // was string_view — changed to std::string to avoid dangling refs
     std::source_location location;
     std::string details;
 
@@ -229,8 +229,8 @@ public:
     }
 
 private:
-    std::string_view component_;
-    std::string_view operation_;
+    std::string component_;
+    std::string operation_;
     bool hasError_ = false;
     ErrorContext lastError_{make_error_code(BzPeriErrorCode::Success)};
 };

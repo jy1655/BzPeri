@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 project(bzperi
-    VERSION 0.1.9
+    VERSION 1.0.0
     DESCRIPTION "BzPeri - Modern C++20 Bluetooth LE GATT server using BlueZ over D-Bus"
     LANGUAGES CXX)
 
@@ -197,6 +197,7 @@ endif()
 include(GNUInstallDirs)
 
 install(TARGETS bzperi
+    EXPORT bzperi-targets
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT libraries
@@ -224,6 +225,35 @@ configure_file(
 
 install(FILES "${CMAKE_BINARY_DIR}/bzperi.pc"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig COMPONENT headers
+)
+
+# Generate CMake package config files for find_package() support
+include(CMakePackageConfigHelpers)
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/bzperi-config.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/bzperi-config.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/bzperi"
+)
+
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/bzperi-config-version.cmake"
+    VERSION "${PROJECT_VERSION}"
+    COMPATIBILITY SameMajorVersion
+)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/bzperi-config.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/bzperi-config-version.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/bzperi"
+    COMPONENT headers
+)
+
+install(EXPORT bzperi-targets
+    FILE bzperi-targets.cmake
+    NAMESPACE bzp::
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/bzperi"
+    COMPONENT headers
 )
 
 # Install D-Bus policy file

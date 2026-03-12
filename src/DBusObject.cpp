@@ -100,10 +100,17 @@ DBusObjectPath DBusObject::getPath() const
 	return path;
 }
 
-// Returns the parent object in the hierarchy
-DBusObject &DBusObject::getParent()
+// Returns whether this object has a parent
+bool DBusObject::hasParent() const noexcept
 {
-	return *pParent;
+	return pParent != nullptr;
+}
+
+// Returns the parent object in the hierarchy (nullopt if root)
+std::optional<std::reference_wrapper<DBusObject>> DBusObject::getParent()
+{
+	if (pParent == nullptr) return std::nullopt;
+	return std::ref(*pParent);
 }
 
 // Returns the list of children objects

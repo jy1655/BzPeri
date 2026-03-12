@@ -33,6 +33,7 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #include <gio/gio.h>
+#include <glib-unix.h>
 #include <string>
 #include <vector>
 #include <atomic>
@@ -1186,6 +1187,20 @@ void runServerThread()
 	}
 
 	Logger::trace(SSTR << "Starting GLib main loop");
+
+	// Register graceful shutdown signal handlers via GLib
+	// (g_unix_signal_add is async-signal-safe; runs in the main loop)
+	g_unix_signal_add(SIGTERM, [](gpointer data) -> gboolean {
+		Logger::info("SIGTERM received, initiating graceful shutdown");
+		g_main_loop_quit(static_cast<GMainLoop*>(data));
+		return G_SOURCE_REMOVE;
+	}, pMainLoop.load());
+	g_unix_signal_add(SIGINT, [](gpointer data) -> gboolean {
+		Logger::info("SIGINT received, initiating graceful shutdown");
+		g_main_loop_quit(static_cast<GMainLoop*>(data));
+		return G_SOURCE_REMOVE;
+	}, pMainLoop.load());
+
 	g_main_loop_run(pMainLoop);
 
 	// We have stopped
