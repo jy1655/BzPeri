@@ -112,6 +112,31 @@
 // Maximum time to wait for any single async process to timeout during initialization
 static const int kMaxAsyncInitTimeoutMS = 30 * 1000;
 
+static const char *describeCompiledLogLevel(BZPCompiledLogLevel level)
+{
+	switch (level)
+	{
+	case BZP_COMPILED_LOG_LEVEL_TRACE:
+		return "trace";
+	case BZP_COMPILED_LOG_LEVEL_DEBUG:
+		return "debug";
+	case BZP_COMPILED_LOG_LEVEL_INFO:
+		return "info";
+	case BZP_COMPILED_LOG_LEVEL_STATUS:
+		return "status";
+	case BZP_COMPILED_LOG_LEVEL_WARN:
+		return "warn";
+	case BZP_COMPILED_LOG_LEVEL_ERROR:
+		return "error";
+	case BZP_COMPILED_LOG_LEVEL_FATAL:
+		return "fatal";
+	case BZP_COMPILED_LOG_LEVEL_ALWAYS:
+		return "always";
+	default:
+		return "unknown";
+	}
+}
+
 static std::string describeGLibCaptureTargets(unsigned int targets)
 {
 	if (targets == BZP_GLIB_LOG_CAPTURE_TARGET_ALL)
@@ -437,6 +462,7 @@ int main(int argc, char **ppArgv)
 	BZPGLibLogCaptureMode glibCaptureMode = bzpGetConfiguredGLibLogCaptureMode();
 	unsigned int glibCaptureTargets = bzpGetConfiguredGLibLogCaptureTargets();
 	unsigned int glibCaptureDomains = bzpGetConfiguredGLibLogCaptureDomains();
+	bool sleepIntegrationEnabled = bzpGetConfiguredPrepareForSleepIntegrationEnabled() != 0;
 	bool installHostManagedCapture = false;
 
 	// A basic command-line parser
@@ -490,6 +516,25 @@ int main(int argc, char **ppArgv)
 		else if (arg == "--manual-loop")
 		{
 			manualLoopMode = true;
+		}
+		else if (arg.rfind("--sleep-integration=", 0) == 0)
+		{
+			std::string mode = arg.substr(20);
+			std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+			if (mode == "on" || mode == "enable" || mode == "enabled" || mode == "true")
+			{
+				sleepIntegrationEnabled = true;
+			}
+			else if (mode == "off" || mode == "disable" || mode == "disabled" || mode == "false")
+			{
+				sleepIntegrationEnabled = false;
+			}
+			else
+			{
+				LogFatal((std::string("Unknown sleep integration mode: '") + mode + "'").c_str());
+				LogFatal("Expected one of: on, off");
+				return -1;
+			}
 		}
 		else if (arg.rfind("--glib-log-capture=", 0) == 0)
 		{
@@ -566,6 +611,7 @@ int main(int argc, char **ppArgv)
 			LogAlways("  --advertise-short=NAME   Set LE advertising short name (default BzPeri)");
 			LogAlways("  --sample-namespace=NODE  Namespace node for example services (default samples)");
 			LogAlways("  --manual-loop            Drive BzPeri via bzpRunLoopIteration() instead of the internal thread");
+			LogAlways("  --sleep-integration=MODE Enable or disable systemd PrepareForSleep integration: on or off");
 			LogAlways("  --glib-log-capture=MODE Set GLib capture mode: auto, off, host, or startup-shutdown");
 			LogAlways("  --glib-log-targets=SET  Set GLib capture targets: all or comma-separated log,print,printerr");
 			LogAlways("  --glib-log-domains=SET  Set GLib log domains: all or comma-separated default,glib,gio,bluez,other");
@@ -658,9 +704,12 @@ int main(int argc, char **ppArgv)
 	bzpLogRegisterAlways(LogAlways);
 	bzpLogRegisterTrace(LogTrace);
 
+	bzpSetPrepareForSleepIntegrationEnabled(sleepIntegrationEnabled ? 1 : 0);
 	bzpSetGLibLogCaptureMode(glibCaptureMode);
 	bzpSetGLibLogCaptureTargets(glibCaptureTargets);
 	bzpSetGLibLogCaptureDomains(glibCaptureDomains);
+	LogStatus((std::string("Compiled log level: ") + describeCompiledLogLevel(bzpGetConfiguredCompiledLogLevel())).c_str());
+	LogStatus((std::string("PrepareForSleep integration: ") + (sleepIntegrationEnabled ? "enabled" : "disabled")).c_str());
 	if (glibCaptureMode == BZP_GLIB_LOG_CAPTURE_AUTOMATIC)
 	{
 		LogStatus("GLib log capture mode: automatic");

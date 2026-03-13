@@ -149,6 +149,18 @@ extern "C"
 		BZP_QUERY_FAILED = -2
 	};
 
+	enum BZPCompiledLogLevel
+	{
+		BZP_COMPILED_LOG_LEVEL_TRACE = 0,
+		BZP_COMPILED_LOG_LEVEL_DEBUG = 1,
+		BZP_COMPILED_LOG_LEVEL_INFO = 2,
+		BZP_COMPILED_LOG_LEVEL_STATUS = 3,
+		BZP_COMPILED_LOG_LEVEL_WARN = 4,
+		BZP_COMPILED_LOG_LEVEL_ERROR = 5,
+		BZP_COMPILED_LOG_LEVEL_FATAL = 6,
+		BZP_COMPILED_LOG_LEVEL_ALWAYS = 7
+	};
+
 	// Each of these methods registers a log receiver method. Receivers are set when registered. To unregister a log receiver,
 	// simply register with `nullptr`.
 	void bzpLogRegisterDebug(BZPLogReceiver receiver);
@@ -171,6 +183,10 @@ extern "C"
 	void bzpSetGLibLogCaptureEnabled(int enabled);
 	int bzpGetGLibLogCaptureEnabled();
 	enum BZPQueryResult bzpGetGLibLogCaptureEnabledEx(int *pEnabled);
+	void bzpSetPrepareForSleepIntegrationEnabled(int enabled);
+	int bzpGetPrepareForSleepIntegrationEnabled();
+	enum BZPQueryResult bzpGetPrepareForSleepIntegrationEnabledEx(int *pEnabled);
+	int bzpGetConfiguredPrepareForSleepIntegrationEnabled();
 
 	// Configure how BzPeri captures GLib process-global print/log handlers.
 	//
@@ -194,6 +210,7 @@ extern "C"
 
 	// Returns the build-time default GLib capture mode configured into this BzPeri build.
 	enum BZPGLibLogCaptureMode bzpGetConfiguredGLibLogCaptureMode();
+	enum BZPCompiledLogLevel bzpGetConfiguredCompiledLogLevel();
 
 	// Explicitly install GLib process-global handler capture in `HOST_MANAGED` mode.
 	//

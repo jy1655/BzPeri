@@ -61,6 +61,7 @@ using bzp::GattCharacteristic;
 using bzp::GattProperty;
 using bzp::GattService;
 using bzp::GattUuid;
+using bzp::Logger;
 using bzp::Server;
 using bzp::StructuredLogger;
 using bzp::Utils;
@@ -1518,6 +1519,7 @@ void testQueryExHelpers()
 		BZPServerRunState runState = bzpGetServerRunState();
 		BZPServerHealth health = bzpGetServerHealth();
 		BZPGLibLogCaptureMode mode = bzpGetGLibLogCaptureMode();
+		int sleepIntegrationEnabled = bzpGetPrepareForSleepIntegrationEnabled();
 
 		~RestoreState()
 		{
@@ -1529,6 +1531,7 @@ void testQueryExHelpers()
 
 			bzpUpdateQueueClear();
 			bzpSetGLibLogCaptureMode(mode);
+			bzpSetPrepareForSleepIntegrationEnabled(sleepIntegrationEnabled);
 			setActiveServer(activeServer);
 			bzp::setServerHealth(health);
 			bzp::setServerRunState(runState);
@@ -1543,6 +1546,20 @@ void testQueryExHelpers()
 		"bzpGetGLibLogCaptureEnabledEx should succeed with a valid output");
 	require(value == bzpGetGLibLogCaptureEnabled(),
 		"bzpGetGLibLogCaptureEnabledEx should match the legacy boolean getter");
+	require(bzpGetPrepareForSleepIntegrationEnabledEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
+		"bzpGetPrepareForSleepIntegrationEnabledEx should reject null outputs");
+	require(bzpGetPrepareForSleepIntegrationEnabledEx(&value) == BZP_QUERY_OK,
+		"bzpGetPrepareForSleepIntegrationEnabledEx should succeed with a valid output");
+	require(value == bzpGetPrepareForSleepIntegrationEnabled(),
+		"bzpGetPrepareForSleepIntegrationEnabledEx should match the legacy boolean getter");
+	require(bzpGetConfiguredPrepareForSleepIntegrationEnabled() == BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION_VALUE,
+		"Configured PrepareForSleep integration should match the build-time default");
+	bzpSetPrepareForSleepIntegrationEnabled(0);
+	require(bzpGetPrepareForSleepIntegrationEnabledEx(&value) == BZP_QUERY_OK && value == 0,
+		"PrepareForSleep integration query should reflect runtime disable");
+	bzpSetPrepareForSleepIntegrationEnabled(1);
+	require(bzpGetPrepareForSleepIntegrationEnabledEx(&value) == BZP_QUERY_OK && value != 0,
+		"PrepareForSleep integration query should reflect runtime enable");
 
 	require(bzpIsGLibLogCaptureInstalledEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
 		"bzpIsGLibLogCaptureInstalledEx should reject null outputs");
@@ -1662,12 +1679,15 @@ void testGLibLogCaptureToggle()
 	const auto configuredMode = bzpGetConfiguredGLibLogCaptureMode();
 	const auto configuredTargets = bzpGetConfiguredGLibLogCaptureTargets();
 	const auto configuredDomains = bzpGetConfiguredGLibLogCaptureDomains();
+	const auto configuredCompiledLogLevel = bzpGetConfiguredCompiledLogLevel();
 	require(configuredMode == static_cast<BZPGLibLogCaptureMode>(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE),
 		"Configured GLib log capture mode should match the build-time default");
 	require(configuredTargets == static_cast<unsigned int>(BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE),
 		"Configured GLib log capture targets should match the build-time default");
 	require(configuredDomains == static_cast<unsigned int>(BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE),
 		"Configured GLib log capture domains should match the build-time default");
+	require(configuredCompiledLogLevel == static_cast<BZPCompiledLogLevel>(BZP_COMPILED_LOG_LEVEL_VALUE),
+		"Configured compiled log level should match the build-time default");
 
 	struct RestoreState
 	{
@@ -1883,6 +1903,10 @@ void testStructuredLoggerLevelRouting()
 	bzpLogRegisterWarn(&captureWarnLog);
 	bzpLogRegisterStatus(&captureStatusLog);
 	bzpLogRegisterTrace(&captureTraceLog);
+	require(Logger::isInfoEnabled(), "Logger should report info enabled when an info receiver is registered");
+	require(Logger::isWarnEnabled(), "Logger should report warn enabled when a warn receiver is registered");
+	require(Logger::isStatusEnabled(), "Logger should report status enabled when a status receiver is registered");
+	require(Logger::isTraceEnabled(), "Logger should report trace enabled when a trace receiver is registered");
 
 	StructuredLogger logger("LoggerTest");
 	logger.logConnectionEvent("/org/bluez/hci0/dev_DE_AD_BE_EF", true, 1);
@@ -1890,21 +1914,49 @@ void testStructuredLoggerLevelRouting()
 	logger.log().op("PollCycle").extra("prepared").trace();
 	logger.log().op("Reconnect").result("Failed").error("boom").warn();
 
-	require(capturedInfoLogs.size() == 1, "StructuredLogger info routing should capture one info message");
-	require(capturedInfoLogs.front().find("[LoggerTest] op=Connection path=/org/bluez/hci0/dev_DE_AD_BE_EF result=Connected active=1") != std::string::npos,
-		"StructuredLogger connection logs should use the consistent structured format");
+	if (Logger::isInfoCompiledIn())
+	{
+		require(capturedInfoLogs.size() == 1, "StructuredLogger info routing should capture one info message");
+		require(capturedInfoLogs.front().find("[LoggerTest] op=Connection path=/org/bluez/hci0/dev_DE_AD_BE_EF result=Connected active=1") != std::string::npos,
+			"StructuredLogger connection logs should use the consistent structured format");
+	}
+	else
+	{
+		require(capturedInfoLogs.empty(), "StructuredLogger info logs should compile out below the configured log level");
+	}
 
-	require(capturedStatusLogs.size() == 1, "StructuredLogger status routing should capture one status message");
-	require(capturedStatusLogs.front().find("[LoggerTest] op=Reconnect result=Retry") != std::string::npos,
-		"StructuredLogger status logs should preserve structured fields");
+	if (Logger::isStatusCompiledIn())
+	{
+		require(capturedStatusLogs.size() == 1, "StructuredLogger status routing should capture one status message");
+		require(capturedStatusLogs.front().find("[LoggerTest] op=Reconnect result=Retry") != std::string::npos,
+			"StructuredLogger status logs should preserve structured fields");
+	}
+	else
+	{
+		require(capturedStatusLogs.empty(), "StructuredLogger status logs should compile out below the configured log level");
+	}
 
-	require(capturedTraceLogs.size() == 1, "StructuredLogger trace routing should capture one trace message");
-	require(capturedTraceLogs.front().find("[LoggerTest] op=PollCycle prepared") != std::string::npos,
-		"StructuredLogger trace logs should preserve the structured payload");
+	if (Logger::isTraceCompiledIn())
+	{
+		require(capturedTraceLogs.size() == 1, "StructuredLogger trace routing should capture one trace message");
+		require(capturedTraceLogs.front().find("[LoggerTest] op=PollCycle prepared") != std::string::npos,
+			"StructuredLogger trace logs should preserve the structured payload");
+	}
+	else
+	{
+		require(capturedTraceLogs.empty(), "StructuredLogger trace logs should compile out below the configured log level");
+	}
 
-	require(capturedWarnLogs.size() == 1, "StructuredLogger warn routing should capture one warn message");
-	require(capturedWarnLogs.front().find("[LoggerTest] op=Reconnect result=Failed err=boom") != std::string::npos,
-		"StructuredLogger warn logs should preserve the error payload");
+	if (Logger::isWarnCompiledIn())
+	{
+		require(capturedWarnLogs.size() == 1, "StructuredLogger warn routing should capture one warn message");
+		require(capturedWarnLogs.front().find("[LoggerTest] op=Reconnect result=Failed err=boom") != std::string::npos,
+			"StructuredLogger warn logs should preserve the error payload");
+	}
+	else
+	{
+		require(capturedWarnLogs.empty(), "StructuredLogger warn logs should compile out below the configured log level");
+	}
 }
 
 void testUpdateEnqueueExHelpers()

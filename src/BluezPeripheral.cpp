@@ -93,6 +93,8 @@ namespace bzp
 		constexpr int kConfiguredGLibLogCaptureMode = BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE;
 		constexpr unsigned int kConfiguredGLibLogCaptureTargets = BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE;
 		constexpr unsigned int kConfiguredGLibLogCaptureDomains = BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE;
+		constexpr int kConfiguredPrepareForSleepIntegration = BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION_VALUE;
+		constexpr int kConfiguredCompiledLogLevel = BZP_COMPILED_LOG_LEVEL_VALUE;
 
 		RuntimeBluezAdapterPtr& runtimeBluezAdapterStorage()
 		{
@@ -589,6 +591,32 @@ BZPQueryResult bzpGetGLibLogCaptureEnabledEx(int *pEnabled)
 	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
 }
 
+void bzpSetPrepareForSleepIntegrationEnabled(int enabled)
+{
+	setPrepareForSleepIntegrationEnabled(enabled != 0);
+}
+
+int bzpGetPrepareForSleepIntegrationEnabled()
+{
+	int enabled = 0;
+	(void)bzpGetPrepareForSleepIntegrationEnabledEx(&enabled);
+	return enabled;
+}
+
+BZPQueryResult bzpGetPrepareForSleepIntegrationEnabledEx(int *pEnabled)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return queryIntValue(pEnabled, []() {
+		return isPrepareForSleepIntegrationEnabled() ? 1 : 0;
+	});
+	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
+}
+
+int bzpGetConfiguredPrepareForSleepIntegrationEnabled()
+{
+	return kConfiguredPrepareForSleepIntegration;
+}
+
 void bzpSetGLibLogCaptureMode(BZPGLibLogCaptureMode mode)
 {
 	(void)bzpSetGLibLogCaptureModeEx(mode);
@@ -684,6 +712,11 @@ unsigned int bzpGetConfiguredGLibLogCaptureDomains()
 BZPGLibLogCaptureMode bzpGetConfiguredGLibLogCaptureMode()
 {
 	return static_cast<BZPGLibLogCaptureMode>(kConfiguredGLibLogCaptureMode);
+}
+
+BZPCompiledLogLevel bzpGetConfiguredCompiledLogLevel()
+{
+	return static_cast<BZPCompiledLogLevel>(kConfiguredCompiledLogLevel);
 }
 
 BZPGLibLogCaptureResult bzpInstallGLibLogCaptureEx()

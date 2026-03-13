@@ -251,3 +251,5 @@ This migration maintains **full API compatibility** while significantly improvin
 - **Compatibility**: Modern BlueZ version support
 
 The change is **transparent to existing applications** using the GGK library.
+
+For deprecated public API migration details such as `Gobbledegook.h`, `ggk*`, singleton/global compatibility, raw GLib callback compatibility, and `Ex` result-code replacements, see [COMPATIBILITY_MIGRATION.md](/home/pi5test2/Developments/BzPeri/COMPATIBILITY_MIGRATION.md).

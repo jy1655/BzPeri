@@ -361,7 +361,7 @@ bool GattCharacteristic::callOnUpdatedValue(DBusUpdateRef update) const
 		return false;
 	}
 
-	Logger::debug(SSTR << "Calling OnUpdatedValue function for interface at path '" << getPath() << "'");
+	LOG_DEBUG_STREAM(SSTR << "Calling OnUpdatedValue function for interface at path '" << getPath() << "'");
 	return updateHandler_(*this, update);
 }
 

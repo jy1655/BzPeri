@@ -132,6 +132,7 @@ int main() {
 ### For Users
 - **[API Reference](include/BzPeri.h)** - Complete API documentation
 - **[Configurator API](include/bzp/ConfiguratorSupport.h)** - Modern service configuration API
+- **[Compatibility Migration](COMPATIBILITY_MIGRATION.md)** - Deprecated API migration from Gobbledegook and legacy BzPeri shims
 - **[Standalone Usage](STANDALONE_USAGE.md)** - Command-line options and adapter selection guide
 
 ### For Developers & Contributors
@@ -254,6 +255,7 @@ If you're coming from the original Gobbledegook library, BzPeri maintains API co
 
 - `#include "Gobbledegook.h"` is still supported as a compatibility path, but new code should include `BzPeri.h` directly.
 - Legacy `ggk*` wrappers are deprecated in favor of `bzp*` APIs.
+- The full compatibility/deprecation transition plan is documented in [COMPATIBILITY_MIGRATION.md](COMPATIBILITY_MIGRATION.md).
 
 ```cpp
 // Old API (still supported) - note service name requirements
@@ -277,11 +279,13 @@ For lifecycle control in manual mode, `bzpRunLoopDriveUntilState()` and `bzpRunL
 If the host needs to reason about ownership explicitly, `bzpRunLoopIsManualMode()`, `bzpRunLoopHasOwner()`, and `bzpRunLoopIsCurrentThreadOwner()` expose the current manual run-loop state.
 If the host needs failure-aware queries instead of legacy `0/1` predicates, `bzpRunLoopIsManualModeEx()`, `bzpRunLoopHasOwnerEx()`, `bzpRunLoopIsCurrentThreadOwnerEx()`, `bzpGetGLibLogCaptureEnabledEx()`, `bzpIsGLibLogCaptureInstalledEx()`, `bzpUpdateQueueIsEmptyEx()`, `bzpUpdateQueueSizeEx()`, and `bzpIsServerRunningEx()` return `BZPQueryResult` and write their answers through output pointers.
 For embedded hosts that need tighter control over process-global GLib handlers, `bzpSetGLibLogCaptureMode()` can switch between automatic capture, fully disabled capture, `HOST_MANAGED` capture with explicit `bzpInstallGLibLogCapture()` / `bzpRestoreGLibLogCapture()`, and `STARTUP_AND_SHUTDOWN` capture that automatically releases the process-global override once the server reaches `ERunning`. The capture scope can also be narrowed with `bzpSetGLibLogCaptureTargets()` so hosts can intercept just `g_log` traffic or include `g_print` / `g_printerr` explicitly, and `bzpSetGLibLogCaptureDomains()` can further limit `g_log` interception to the default domain, `GLib`, `GIO`, BlueZ, or other application domains. `bzpGetConfiguredGLibLogCaptureDomains()` exposes the compiled-in default domain mask alongside the existing mode/target getters. If the host needs failure reasons instead of `0/1`, `bzpSetGLibLogCaptureModeEx()` distinguishes invalid modes, `bzpSetGLibLogCaptureTargetsEx()` distinguishes invalid target masks, `bzpSetGLibLogCaptureDomainsEx()` distinguishes invalid domain masks, and `bzpInstallGLibLogCaptureEx()` / `bzpRestoreGLibLogCaptureEx()` distinguish `WRONG_MODE` and `NOT_INSTALLED`.
+On systemd-based systems, BzPeri can subscribe to `org.freedesktop.login1.Manager.PrepareForSleep` so active advertising is paused before suspend and restored after resume. Hosts can toggle this at runtime with `bzpSetPrepareForSleepIntegrationEnabled()` / `bzpGetPrepareForSleepIntegrationEnabledEx()`.
 The same detailed-result pattern is now available for wait helpers via `bzpWaitEx()` / `bzpWaitForStateEx()` / `bzpWaitForShutdownEx()` / `bzpShutdownAndWaitEx()`, which distinguish pre-start `NOT_RUNNING`, invalid state/timeout, timeouts, and join failures. Shutdown triggering now also has `bzpTriggerShutdownEx()`, which distinguishes `NOT_RUNNING` from repeated `ALREADY_STOPPING` requests.
 Update queue maintenance also has a detailed helper now: `bzpUpdateQueueClearEx()` reports how many queued entries were cleared instead of silently dropping them through the legacy `void` wrapper.
 At this point the remaining `0/1` and `void` forms are retained primarily as compatibility shims; new integration code should prefer the corresponding `Ex` and query-result APIs when failure reasons matter.
 Manual run-loop helpers follow the same pattern: `bzpRunLoopIterationEx()`, `bzpRunLoopAttachEx()`, `bzpRunLoopPollPrepareEx()`, `bzpRunLoopDriveUntilStateEx()` and related APIs distinguish `NOT_MANUAL_MODE`, `WRONG_THREAD`, `NO_POLL_CYCLE`, `BUFFER_TOO_SMALL`, and timeout/idle outcomes without exposing raw GLib types.
-The build-time defaults can be changed with `-DBZP_DEFAULT_GLIB_LOG_CAPTURE_MODE=AUTOMATIC|DISABLED|HOST_MANAGED|STARTUP_AND_SHUTDOWN`, `-DBZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS=ALL|LOG|LOG,PRINTERR|...`, and `-DBZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS=ALL|BLUEZ|GLIB,GIO|...`; `bzpGetConfiguredGLibLogCaptureMode()`, `bzpGetConfiguredGLibLogCaptureTargets()`, and `bzpGetConfiguredGLibLogCaptureDomains()` expose those compiled-in defaults at runtime.
+The build-time defaults can be changed with `-DBZP_DEFAULT_GLIB_LOG_CAPTURE_MODE=AUTOMATIC|DISABLED|HOST_MANAGED|STARTUP_AND_SHUTDOWN`, `-DBZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS=ALL|LOG|LOG,PRINTERR|...`, `-DBZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS=ALL|BLUEZ|GLIB,GIO|...`, and `-DBZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION=ON|OFF`; `bzpGetConfiguredGLibLogCaptureMode()`, `bzpGetConfiguredGLibLogCaptureTargets()`, `bzpGetConfiguredGLibLogCaptureDomains()`, and `bzpGetConfiguredPrepareForSleepIntegrationEnabled()` expose those compiled-in defaults at runtime.
+Production-oriented builds can also compile out lower-severity log paths with `-DBZP_COMPILED_LOG_LEVEL=TRACE|DEBUG|INFO|STATUS|WARN|ERROR|FATAL|ALWAYS`; `bzpGetConfiguredCompiledLogLevel()` reports that compiled-in minimum level at runtime.
 Builders that do not need deprecated singleton/global compatibility can configure CMake with `-DENABLE_LEGACY_SINGLETON_COMPAT=OFF`.
 With `ENABLE_LEGACY_SINGLETON_COMPAT=OFF`, the deprecated singleton/global implementation units are omitted from the build entirely. New C++ code that wants to avoid compatibility mirrors entirely can consult `getRuntimeServer()` / `getRuntimeServerPtr()` and `getRuntimeBluezAdapterPtr()` to see only the runtime-owned instances created by BzPeri itself.
 Builders that do not need deprecated raw GLib callback/method APIs can configure CMake with `-DENABLE_LEGACY_RAW_GLIB_COMPAT=OFF`.

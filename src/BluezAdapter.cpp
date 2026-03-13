@@ -728,7 +728,7 @@ BluezResult<void> BluezAdapter::retryOperationWithTimeout(std::function<BluezRes
 		return result;
 	}
 
-	Logger::debug(SSTR << "Operation failed, scheduling async retry: " << result.errorMessage());
+	LOG_DEBUG_STREAM(SSTR << "Operation failed, scheduling async retry: " << result.errorMessage());
 
 	// Schedule non-blocking retry for non-critical operations
 	scheduleAsyncRetry(operation, policy);
@@ -752,7 +752,7 @@ void BluezAdapter::scheduleAsyncRetry(std::function<BluezResult<void>()> operati
 {
 	static constexpr size_t kMaxActiveRetries = 16;
 	if (activeRetries.size() >= kMaxActiveRetries) {
-		Logger::warn(SSTR << "Max active retries (" << kMaxActiveRetries << ") reached, dropping operation");
+		LOG_WARN_STREAM(SSTR << "Max active retries (" << kMaxActiveRetries << ") reached, dropping operation");
 		if (completionCallback) {
 			completionCallback(BluezResult<void>(BluezError::Failed, "Too many concurrent retries"));
 		}
@@ -767,7 +767,7 @@ void BluezAdapter::scheduleAsyncRetry(std::function<BluezResult<void>()> operati
 
 	// Schedule first retry
 	int delayMs = policy.getDelayMs(1);
-	Logger::debug(SSTR << "Scheduling async retry in " << delayMs << "ms (attempt 1/" << policy.maxAttempts << ")");
+	LOG_DEBUG_STREAM(SSTR << "Scheduling async retry in " << delayMs << "ms (attempt 1/" << policy.maxAttempts << ")");
 
 	retryState->timeoutId = attachTimeoutSource(delayMs, onRetryTimeout, retryState.get());
 	activeRetries.push_back(std::move(retryState));
@@ -790,7 +790,7 @@ gboolean BluezAdapter::onRetryTimeout(gpointer user_data)
     if (result.isSuccess() || !::bzp::isRetryableError(result.error()) || state->currentAttempt >= state->policy.maxAttempts)
 	{
 		// Operation succeeded or max attempts reached
-		Logger::debug(SSTR << "Async retry " << (result.isSuccess() ? "succeeded" : "exhausted")
+		LOG_DEBUG_STREAM(SSTR << "Async retry " << (result.isSuccess() ? "succeeded" : "exhausted")
 		             << " after " << state->currentAttempt << " attempts");
 
 		// Call completion callback if provided
@@ -811,7 +811,7 @@ gboolean BluezAdapter::onRetryTimeout(gpointer user_data)
 	// Schedule next retry
 	state->currentAttempt++;
 	int delayMs = state->policy.getDelayMs(state->currentAttempt);
-	Logger::debug(SSTR << "Async retry failed, scheduling next attempt in " << delayMs
+	LOG_DEBUG_STREAM(SSTR << "Async retry failed, scheduling next attempt in " << delayMs
 	             << "ms (attempt " << state->currentAttempt << "/" << state->policy.maxAttempts << ")");
 
 	state->timeoutId = attachTimeoutSource(delayMs, onRetryTimeout, state);

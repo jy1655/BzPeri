@@ -49,6 +49,7 @@
 #include <bzp/GattCharacteristic.h>
 #include <bzp/GattProperty.h>
 #include <bzp/Logger.h>
+#include "config.h"
 #include "Init.h"
 
 namespace bzp {
@@ -77,6 +78,8 @@ static guint periodicTimeoutId = 0;
 static guint updateProcessorSourceId = 0;
 static guint sigtermSourceId = 0;
 static guint sigintSourceId = 0;
+static guint sleepSignalSubscriptionId = 0;
+static std::atomic_bool bPrepareForSleepIntegrationEnabled{BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION_VALUE != 0};
 static std::vector<guint> registeredObjectIds;
 static std::atomic<GMainLoop *> pMainLoop(nullptr);
 static GMainContext *pMainContext = nullptr;
@@ -95,6 +98,7 @@ static GDBusProxy *pBluezAdapterPropertiesInterfaceProxy = nullptr;
 static bool bOwnedNameAcquired = false;
 static bool bAdapterConfigured = false;
 static bool bApplicationRegistered = false;
+static bool bRestoreAdvertisingAfterResume = false;
 static std::string bluezGattManagerInterfaceName = "";
 static Server* pServerContext = nullptr;
 static BluezAdapter* pAdapterContext = nullptr;
@@ -268,6 +272,127 @@ static void attachShutdownSignalHandlers()
 		g_main_loop_quit(static_cast<GMainLoop*>(data));
 		return G_SOURCE_REMOVE;
 	}, pMainLoop.load(std::memory_order_acquire));
+}
+
+static void onPrepareForSleepSignal(
+	GDBusConnection *,
+	const gchar *,
+	const gchar *,
+	const gchar *,
+	const gchar *,
+	GVariant *parameters,
+	gpointer)
+{
+	if (parameters == nullptr || !g_variant_is_of_type(parameters, G_VARIANT_TYPE("(b)")))
+	{
+		Logger::warn("PrepareForSleep: unexpected parameter type, skipping");
+		return;
+	}
+
+	gboolean goingToSleep = FALSE;
+	g_variant_get(parameters, "(b)", &goingToSleep);
+
+	if (pAdapterContext == nullptr || !adapterContext().isInitialized())
+	{
+		LOG_DEBUG_STREAM(SSTR << "PrepareForSleep(" << (goingToSleep ? "true" : "false")
+			<< ") received before adapter initialization");
+		return;
+	}
+
+	if (goingToSleep)
+	{
+		bRestoreAdvertisingAfterResume = adapterContext().isAdvertising();
+		Logger::status("System suspend requested; preparing BLE advertising state");
+
+		if (!bRestoreAdvertisingAfterResume)
+		{
+			Logger::info("BLE advertising was already stopped before suspend");
+			return;
+		}
+
+		adapterContext().setAdvertisingAsync(false, [](BluezResult<void> result) {
+			if (result.hasError())
+			{
+				LOG_WARN_STREAM(SSTR << "Failed to stop BLE advertising for suspend: " << result.errorMessage());
+			}
+			else
+			{
+				Logger::info("BLE advertising paused for system suspend");
+			}
+		});
+		return;
+	}
+
+	Logger::status("System resume detected; restoring BLE adapter state");
+	const auto powerResult = adapterContext().setPowered(true);
+	if (powerResult.hasError())
+	{
+		LOG_WARN_STREAM(SSTR << "Failed to restore adapter power after resume: " << powerResult.errorMessage());
+	}
+
+	if (!bRestoreAdvertisingAfterResume)
+	{
+		Logger::info("BLE advertising was not active before suspend; no resume restart needed");
+		return;
+	}
+
+	bRestoreAdvertisingAfterResume = false;
+	adapterContext().setAdvertisingAsync(true, [](BluezResult<void> result) {
+		if (result.hasError())
+		{
+			LOG_WARN_STREAM(SSTR << "Failed to restore BLE advertising after resume: " << result.errorMessage());
+		}
+		else
+		{
+			Logger::info("BLE advertising restored after system resume");
+		}
+	});
+}
+
+static void subscribePrepareForSleepSignals()
+{
+	if (pBusConnection == nullptr || sleepSignalSubscriptionId != 0)
+	{
+		return;
+	}
+
+	sleepSignalSubscriptionId = g_dbus_connection_signal_subscribe(
+		pBusConnection,
+		"org.freedesktop.login1",
+		"org.freedesktop.login1.Manager",
+		"PrepareForSleep",
+		"/org/freedesktop/login1",
+		nullptr,
+		G_DBUS_SIGNAL_FLAGS_NONE,
+		&onPrepareForSleepSignal,
+		nullptr,
+		nullptr);
+
+	if (sleepSignalSubscriptionId == 0)
+	{
+		Logger::warn("Unable to subscribe to systemd PrepareForSleep signals");
+	}
+}
+
+static void unsubscribePrepareForSleepSignals()
+{
+	if (pBusConnection != nullptr && sleepSignalSubscriptionId != 0)
+	{
+		g_dbus_connection_signal_unsubscribe(pBusConnection, sleepSignalSubscriptionId);
+		sleepSignalSubscriptionId = 0;
+	}
+	bRestoreAdvertisingAfterResume = false;
+}
+
+static void refreshPrepareForSleepSignalSubscriptionOnCurrentThread()
+{
+	if (!bPrepareForSleepIntegrationEnabled.load(std::memory_order_acquire))
+	{
+		unsubscribePrepareForSleepSignals();
+		return;
+	}
+
+	subscribePrepareForSleepSignals();
 }
 
 static bool activateRunLoopOnCurrentThread()
@@ -476,14 +601,14 @@ bool idleFunc(void *pUserData)
 	std::shared_ptr<const DBusInterface> pInterface = serverContext().findInterface(objectPath, interfaceName);
 	if (nullptr == pInterface)
 	{
-		Logger::warn(SSTR << "Unable to find interface for update: path[" << objectPath << "], name[" << interfaceName << "]");
+		LOG_WARN_STREAM(SSTR << "Unable to find interface for update: path[" << objectPath << "], name[" << interfaceName << "]");
 	}
 	else
 	{
 		// Is it a characteristic?
 		if (std::shared_ptr<const GattCharacteristic> pCharacteristic = TRY_GET_CONST_INTERFACE_OF_TYPE(pInterface, GattCharacteristic))
 		{
-			Logger::debug(SSTR << "Processing updated value for interface '" << interfaceName << "' at path '" << objectPath << "'");
+			LOG_DEBUG_STREAM(SSTR << "Processing updated value for interface '" << interfaceName << "' at path '" << objectPath << "'");
 			pCharacteristic->callOnUpdatedValue(DBusUpdateRef(pBusConnection, pUserData));
 			return true;
 		}
@@ -589,6 +714,11 @@ void uninit()
 	{
 		g_source_remove(sigintSourceId);
 		sigintSourceId = 0;
+	}
+
+	if (0 != sleepSignalSubscriptionId)
+	{
+		unsubscribePrepareForSleepSignals();
 	}
 
   	if (ownedNameId > 0)
@@ -1523,6 +1653,8 @@ void initializationStateProcessor()
 		return;
 	}
 
+	refreshPrepareForSleepSignalSubscriptionOnCurrentThread();
+
 	//
 	// Acquire an owned name on the bus
 	//
@@ -1593,6 +1725,36 @@ void initializationStateProcessor()
 
 	// Successful initialization - switch to running state
 	setServerRunState(ERunning);
+}
+
+void setPrepareForSleepIntegrationEnabled(bool enabled)
+{
+	bPrepareForSleepIntegrationEnabled.store(enabled, std::memory_order_release);
+
+	if (pMainContext == nullptr)
+	{
+		return;
+	}
+
+	if (mainContextOwnerThread == std::thread::id() || mainContextOwnerThread == std::this_thread::get_id())
+	{
+		refreshPrepareForSleepSignalSubscriptionOnCurrentThread();
+		return;
+	}
+
+	if (const BZPRunLoopResult result = invokeOnServerLoopEx(
+		[](void *) {
+			refreshPrepareForSleepSignalSubscriptionOnCurrentThread();
+		},
+		nullptr); result != BZP_RUN_LOOP_OK)
+	{
+		Logger::warn(SSTR << "Unable to refresh PrepareForSleep integration on the active run loop: " << static_cast<int>(result));
+	}
+}
+
+bool isPrepareForSleepIntegrationEnabled()
+{
+	return bPrepareForSleepIntegrationEnabled.load(std::memory_order_acquire);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------

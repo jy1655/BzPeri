@@ -35,6 +35,8 @@ class BluezAdapter;
 void shutdown();
 BZPShutdownTriggerResult shutdownEx();
 bool ensureAutomaticGLibCaptureForShutdown();
+void setPrepareForSleepIntegrationEnabled(bool enabled);
+bool isPrepareForSleepIntegrationEnabled();
 
 // Entry point for the asynchronous server thread
 //
