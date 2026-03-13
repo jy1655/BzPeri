@@ -469,6 +469,19 @@ extern "C"
 		EStopped
 	};
 
+	enum BZPWaitResult
+	{
+		BZP_WAIT_OK = 0,
+		BZP_WAIT_TIMEOUT = 1,
+		BZP_WAIT_INVALID_STATE = 2,
+		BZP_WAIT_INVALID_TIMEOUT = 3,
+		BZP_WAIT_DEADLOCK = 4,
+		BZP_WAIT_JOIN_FAILED = 5,
+		BZP_WAIT_FAILED = 6
+	};
+
+	enum BZPWaitResult bzpShutdownAndWaitEx();
+
 	// Retrieve the current running state of the server
 	//
 	// See `BZPServerRunState` (enumeration) for more information.
@@ -485,6 +498,7 @@ extern "C"
 	//
 	// Returns non-zero if the requested state was reached, otherwise 0.
 	int bzpWaitForState(enum BZPServerRunState state, int timeoutMS);
+	enum BZPWaitResult bzpWaitForStateEx(enum BZPServerRunState state, int timeoutMS);
 
 	// Wait until shutdown is complete and the internal server thread has been joined.
 	//
@@ -494,6 +508,7 @@ extern "C"
 	//
 	// Returns non-zero if shutdown completed within the requested timeout, otherwise 0.
 	int bzpWaitForShutdown(int timeoutMS);
+	enum BZPWaitResult bzpWaitForShutdownEx(int timeoutMS);
 
 	// Run one iteration of the dedicated GLib context when the server was started with `bzpStartManual()` or
 	// `bzpStartWithBondableManual()`.

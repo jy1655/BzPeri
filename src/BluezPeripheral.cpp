@@ -99,6 +99,12 @@ namespace bzp
 			setActiveBluezAdapterForRuntime(runtimeAdapter.get());
 			return runtimeAdapter.get();
 		}
+
+		void releaseRuntimeBluezAdapter() noexcept
+		{
+			setActiveBluezAdapterForRuntime(nullptr);
+			runtimeBluezAdapterStorage().reset();
+		}
 	}
 
 	// During initialization, we'll check for complation at this interval
@@ -789,6 +795,11 @@ void bzpTriggerShutdown()
 // `bzpWait()`)
 int bzpShutdownAndWait()
 {
+	return bzpShutdownAndWaitEx() == BZP_WAIT_OK ? 1 : 0;
+}
+
+BZPWaitResult bzpShutdownAndWaitEx()
+{
 	if (bzpIsServerRunning() != 0)
 	{
 		// Tell the server to shut down
@@ -796,7 +807,7 @@ int bzpShutdownAndWait()
 	}
 
 	// Block until it has shut down completely
-	return bzpWait();
+	return bzpWaitForShutdownEx(-1);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -822,58 +833,74 @@ int bzpWait()
 		Logger::info("Waiting for BzPeri server to stop");
 	}
 
-	return bzpWaitForShutdown(-1);
+	return bzpWaitForShutdownEx(-1) == BZP_WAIT_OK ? 1 : 0;
 }
 
-int bzpWaitForState(BZPServerRunState state, int timeoutMS)
+BZPWaitResult bzpWaitForStateEx(BZPServerRunState state, int timeoutMS)
 {
 	BZP_C_API_GUARD_BEGIN()
 	if (!isValidRunState(state))
 	{
 		Logger::warn(SSTR << "bzpWaitForState: invalid target state (" << static_cast<int>(state) << ")");
-		return 0;
+		return BZP_WAIT_INVALID_STATE;
 	}
 
 	if (timeoutMS < -1)
 	{
 		Logger::warn(SSTR << "bzpWaitForState: invalid timeout (" << timeoutMS << ")");
-		return 0;
+		return BZP_WAIT_INVALID_TIMEOUT;
 	}
 
 	if (isServerThreadCurrent() && bzpGetServerRunState() != state)
 	{
 		Logger::warn("bzpWaitForState() called from the server thread before the requested state was reached");
-		return 0;
+		return BZP_WAIT_DEADLOCK;
 	}
 
-	return waitForRunState(state, timeoutMS) ? 1 : 0;
-	BZP_C_API_GUARD_END_RETURN_INT(0)
+	return waitForRunState(state, timeoutMS) ? BZP_WAIT_OK : BZP_WAIT_TIMEOUT;
+	BZP_C_API_GUARD_END_RETURN_INT(BZP_WAIT_FAILED)
 }
 
-int bzpWaitForShutdown(int timeoutMS)
+int bzpWaitForState(BZPServerRunState state, int timeoutMS)
+{
+	return bzpWaitForStateEx(state, timeoutMS) == BZP_WAIT_OK ? 1 : 0;
+}
+
+BZPWaitResult bzpWaitForShutdownEx(int timeoutMS)
 {
 	BZP_C_API_GUARD_BEGIN()
 	if (timeoutMS < -1)
 	{
 		Logger::warn(SSTR << "bzpWaitForShutdown: invalid timeout (" << timeoutMS << ")");
-		return 0;
+		return BZP_WAIT_INVALID_TIMEOUT;
 	}
 
 	if (isServerThreadCurrent() && bzpGetServerRunState() != EStopped)
 	{
 		Logger::warn("bzpWaitForShutdown() called from the server thread before shutdown completed");
-		return 0;
+		return BZP_WAIT_DEADLOCK;
 	}
 
 	if (!waitForRunState(EStopped, timeoutMS))
 	{
-		return 0;
+		return BZP_WAIT_TIMEOUT;
 	}
 
 	const int joined = joinServerThread("bzpWaitForShutdown");
 	restoreAutomaticGLibHandlers();
-	return joined;
-	BZP_C_API_GUARD_END_RETURN_INT(0)
+	if (!joined)
+	{
+		return BZP_WAIT_JOIN_FAILED;
+	}
+
+	releaseRuntimeBluezAdapter();
+	return BZP_WAIT_OK;
+	BZP_C_API_GUARD_END_RETURN_INT(BZP_WAIT_FAILED)
+}
+
+int bzpWaitForShutdown(int timeoutMS)
+{
+	return bzpWaitForShutdownEx(timeoutMS) == BZP_WAIT_OK ? 1 : 0;
 }
 
 namespace {
@@ -889,6 +916,11 @@ BZPStartResult startServerWithMode(const char *pServiceName, const char *pAdvert
 {
 	try
 	{
+		if (bzpGetServerRunState() == EStopped && !serverThread.joinable())
+		{
+			releaseRuntimeBluezAdapter();
+		}
+
 		if (!pServiceName || strlen(pServiceName) == 0)
 		{
 			Logger::error("bzpStart: pServiceName cannot be null or empty");
@@ -963,6 +995,7 @@ BZPStartResult startServerWithMode(const char *pServiceName, const char *pAdvert
 				Logger::error("Unable to initialize the manual BzPeri run loop");
 				setServerHealth(EFailedInit);
 				setServerRunState(EStopped);
+				releaseRuntimeBluezAdapter();
 				return BZP_START_MANUAL_LOOP_INIT_FAILED;
 			}
 
@@ -1003,6 +1036,7 @@ BZPStartResult startServerWithMode(const char *pServiceName, const char *pAdvert
 
 			setServerHealth(EFailedInit);
 			setServerRunState(EStopped);
+			releaseRuntimeBluezAdapter();
 			return BZP_START_THREAD_START_FAILED;
 		}
 

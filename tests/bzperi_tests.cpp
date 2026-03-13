@@ -758,8 +758,16 @@ void testWaitHelpers()
 	require(bzpGetServerRunState() == EUninitialized, "Unit tests should begin with the server in the uninitialized state");
 	require(bzpWaitForState(EUninitialized, 0) != 0, "bzpWaitForState should succeed immediately for the current state");
 	require(bzpWaitForState(ERunning, 0) == 0, "bzpWaitForState should fail immediately for an unreached state");
+	require(bzpWaitForStateEx(EUninitialized, 0) == BZP_WAIT_OK,
+		"bzpWaitForStateEx should report OK when the requested state is already current");
+	require(bzpWaitForStateEx(ERunning, 0) == BZP_WAIT_TIMEOUT,
+		"bzpWaitForStateEx should report timeout for an unreached state with timeout=0");
 	require(bzpWaitForState(static_cast<BZPServerRunState>(999), 0) == 0, "bzpWaitForState should reject invalid states");
+	require(bzpWaitForStateEx(static_cast<BZPServerRunState>(999), 0) == BZP_WAIT_INVALID_STATE,
+		"bzpWaitForStateEx should distinguish invalid states");
 	require(bzpWaitForShutdown(0) == 0, "bzpWaitForShutdown should not report success before the server has started and stopped");
+	require(bzpWaitForShutdownEx(0) == BZP_WAIT_TIMEOUT,
+		"bzpWaitForShutdownEx should report timeout before the server has started and stopped");
 
 	struct StateRestore
 	{
@@ -787,6 +795,8 @@ void testWaitHelpers()
 
 	require(bzpWaitForState(ERunning, 250) != 0,
 		"bzpWaitForState should detect a later transition to the running state");
+	require(bzpWaitForStateEx(ERunning, 250) == BZP_WAIT_OK,
+		"bzpWaitForStateEx should report OK for a later transition to the running state");
 	transitionThread.join();
 
 	require(bzpStartNoWait(nullptr, "", "", &nullGetter, &acceptingSetter) == 0,
@@ -802,6 +812,8 @@ void testWaitHelpers()
 	bzpTriggerShutdown();
 	require(bzpRunLoopDriveUntilShutdown(100) != 0,
 		"Manual startup from bzpStartWithBondableManualEx should still shut down cleanly");
+	require(bzpWaitForShutdownEx(0) == BZP_WAIT_OK,
+		"bzpWaitForShutdownEx should report OK once manual shutdown cleanup completed");
 
 	std::string longServiceName(256, 'a');
 	require(bzpStartEx(longServiceName.c_str(), "", "", &nullGetter, &acceptingSetter, 0) == BZP_START_SERVICE_NAME_TOO_LONG,

@@ -210,15 +210,19 @@ struct GattCharacteristic : GattInterface
 	//
 	// The caller may choose to consult getActiveBluezAdapter().getActiveConnectionCount() in order to determine if there are any
 	// active connections before sending a change notification.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattCharacteristic::sendChangeNotificationVariant() wrapper overload with DBusConnectionRef/DBusVariantRef")
 	void sendChangeNotificationVariant(GDBusConnection *pBusConnection, GVariant *pNewValue) const;
+#endif
 	BZP_DEPRECATED("Use GattCharacteristic::sendChangeNotificationVariant(DBusNotificationRef)")
 	void sendChangeNotificationVariant(DBusConnectionRef busConnection, DBusVariantRef newValue) const;
 	void sendChangeNotificationVariant(DBusNotificationRef notification) const;
 
 	// Checked variant of sendChangeNotificationVariant(). Returns false if the signal could not be emitted.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattCharacteristic::sendChangeNotificationVariantChecked() wrapper overload with DBusConnectionRef/DBusVariantRef")
 	bool sendChangeNotificationVariantChecked(GDBusConnection *pBusConnection, GVariant *pNewValue) const;
+#endif
 	BZP_DEPRECATED("Use GattCharacteristic::sendChangeNotificationVariantChecked(DBusNotificationRef)")
 	bool sendChangeNotificationVariantChecked(DBusConnectionRef busConnection, DBusVariantRef newValue) const;
 	bool sendChangeNotificationVariantChecked(DBusNotificationRef notification) const;
@@ -230,12 +234,14 @@ struct GattCharacteristic : GattInterface
 	//
 	// The caller may choose to consult getActiveBluezAdapter().getActiveConnectionCount() in order to determine if there are any
 	// active connections before sending a change notification.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	BZP_DEPRECATED("Use GattCharacteristic::sendChangeNotificationValue() wrapper overload with DBusConnectionRef")
 	void sendChangeNotificationValue(GDBusConnection *pBusConnection, T value) const
 	{
 		sendChangeNotificationVariant(DBusConnectionRef(pBusConnection), Utils::dbusVariantFromByteArray(value));
 	}
+#endif
 
 	template<typename T>
 	void sendChangeNotificationValue(DBusConnectionRef busConnection, T value) const

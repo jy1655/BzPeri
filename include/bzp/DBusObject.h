@@ -136,15 +136,19 @@ struct DBusObject
 	// -----------------------------------------------------------------------------------------------------------------------------
 
 	// Emits a signal and returns whether GLib accepted it for delivery.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use DBusObject::emitSignalChecked(DBusSignalRef)")
 	bool emitSignalChecked(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters);
+#endif
 	BZP_DEPRECATED("Use DBusObject::emitSignalChecked(DBusSignalRef)")
 	bool emitSignalChecked(DBusConnectionRef busConnection, const std::string &interfaceName, const std::string &signalName, DBusVariantRef parameters);
 	bool emitSignalChecked(DBusSignalRef signal);
 
 	// Emits a signal on the bus from the given path, interface name and signal name, containing a GVariant set of parameters
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use DBusObject::emitSignal(DBusSignalRef)")
 	void emitSignal(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters);
+#endif
 	BZP_DEPRECATED("Use DBusObject::emitSignal(DBusSignalRef)")
 	void emitSignal(DBusConnectionRef busConnection, const std::string &interfaceName, const std::string &signalName, DBusVariantRef parameters);
 	void emitSignal(DBusSignalRef signal);

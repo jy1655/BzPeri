@@ -349,8 +349,10 @@ struct GattInterface : DBusInterface
 	//
 	// This is the generalized form that accepts a GVariant *. There is a templated helper method (`methodReturnValue()`) that accepts
 	// common types.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattInterface::methodReturnVariant(DBusReplyRef, DBusVariantRef)")
 	void methodReturnVariant(GDBusMethodInvocation *pInvocation, GVariant *pVariant, bool wrapInTuple = false) const;
+#endif
 	BZP_DEPRECATED("Use GattInterface::methodReturnVariant(DBusReplyRef, DBusVariantRef)")
 	void methodReturnVariant(DBusMethodCallRef methodCall, DBusVariantRef variant, bool wrapInTuple = false) const;
 	BZP_DEPRECATED("Use GattInterface::methodReturnVariant(DBusReplyRef, DBusVariantRef)")
@@ -363,12 +365,14 @@ struct GattInterface : DBusInterface
 	//
 	// This is a templated helper method that only works with common types. For a more generic form which can be used for custom
 	// types, see `methodReturnVariant()'.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	BZP_DEPRECATED("Use GattInterface::methodReturnValue() wrapper overload with DBusReplyRef")
 	void methodReturnValue(GDBusMethodInvocation *pInvocation, T value, bool wrapInTuple = false) const
 	{
 		methodReturnVariant(DBusReplyRef(pInvocation), Utils::dbusVariantFromByteArray(value), wrapInTuple);
 	}
+#endif
 
 	template<typename T>
 	BZP_DEPRECATED("Use GattInterface::methodReturnValue() wrapper overload with DBusReplyRef")

@@ -59,10 +59,12 @@ const std::list<GattProperty> &GattInterface::getProperties() const
 //
 // This is the generalized form that accepts a GVariant *. There is a templated helper method (`methodReturnValue()`) that accepts
 // common types.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 void GattInterface::methodReturnVariant(GDBusMethodInvocation *pInvocation, GVariant *pVariant, bool wrapInTuple) const
 {
 	methodReturnVariant(DBusReplyRef(pInvocation), DBusVariantRef(pVariant), wrapInTuple);
 }
+#endif
 
 void GattInterface::methodReturnVariant(DBusMethodCallRef methodCall, DBusVariantRef variant, bool wrapInTuple) const
 {

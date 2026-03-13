@@ -401,10 +401,12 @@ GattDescriptor &GattCharacteristic::gattDescriptorBegin(const std::string &pathE
 //
 // The caller may choose to consult getActiveBluezAdapter().getActiveConnectionCount() in order to determine if there are any
 // active connections before sending a change notification.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 void GattCharacteristic::sendChangeNotificationVariant(GDBusConnection *pBusConnection, GVariant *pNewValue) const
 {
 	(void)sendChangeNotificationVariant(DBusNotificationRef(pBusConnection, pNewValue));
 }
+#endif
 
 void GattCharacteristic::sendChangeNotificationVariant(DBusConnectionRef busConnection, DBusVariantRef newValue) const
 {
@@ -416,10 +418,12 @@ void GattCharacteristic::sendChangeNotificationVariant(DBusNotificationRef notif
 	(void)sendChangeNotificationVariantChecked(notification);
 }
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 bool GattCharacteristic::sendChangeNotificationVariantChecked(GDBusConnection *pBusConnection, GVariant *pNewValue) const
 {
 	return sendChangeNotificationVariantChecked(DBusNotificationRef(pBusConnection, pNewValue));
 }
+#endif
 
 bool GattCharacteristic::sendChangeNotificationVariantChecked(DBusConnectionRef busConnection, DBusVariantRef newValue) const
 {

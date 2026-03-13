@@ -283,10 +283,12 @@ std::string DBusObject::generateIntrospectionXML(int depth) const
 // D-Bus signals
 // ---------------------------------------------------------------------------------------------------------------------------------
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 bool DBusObject::emitSignalChecked(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters)
 {
 	return emitSignalChecked(DBusSignalRef(DBusConnectionRef(pBusConnection), interfaceName, signalName, DBusVariantRef(pParameters)));
 }
+#endif
 
 bool DBusObject::emitSignalChecked(DBusConnectionRef busConnection, const std::string &interfaceName, const std::string &signalName, DBusVariantRef parameters)
 {
@@ -328,10 +330,12 @@ bool DBusObject::emitSignalChecked(DBusSignalRef signal)
 }
 
 // Emits a signal on the bus from the given path, interface name and signal name, containing a GVariant set of parameters
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 void DBusObject::emitSignal(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters)
 {
 	(void)emitSignalChecked(DBusSignalRef(DBusConnectionRef(pBusConnection), interfaceName, signalName, DBusVariantRef(pParameters)));
 }
+#endif
 
 void DBusObject::emitSignal(DBusConnectionRef busConnection, const std::string &interfaceName, const std::string &signalName, DBusVariantRef parameters)
 {
