@@ -274,6 +274,7 @@ For host-to-server scheduling without exposing GLib types directly, `bzpRunLoopI
 For host event loops that already use `poll(2)`/`select(2)`-style integration, the hidden poll API `bzpRunLoopPollPrepare()` / `bzpRunLoopPollQuery()` / `bzpRunLoopPollCheck()` / `bzpRunLoopPollDispatch()` / `bzpRunLoopPollCancel()` exposes the dedicated run loop as plain poll descriptors instead of `GMainContext *`.
 For lifecycle control in manual mode, `bzpRunLoopDriveUntilState()` and `bzpRunLoopDriveUntilShutdown()` can pump the loop until a target state is reached.
 If the host needs to reason about ownership explicitly, `bzpRunLoopIsManualMode()`, `bzpRunLoopHasOwner()`, and `bzpRunLoopIsCurrentThreadOwner()` expose the current manual run-loop state.
+For embedded hosts that need tighter control over process-global GLib handlers, `bzpSetGLibLogCaptureMode()` can switch between automatic capture, fully disabled capture, and `HOST_MANAGED` capture with explicit `bzpInstallGLibLogCapture()` / `bzpRestoreGLibLogCapture()`.
 The bundled `bzp-standalone` sample can be launched in this mode with `--manual-loop`.
 
 ## ⚙️ Configuration

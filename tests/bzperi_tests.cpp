@@ -1266,15 +1266,56 @@ void testDBusMethodTypeMismatchIsSafe()
 void testGLibLogCaptureToggle()
 {
 	const int original = bzpGetGLibLogCaptureEnabled();
+	const auto originalMode = bzpGetGLibLogCaptureMode();
+
+	struct RestoreState
+	{
+		BZPGLibLogCaptureMode mode;
+
+		~RestoreState()
+		{
+			while (bzpIsGLibLogCaptureInstalled() != 0)
+			{
+				if (!bzpRestoreGLibLogCapture())
+				{
+					break;
+				}
+			}
+
+			bzpSetGLibLogCaptureMode(mode);
+		}
+	} restore{originalMode};
 
 	bzpSetGLibLogCaptureEnabled(0);
 	require(bzpGetGLibLogCaptureEnabled() == 0, "GLib log capture toggle should disable capture");
 
 	bzpSetGLibLogCaptureEnabled(1);
 	require(bzpGetGLibLogCaptureEnabled() == 1, "GLib log capture toggle should enable capture");
+	require(bzpGetGLibLogCaptureMode() == BZP_GLIB_LOG_CAPTURE_AUTOMATIC,
+		"Legacy GLib log capture toggle should map enabled=true to automatic mode");
+
+	bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_HOST_MANAGED);
+	require(bzpGetGLibLogCaptureMode() == BZP_GLIB_LOG_CAPTURE_HOST_MANAGED,
+		"Explicit GLib log capture mode should support host-managed integration");
+	require(bzpGetGLibLogCaptureEnabled() == 0,
+		"Legacy enabled query should report false when host-managed mode disables automatic startup capture");
+	require(bzpInstallGLibLogCapture() != 0,
+		"Host-managed GLib log capture should install explicitly");
+	require(bzpIsGLibLogCaptureInstalled() != 0,
+		"Host-managed GLib log capture should report installed after explicit install");
+	require(bzpRestoreGLibLogCapture() != 0,
+		"Host-managed GLib log capture should restore explicitly");
+	require(bzpIsGLibLogCaptureInstalled() == 0,
+		"Host-managed GLib log capture should report not installed after explicit restore");
+
+	bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_DISABLED);
+	require(bzpInstallGLibLogCapture() == 0,
+		"Explicit GLib log capture install should fail outside host-managed mode");
 
 	bzpSetGLibLogCaptureEnabled(original);
 	require(bzpGetGLibLogCaptureEnabled() == original, "GLib log capture toggle should restore the original state");
+	bzpSetGLibLogCaptureMode(originalMode);
+	require(bzpGetGLibLogCaptureMode() == originalMode, "GLib log capture mode should restore the original mode");
 }
 
 void testStructuredLoggerLevelRouting()

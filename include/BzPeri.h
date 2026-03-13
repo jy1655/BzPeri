@@ -81,6 +81,14 @@ extern "C"
 		unsigned short revents;
 	} BZPPollFD;
 
+	// Controls how BzPeri interacts with process-global GLib print/log handlers.
+	enum BZPGLibLogCaptureMode
+	{
+		BZP_GLIB_LOG_CAPTURE_AUTOMATIC = 0,
+		BZP_GLIB_LOG_CAPTURE_DISABLED = 1,
+		BZP_GLIB_LOG_CAPTURE_HOST_MANAGED = 2
+	};
+
 	// Each of these methods registers a log receiver method. Receivers are set when registered. To unregister a log receiver,
 	// simply register with `nullptr`.
 	void bzpLogRegisterDebug(BZPLogReceiver receiver);
@@ -97,8 +105,33 @@ extern "C"
 	// When enabled (default), GLib print/log output is routed through the registered BzPeri log receivers while the server
 	// is active. When disabled, BzPeri leaves the process-global GLib handlers untouched, which is often preferable for
 	// embedded use inside larger host applications.
+	//
+	// This legacy boolean API maps to `BZP_GLIB_LOG_CAPTURE_AUTOMATIC` when enabled and
+	// `BZP_GLIB_LOG_CAPTURE_DISABLED` when disabled. Use `bzpSetGLibLogCaptureMode()` for host-managed integration.
 	void bzpSetGLibLogCaptureEnabled(int enabled);
 	int bzpGetGLibLogCaptureEnabled();
+
+	// Configure how BzPeri captures GLib process-global print/log handlers.
+	//
+	// `AUTOMATIC` (default): startup/shutdown install and restore the handlers automatically.
+	// `DISABLED`: BzPeri never installs the handlers.
+	// `HOST_MANAGED`: startup/shutdown do not touch the handlers; the host may explicitly call
+	// `bzpInstallGLibLogCapture()` / `bzpRestoreGLibLogCapture()`.
+	void bzpSetGLibLogCaptureMode(enum BZPGLibLogCaptureMode mode);
+	enum BZPGLibLogCaptureMode bzpGetGLibLogCaptureMode();
+
+	// Explicitly install GLib process-global handler capture in `HOST_MANAGED` mode.
+	//
+	// Returns non-zero on success, otherwise 0.
+	int bzpInstallGLibLogCapture();
+
+	// Explicitly restore the previously-installed GLib process-global handlers in `HOST_MANAGED` mode.
+	//
+	// Returns non-zero on success, otherwise 0.
+	int bzpRestoreGLibLogCapture();
+
+	// Returns non-zero when BzPeri currently has GLib process-global handlers installed.
+	int bzpIsGLibLogCaptureInstalled();
 
 	// -----------------------------------------------------------------------------------------------------------------------------
 	// SERVER DATA

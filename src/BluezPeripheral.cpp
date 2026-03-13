@@ -92,7 +92,8 @@ namespace bzp
 	// Condition variable for state transitions
 	static std::condition_variable stateChangedCV;
 	static std::mutex stateChangedMutex;
-	static std::atomic<bool> captureGLibLogs{true};
+	static std::atomic<int> glibLogCaptureMode{BZP_GLIB_LOG_CAPTURE_AUTOMATIC};
+	static std::atomic<unsigned int> automaticGLibCaptureInstalls{0};
 
 	// RAII guard that saves and restores GLib global handlers
 	struct GLibHandlerGuard {
@@ -103,15 +104,11 @@ namespace bzp
 		unsigned int installDepth = 0;
 		std::mutex mutex;
 
-		void install() {
+		bool install() {
 			std::lock_guard<std::mutex> lock(mutex);
-			if (!captureGLibLogs.load(std::memory_order_acquire))
-			{
-				return;
-			}
 			if (installDepth++ > 0)
 			{
-				return;
+				return true;
 			}
 			savedPrint = g_set_print_handler([](const gchar* s) { Logger::info(s); });
 			savedPrinterr = g_set_printerr_handler([](const gchar* s) { Logger::error(s); });
@@ -125,17 +122,18 @@ namespace bzp
 					else Logger::info(str);
 				}, nullptr);
 			active = true;
+			return true;
 		}
 
-		void restore() {
+		bool restore() {
 			std::lock_guard<std::mutex> lock(mutex);
 			if (installDepth == 0)
 			{
-				return;
+				return false;
 			}
 			if (--installDepth > 0)
 			{
-				return;
+				return true;
 			}
 			if (active) {
 				g_set_print_handler(savedPrint);
@@ -146,13 +144,59 @@ namespace bzp
 				savedPrinterr = nullptr;
 				savedLog = nullptr;
 			}
+			return true;
 		}
 
-		~GLibHandlerGuard() { restore(); }
+		bool isInstalled()
+		{
+			std::lock_guard<std::mutex> lock(mutex);
+			return active;
+		}
+
+		~GLibHandlerGuard() { (void)restore(); }
 	};
 
 	// GLib handler guard (replaces the three separate static handler variables)
 	static GLibHandlerGuard glibHandlerGuard;
+
+	bool shouldAutoCaptureGLibLogs()
+	{
+		return glibLogCaptureMode.load(std::memory_order_acquire) == BZP_GLIB_LOG_CAPTURE_AUTOMATIC;
+	}
+
+	bool shouldUseHostManagedGLibCapture()
+	{
+		return glibLogCaptureMode.load(std::memory_order_acquire) == BZP_GLIB_LOG_CAPTURE_HOST_MANAGED;
+	}
+
+	bool installAutomaticGLibHandlers()
+	{
+		if (!shouldAutoCaptureGLibLogs())
+		{
+			return false;
+		}
+
+		if (!glibHandlerGuard.install())
+		{
+			return false;
+		}
+
+		automaticGLibCaptureInstalls.fetch_add(1, std::memory_order_acq_rel);
+		return true;
+	}
+
+	void restoreAutomaticGLibHandlers()
+	{
+		unsigned int expected = automaticGLibCaptureInstalls.load(std::memory_order_acquire);
+		while (expected > 0)
+		{
+			if (automaticGLibCaptureInstalls.compare_exchange_weak(expected, expected - 1, std::memory_order_acq_rel))
+			{
+				(void)glibHandlerGuard.restore();
+				return;
+			}
+		}
+	}
 
 	struct ScopedAction
 	{
@@ -203,7 +247,7 @@ namespace bzp
 
 	void restoreGLibHandlers()
 	{
-		glibHandlerGuard.restore();
+		restoreAutomaticGLibHandlers();
 	}
 
 	bool isValidRunState(BZPServerRunState state) noexcept
@@ -317,16 +361,65 @@ BZPUpdateEnqueueResult enqueueUpdate(const char *pObjectPath, const char *pInter
 
 void bzpSetGLibLogCaptureEnabled(int enabled)
 {
-	captureGLibLogs.store(enabled != 0, std::memory_order_release);
+	glibLogCaptureMode.store(enabled != 0 ? BZP_GLIB_LOG_CAPTURE_AUTOMATIC : BZP_GLIB_LOG_CAPTURE_DISABLED, std::memory_order_release);
 	if (enabled == 0)
 	{
-		glibHandlerGuard.restore();
+		restoreAutomaticGLibHandlers();
 	}
 }
 
 int bzpGetGLibLogCaptureEnabled()
 {
-	return captureGLibLogs.load(std::memory_order_acquire) ? 1 : 0;
+	return glibLogCaptureMode.load(std::memory_order_acquire) == BZP_GLIB_LOG_CAPTURE_AUTOMATIC ? 1 : 0;
+}
+
+void bzpSetGLibLogCaptureMode(BZPGLibLogCaptureMode mode)
+{
+	if (mode != BZP_GLIB_LOG_CAPTURE_AUTOMATIC
+		&& mode != BZP_GLIB_LOG_CAPTURE_DISABLED
+		&& mode != BZP_GLIB_LOG_CAPTURE_HOST_MANAGED)
+	{
+		Logger::warn(SSTR << "Ignoring invalid GLib log capture mode (" << static_cast<int>(mode) << ")");
+		return;
+	}
+
+	glibLogCaptureMode.store(mode, std::memory_order_release);
+	if (mode == BZP_GLIB_LOG_CAPTURE_DISABLED)
+	{
+		restoreAutomaticGLibHandlers();
+	}
+}
+
+BZPGLibLogCaptureMode bzpGetGLibLogCaptureMode()
+{
+	return static_cast<BZPGLibLogCaptureMode>(glibLogCaptureMode.load(std::memory_order_acquire));
+}
+
+int bzpInstallGLibLogCapture()
+{
+	if (!shouldUseHostManagedGLibCapture())
+	{
+		Logger::warn("bzpInstallGLibLogCapture() requires BZP_GLIB_LOG_CAPTURE_HOST_MANAGED mode");
+		return 0;
+	}
+
+	return glibHandlerGuard.install() ? 1 : 0;
+}
+
+int bzpRestoreGLibLogCapture()
+{
+	if (!shouldUseHostManagedGLibCapture())
+	{
+		Logger::warn("bzpRestoreGLibLogCapture() requires BZP_GLIB_LOG_CAPTURE_HOST_MANAGED mode");
+		return 0;
+	}
+
+	return glibHandlerGuard.restore() ? 1 : 0;
+}
+
+int bzpIsGLibLogCaptureInstalled()
+{
+	return glibHandlerGuard.isInstalled() ? 1 : 0;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -735,7 +828,7 @@ int bzpWaitForShutdown(int timeoutMS)
 	}
 
 	const int joined = joinServerThread("bzpWaitForShutdown");
-	glibHandlerGuard.restore();
+	restoreAutomaticGLibHandlers();
 	return joined;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
 }
@@ -795,9 +888,9 @@ int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, 
 			return 0;
 		}
 
-		glibHandlerGuard.install();
+		const bool autoInstalledGLibHandlers = installAutomaticGLibHandlers();
 		ScopedAction restoreGLibHandlersOnFailure{[] {
-			glibHandlerGuard.restore();
+			restoreAutomaticGLibHandlers();
 		}};
 
 		Logger::info(SSTR << "Starting BzPeri server '" << pAdvertisingName << "'");
@@ -831,7 +924,10 @@ int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, 
 			}
 
 			Logger::trace("BzPeri manual run loop started; host must drive it with bzpRunLoopIteration()");
-			restoreGLibHandlersOnFailure.release();
+			if (autoInstalledGLibHandlers)
+			{
+				restoreGLibHandlersOnFailure.release();
+			}
 			return 1;
 		}
 
@@ -855,7 +951,7 @@ int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, 
 					setServerRunState(EStopped);
 				}
 
-				glibHandlerGuard.restore();
+				restoreAutomaticGLibHandlers();
 			});
 		}
 		catch(std::system_error &ex)
@@ -870,7 +966,10 @@ int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, 
 		if (maxAsyncInitTimeoutMS == 0)
 		{
 			Logger::trace("BzPeri server thread started; initialization continues asynchronously");
-			restoreGLibHandlersOnFailure.release();
+			if (autoInstalledGLibHandlers)
+			{
+				restoreGLibHandlersOnFailure.release();
+			}
 			return 1;
 		}
 
@@ -897,7 +996,10 @@ int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, 
 		}
 
 		Logger::trace("BzPeri server has started");
-		restoreGLibHandlersOnFailure.release();
+		if (autoInstalledGLibHandlers)
+		{
+			restoreGLibHandlersOnFailure.release();
+		}
 		return 1;
 	}
 	catch(...)
