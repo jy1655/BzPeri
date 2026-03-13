@@ -71,6 +71,14 @@ jobs:
             VERSION="${{ github.event.release.tag_name }}"
           else
             VERSION="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+            if [ -z "$VERSION" ]; then
+              VERSION="$(
+                git ls-remote --tags --refs "https://github.com/${GITHUB_REPOSITORY}.git" 'v*.*.*' \
+                  | awk -F/ '{print $3}' \
+                  | sort -V \
+                  | tail -n1
+              )"
+            fi
           fi
           VERSION="${VERSION#v}"
           if [ -z "$VERSION" ]; then
@@ -189,6 +197,14 @@ jobs:
             VERSION="${{ github.event.release.tag_name }}"
           else
             VERSION="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+            if [ -z "$VERSION" ]; then
+              VERSION="$(
+                git ls-remote --tags --refs "https://github.com/${GITHUB_REPOSITORY}.git" 'v*.*.*' \
+                  | awk -F/ '{print $3}' \
+                  | sort -V \
+                  | tail -n1
+              )"
+            fi
           fi
           VERSION="${VERSION#v}"
           if [ -z "$VERSION" ]; then
