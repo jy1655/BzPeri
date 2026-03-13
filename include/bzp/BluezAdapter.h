@@ -211,5 +211,6 @@ private:
 
 [[nodiscard]] BluezAdapter& getActiveBluezAdapter() noexcept;
 [[nodiscard]] BluezAdapter* getActiveBluezAdapterPtr() noexcept;
+[[nodiscard]] BluezAdapter* getRuntimeBluezAdapterPtr() noexcept;
 
 } // namespace bzp

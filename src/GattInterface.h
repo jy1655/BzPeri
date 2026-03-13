@@ -76,6 +76,7 @@ struct GattInterface : DBusInterface
 	//
 	// There are helper methods for common types (UUIDs, strings, boolean, etc.) Use this method when no helper method exists for
 	// the type you want to use. There is also a helper method for adding a named property of a pre-built `GattProperty`.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	T &addProperty(const std::string &name, GVariant *pValue)
 	{
@@ -94,6 +95,7 @@ struct GattInterface : DBusInterface
 	{
 		return addProperty<T>(GattProperty(name, pValue, getter, setter));
 	}
+#endif
 
 	template<typename T>
 	T &addProperty(const std::string &name, DBusVariantRef value)
@@ -101,12 +103,14 @@ struct GattInterface : DBusInterface
 		return addProperty<T>(GattProperty(name, value));
 	}
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
 	T &addProperty(const std::string &name, DBusVariantRef value, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
 	{
 		return addProperty<T>(GattProperty(name, value, getter, setter));
 	}
+#endif
 
 	template<typename T>
 	T &addProperty(const std::string &name, DBusVariantRef value, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
@@ -121,12 +125,14 @@ struct GattInterface : DBusInterface
 		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(uuid.toString128().c_str())));
 	}
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
 	T &addProperty(const std::string &name, const GattUuid &uuid, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
 	{
 		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(uuid.toString128().c_str()), getter, setter));
 	}
+#endif
 
 	template<typename T>
 	T &addProperty(const std::string &name, const GattUuid &uuid, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
@@ -141,12 +147,14 @@ struct GattInterface : DBusInterface
 		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromObject(path)));
 	}
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
 	T &addProperty(const std::string &name, const DBusObjectPath &path, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
 	{
 		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromObject(path), getter, setter));
 	}
+#endif
 
 	template<typename T>
 	T &addProperty(const std::string &name, const DBusObjectPath &path, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
@@ -161,12 +169,14 @@ struct GattInterface : DBusInterface
 		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(str)));
 	}
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
 	T &addProperty(const std::string &name, const std::string &str, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
 	{
 		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(str), getter, setter));
 	}
+#endif
 
 	template<typename T>
 	T &addProperty(const std::string &name, const std::string &str, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
@@ -181,12 +191,14 @@ struct GattInterface : DBusInterface
 		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromStringArray(arr)));
 	}
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
 	T &addProperty(const std::string &name, const std::vector<std::string> &arr, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
 	{
 		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromStringArray(arr), getter, setter));
 	}
+#endif
 
 	template<typename T>
 	T &addProperty(const std::string &name, const std::vector<std::string> &arr, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
@@ -201,12 +213,14 @@ struct GattInterface : DBusInterface
 		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromStringArray(arr)));
 	}
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
 	T &addProperty(const std::string &name, const std::vector<const char *> &arr, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
 	{
 		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromStringArray(arr), getter, setter));
 	}
+#endif
 
 	template<typename T>
 	T &addProperty(const std::string &name, const std::vector<const char *> &arr, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
@@ -221,12 +235,14 @@ struct GattInterface : DBusInterface
 		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(pStr)));
 	}
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
 	T &addProperty(const std::string &name, const char *pStr, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
 	{
 		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(pStr), getter, setter));
 	}
+#endif
 
 	template<typename T>
 	T &addProperty(const std::string &name, const char *pStr, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
@@ -241,12 +257,14 @@ struct GattInterface : DBusInterface
 		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromBoolean(value)));
 	}
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
 	T &addProperty(const std::string &name, bool value, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
 	{
 		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromBoolean(value), getter, setter));
 	}
+#endif
 
 	template<typename T>
 	T &addProperty(const std::string &name, bool value, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
@@ -303,7 +321,7 @@ struct GattInterface : DBusInterface
 	//
 	// This method is intended to be used in the server description. An example usage would be:
 	//
-	//     self.setDataPointer("text/string", stringFromGVariantByteArray(pAyBuffer).c_str());
+	//     self.setDataPointer("text/string", stringFromGVariantByteArray(DBusVariantRef(pAyBuffer)).c_str());
 	template<typename T>
 	bool setDataPointer(const char *pName, const T pointer) const
 	{

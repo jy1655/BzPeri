@@ -33,6 +33,7 @@ class BluezAdapter;
 //
 // This method is non-blocking and as such, will only trigger the shutdown process but not wait for it
 void shutdown();
+BZPShutdownTriggerResult shutdownEx();
 
 // Entry point for the asynchronous server thread
 //
@@ -48,20 +49,20 @@ bool startServerLoopManually(Server *serverContext, BluezAdapter *adapterContext
 // Run one iteration of the manually-owned GLib runtime.
 //
 // Returns non-zero if work was dispatched or shutdown cleanup completed.
-int runServerLoopIteration(int mayBlock);
-int runServerLoopIterationFor(int timeoutMS);
-bool attachServerLoopToCurrentThread();
-bool detachServerLoopFromCurrentThread();
+BZPRunLoopResult runServerLoopIterationEx(int mayBlock);
+BZPRunLoopResult runServerLoopIterationForEx(int timeoutMS);
+BZPRunLoopResult attachServerLoopToCurrentThreadEx();
+BZPRunLoopResult detachServerLoopFromCurrentThreadEx();
 bool isManualServerLoopMode();
 bool hasServerLoopOwner();
 bool isCurrentThreadServerLoopOwner();
-bool prepareServerLoopPoll(int *timeoutMS, int *requiredFDCount, int *dispatchReady);
-bool queryServerLoopPoll(BZPPollFD *pollFDs, int pollFDCount, int *requiredFDCount);
-bool checkServerLoopPoll(const BZPPollFD *pollFDs, int pollFDCount);
-int dispatchServerLoopPoll();
-bool cancelServerLoopPoll();
+BZPRunLoopResult prepareServerLoopPollEx(int *timeoutMS, int *requiredFDCount, int *dispatchReady);
+BZPRunLoopResult queryServerLoopPollEx(BZPPollFD *pollFDs, int pollFDCount, int *requiredFDCount);
+BZPRunLoopResult checkServerLoopPollEx(const BZPPollFD *pollFDs, int pollFDCount);
+BZPRunLoopResult dispatchServerLoopPollEx();
+BZPRunLoopResult cancelServerLoopPollEx();
 
 // Queue a callback to execute on the dedicated GLib runtime.
-bool invokeOnServerLoop(void (*callback)(void *), void *userData);
+BZPRunLoopResult invokeOnServerLoopEx(void (*callback)(void *), void *userData);
 
 }; // namespace bzp

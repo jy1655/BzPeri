@@ -233,6 +233,7 @@ sudo btmon
 - [ ] Metrics collection for call latency
 - [ ] Advanced adapter configuration options
 - [ ] Automatic reconnection on BlueZ restart
+- [ ] Further reduce GLib-shaped wrapper/forward-declaration types in public C++ headers
 - [ ] Performance optimization for high-frequency operations
 
 ### Nice-to-Have

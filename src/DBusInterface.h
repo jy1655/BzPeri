@@ -43,6 +43,7 @@ struct DBusObjectPath;
 // Useful Lambdas
 // ---------------------------------------------------------------------------------------------------------------------------------
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 #define INTERFACE_METHOD_CALLBACK_LAMBDA [] \
 ( \
        const DBusInterface &self, \
@@ -52,6 +53,7 @@ struct DBusObjectPath;
        GDBusMethodInvocation *pInvocation, \
        void *pUserData \
 )
+#endif
 
 #define INTERFACE_METHOD_HANDLER_LAMBDA [] \
 ( \
@@ -82,8 +84,10 @@ struct DBusInterface
 	// Our interface type
 	static constexpr const char *kInterfaceType = "DBusInterface";
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	using RawMethodCallback = bzp::RawMethodCallback<DBusInterface>;
 	using MethodCallback BZP_DEPRECATED("Use DBusInterface::MethodHandler and INTERFACE_METHOD_HANDLER_LAMBDA instead") = RawMethodCallback;
+#endif
 	using MethodHandler = DBusMethod::Handler;
 
 	// Standard constructor
@@ -112,14 +116,18 @@ struct DBusInterface
 	// D-Bus interface methods
 	//
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use DBusInterface::addMethod(..., MethodHandler) instead of raw GDBus callbacks")
 	DBusInterface &addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, RawMethodCallback callback);
+#endif
 	DBusInterface &addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, const MethodHandler &handler);
 
 	// NOTE: Subclasses are encouraged to override this method in order to support different callback types that are specific to
 	// their subclass type.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use DBusInterface::callMethod() wrapper overloads with DBusConnectionRef/DBusVariantRef/DBusMethodInvocationRef")
 	virtual bool callMethod(const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const;
+#endif
 	bool callMethod(const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const;
 
 	// Internal method used to generate introspection XML used to describe our services on D-Bus

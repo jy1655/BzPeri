@@ -76,7 +76,6 @@ using RawPropertyGetterCallback = GDBusInterfaceGetPropertyFunc;
 using RawPropertySetterCallback = GDBusInterfaceSetPropertyFunc;
 using LegacyPropertyGetterCallback BZP_DEPRECATED("Use callbacks::PropertyGetterHandler instead of raw GDBus property callbacks") = RawPropertyGetterCallback;
 using LegacyPropertySetterCallback BZP_DEPRECATED("Use callbacks::PropertySetterHandler instead of raw GDBus property callbacks") = RawPropertySetterCallback;
-#endif
 
 template<typename TOwner>
 using RawMethodCallback = void (*)(const TOwner&, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation*, void*);
@@ -84,7 +83,6 @@ using RawMethodCallback = void (*)(const TOwner&, GDBusConnection*, const std::s
 template<typename TOwner>
 using RawUpdateCallback = bool (*)(const TOwner&, GDBusConnection*, void*);
 
-#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 template<typename TOwner>
 using LegacyMethodFunction = std::function<void(const TOwner&, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation*, void*)>;
 

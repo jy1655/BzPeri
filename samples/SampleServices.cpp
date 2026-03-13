@@ -372,7 +372,7 @@ void registerSampleServices(const std::string& namespaceNode)
 							// Extract the byte array from the D-Bus parameters
 							// BLE write operations send data as byte arrays
 							GVariant* pAyBuffer = g_variant_get_child_value(methodCall.parameters().get(), 0);
-							std::string incoming = Utils::stringFromGVariantByteArray(pAyBuffer);
+							std::string incoming = Utils::stringFromGVariantByteArray(DBusVariantRef(pAyBuffer));
 							g_variant_unref(pAyBuffer);  // Important: free GVariant memory
 
 							// Store the new string value in BzPeri's data management system

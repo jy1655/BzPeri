@@ -57,6 +57,11 @@ BluezAdapter* getActiveBluezAdapterPtr() noexcept
 	return &BluezAdapter::activeAdapterStorage();
 }
 
+BluezAdapter* getRuntimeBluezAdapterPtr() noexcept
+{
+	return activeAdapterPtrStorage();
+}
+
 #if BZP_ENABLE_LEGACY_SINGLETON_COMPAT
 BluezAdapter& BluezAdapter::getInstance()
 {

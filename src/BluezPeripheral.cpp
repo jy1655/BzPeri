@@ -53,6 +53,7 @@
 
 #include "config.h"
 #include "BluezAdapterCompat.h"
+#include "ServerCompat.h"
 #include "Init.h"
 #include <bzp/BluezAdapter.h>
 #include <bzp/Logger.h>
@@ -62,6 +63,15 @@
 // Macro for safe C API functions that catch C++ exceptions
 #define BZP_C_API_GUARD_BEGIN() try {
 #define BZP_C_API_GUARD_END_RETURN_INT(default_value) \
+	} catch (const std::exception& e) { \
+		Logger::error(SSTR << "C API exception: " << e.what()); \
+		return default_value; \
+	} catch (...) { \
+		Logger::error("C API unknown exception"); \
+		return default_value; \
+	}
+
+#define BZP_C_API_GUARD_END_RETURN(default_value) \
 	} catch (const std::exception& e) { \
 		Logger::error(SSTR << "C API exception: " << e.what()); \
 		return default_value; \
@@ -104,6 +114,11 @@ namespace bzp
 		{
 			setActiveBluezAdapterForRuntime(nullptr);
 			runtimeBluezAdapterStorage().reset();
+		}
+
+		void releaseRuntimeServer() noexcept
+		{
+			setActiveServerForRuntime(nullptr);
 		}
 	}
 
@@ -788,7 +803,14 @@ const char *bzpGetServerHealthString(BZPServerHealth state)
 // Alternatively, you can use `bzpShutdownAndWait()` to request the shutdown and block until the shutdown is complete.
 void bzpTriggerShutdown()
 {
-	shutdown();
+	(void)bzpTriggerShutdownEx();
+}
+
+BZPShutdownTriggerResult bzpTriggerShutdownEx()
+{
+	BZP_C_API_GUARD_BEGIN()
+	return shutdownEx();
+	BZP_C_API_GUARD_END_RETURN(BZP_SHUTDOWN_TRIGGER_FAILED)
 }
 
 // Convenience method to trigger a shutdown (via `bzpTriggerShutdown()`) and also waits for shutdown to complete (via
@@ -894,6 +916,7 @@ BZPWaitResult bzpWaitForShutdownEx(int timeoutMS)
 	}
 
 	releaseRuntimeBluezAdapter();
+	releaseRuntimeServer();
 	return BZP_WAIT_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(BZP_WAIT_FAILED)
 }
@@ -919,6 +942,7 @@ BZPStartResult startServerWithMode(const char *pServiceName, const char *pAdvert
 		if (bzpGetServerRunState() == EStopped && !serverThread.joinable())
 		{
 			releaseRuntimeBluezAdapter();
+			releaseRuntimeServer();
 		}
 
 		if (!pServiceName || strlen(pServiceName) == 0)
@@ -971,7 +995,7 @@ BZPStartResult startServerWithMode(const char *pServiceName, const char *pAdvert
 		Logger::info(SSTR << "Starting BzPeri server '" << pAdvertisingName << "'");
 
 		auto server = std::make_shared<Server>(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, enableBondable != 0);
-		setActiveServer(server);
+		setActiveServerForRuntime(server);
 
 		const std::size_t configuratorCount = serviceConfiguratorCount();
 		if (configuratorCount == 0)
@@ -996,6 +1020,7 @@ BZPStartResult startServerWithMode(const char *pServiceName, const char *pAdvert
 				setServerHealth(EFailedInit);
 				setServerRunState(EStopped);
 				releaseRuntimeBluezAdapter();
+				releaseRuntimeServer();
 				return BZP_START_MANUAL_LOOP_INIT_FAILED;
 			}
 
@@ -1037,6 +1062,7 @@ BZPStartResult startServerWithMode(const char *pServiceName, const char *pAdvert
 			setServerHealth(EFailedInit);
 			setServerRunState(EStopped);
 			releaseRuntimeBluezAdapter();
+			releaseRuntimeServer();
 			return BZP_START_THREAD_START_FAILED;
 		}
 
@@ -1082,6 +1108,8 @@ BZPStartResult startServerWithMode(const char *pServiceName, const char *pAdvert
 	catch(...)
 	{
 		Logger::error(SSTR << "Unknown exception during server startup");
+		releaseRuntimeBluezAdapter();
+		releaseRuntimeServer();
 		return BZP_START_EXCEPTION;
 	}
 }
@@ -1259,29 +1287,57 @@ BZPStartResult bzpStartWithBondableManualEx(const char *pServiceName, const char
 int bzpRunLoopIteration(int mayBlock)
 {
 	BZP_C_API_GUARD_BEGIN()
-	return runServerLoopIteration(mayBlock);
+	return bzpRunLoopIterationEx(mayBlock) == BZP_RUN_LOOP_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+BZPRunLoopResult bzpRunLoopIterationEx(int mayBlock)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return runServerLoopIterationEx(mayBlock);
+	BZP_C_API_GUARD_END_RETURN(BZP_RUN_LOOP_ACTIVATION_FAILED)
 }
 
 int bzpRunLoopIterationFor(int timeoutMS)
 {
 	BZP_C_API_GUARD_BEGIN()
-	return runServerLoopIterationFor(timeoutMS);
+	return bzpRunLoopIterationForEx(timeoutMS) == BZP_RUN_LOOP_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+BZPRunLoopResult bzpRunLoopIterationForEx(int timeoutMS)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return runServerLoopIterationForEx(timeoutMS);
+	BZP_C_API_GUARD_END_RETURN(BZP_RUN_LOOP_ACTIVATION_FAILED)
 }
 
 int bzpRunLoopAttach()
 {
 	BZP_C_API_GUARD_BEGIN()
-	return attachServerLoopToCurrentThread() ? 1 : 0;
+	return bzpRunLoopAttachEx() == BZP_RUN_LOOP_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+BZPRunLoopResult bzpRunLoopAttachEx()
+{
+	BZP_C_API_GUARD_BEGIN()
+	return attachServerLoopToCurrentThreadEx();
+	BZP_C_API_GUARD_END_RETURN(BZP_RUN_LOOP_ACTIVATION_FAILED)
 }
 
 int bzpRunLoopDetach()
 {
 	BZP_C_API_GUARD_BEGIN()
-	return detachServerLoopFromCurrentThread() ? 1 : 0;
+	return bzpRunLoopDetachEx() == BZP_RUN_LOOP_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+BZPRunLoopResult bzpRunLoopDetachEx()
+{
+	BZP_C_API_GUARD_BEGIN()
+	return detachServerLoopFromCurrentThreadEx();
+	BZP_C_API_GUARD_END_RETURN(BZP_RUN_LOOP_ACTIVATION_FAILED)
 }
 
 int bzpRunLoopIsManualMode()
@@ -1308,63 +1364,118 @@ int bzpRunLoopIsCurrentThreadOwner()
 int bzpRunLoopInvoke(BZPRunLoopCallback callback, void *pUserData)
 {
 	BZP_C_API_GUARD_BEGIN()
-	return invokeOnServerLoop(callback, pUserData) ? 1 : 0;
+	return bzpRunLoopInvokeEx(callback, pUserData) == BZP_RUN_LOOP_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+BZPRunLoopResult bzpRunLoopInvokeEx(BZPRunLoopCallback callback, void *pUserData)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return invokeOnServerLoopEx(callback, pUserData);
+	BZP_C_API_GUARD_END_RETURN(BZP_RUN_LOOP_ACTIVATION_FAILED)
 }
 
 int bzpRunLoopPollPrepare(int *pTimeoutMS, int *pRequiredFDCount, int *pDispatchReady)
 {
 	BZP_C_API_GUARD_BEGIN()
-	return prepareServerLoopPoll(pTimeoutMS, pRequiredFDCount, pDispatchReady) ? 1 : 0;
+	return bzpRunLoopPollPrepareEx(pTimeoutMS, pRequiredFDCount, pDispatchReady) == BZP_RUN_LOOP_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+BZPRunLoopResult bzpRunLoopPollPrepareEx(int *pTimeoutMS, int *pRequiredFDCount, int *pDispatchReady)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return prepareServerLoopPollEx(pTimeoutMS, pRequiredFDCount, pDispatchReady);
+	BZP_C_API_GUARD_END_RETURN(BZP_RUN_LOOP_ACTIVATION_FAILED)
 }
 
 int bzpRunLoopPollQuery(BZPPollFD *pPollFDs, int pollFDCount, int *pRequiredFDCount)
 {
 	BZP_C_API_GUARD_BEGIN()
-	return queryServerLoopPoll(pPollFDs, pollFDCount, pRequiredFDCount) ? 1 : 0;
+	return bzpRunLoopPollQueryEx(pPollFDs, pollFDCount, pRequiredFDCount) == BZP_RUN_LOOP_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+BZPRunLoopResult bzpRunLoopPollQueryEx(BZPPollFD *pPollFDs, int pollFDCount, int *pRequiredFDCount)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return queryServerLoopPollEx(pPollFDs, pollFDCount, pRequiredFDCount);
+	BZP_C_API_GUARD_END_RETURN(BZP_RUN_LOOP_ACTIVATION_FAILED)
 }
 
 int bzpRunLoopPollCheck(const BZPPollFD *pPollFDs, int pollFDCount)
 {
 	BZP_C_API_GUARD_BEGIN()
-	return checkServerLoopPoll(pPollFDs, pollFDCount) ? 1 : 0;
+	return bzpRunLoopPollCheckEx(pPollFDs, pollFDCount) == BZP_RUN_LOOP_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+BZPRunLoopResult bzpRunLoopPollCheckEx(const BZPPollFD *pPollFDs, int pollFDCount)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return checkServerLoopPollEx(pPollFDs, pollFDCount);
+	BZP_C_API_GUARD_END_RETURN(BZP_RUN_LOOP_ACTIVATION_FAILED)
 }
 
 int bzpRunLoopPollDispatch()
 {
 	BZP_C_API_GUARD_BEGIN()
-	return dispatchServerLoopPoll();
+	return bzpRunLoopPollDispatchEx() == BZP_RUN_LOOP_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+BZPRunLoopResult bzpRunLoopPollDispatchEx()
+{
+	BZP_C_API_GUARD_BEGIN()
+	return dispatchServerLoopPollEx();
+	BZP_C_API_GUARD_END_RETURN(BZP_RUN_LOOP_ACTIVATION_FAILED)
 }
 
 int bzpRunLoopPollCancel()
 {
 	BZP_C_API_GUARD_BEGIN()
-	return cancelServerLoopPoll() ? 1 : 0;
+	return bzpRunLoopPollCancelEx() == BZP_RUN_LOOP_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+BZPRunLoopResult bzpRunLoopPollCancelEx()
+{
+	BZP_C_API_GUARD_BEGIN()
+	return cancelServerLoopPollEx();
+	BZP_C_API_GUARD_END_RETURN(BZP_RUN_LOOP_ACTIVATION_FAILED)
 }
 
 int bzpRunLoopDriveUntilState(BZPServerRunState state, int timeoutMS)
 {
 	BZP_C_API_GUARD_BEGIN()
+	return bzpRunLoopDriveUntilStateEx(state, timeoutMS) == BZP_RUN_LOOP_OK;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+BZPRunLoopResult bzpRunLoopDriveUntilStateEx(BZPServerRunState state, int timeoutMS)
+{
+	BZP_C_API_GUARD_BEGIN()
 	if (!isValidRunState(state))
 	{
 		Logger::warn(SSTR << "bzpRunLoopDriveUntilState: invalid target state (" << static_cast<int>(state) << ")");
-		return 0;
+		return BZP_RUN_LOOP_INVALID_STATE;
 	}
 
 	if (timeoutMS < -1)
 	{
 		Logger::warn(SSTR << "bzpRunLoopDriveUntilState: invalid timeout (" << timeoutMS << ")");
-		return 0;
+		return BZP_RUN_LOOP_INVALID_TIMEOUT;
+	}
+
+	if (!isManualServerLoopMode())
+	{
+		Logger::warn("bzpRunLoopDriveUntilState() is only valid after bzpStartManual() or bzpStartWithBondableManual()");
+		return BZP_RUN_LOOP_NOT_MANUAL_MODE;
 	}
 
 	if (bzpGetServerRunState() == state)
 	{
-		return 1;
+		return BZP_RUN_LOOP_OK;
 	}
 
 	const auto deadline = timeoutMS < 0
@@ -1390,20 +1501,32 @@ int bzpRunLoopDriveUntilState(BZPServerRunState state, int timeoutMS)
 			sliceMS = std::min(sliceMS, 50);
 		}
 
-		runServerLoopIterationFor(sliceMS);
+		const BZPRunLoopResult iterationResult = runServerLoopIterationForEx(sliceMS);
+		if (iterationResult < 0)
+		{
+			return iterationResult;
+		}
+
 		if (timeoutMS == 0)
 		{
 			break;
 		}
 	}
 
-	return bzpGetServerRunState() == state ? 1 : 0;
-	BZP_C_API_GUARD_END_RETURN_INT(0)
+	return bzpGetServerRunState() == state ? BZP_RUN_LOOP_OK : BZP_RUN_LOOP_IDLE;
+	BZP_C_API_GUARD_END_RETURN(BZP_RUN_LOOP_ACTIVATION_FAILED)
 }
 
 int bzpRunLoopDriveUntilShutdown(int timeoutMS)
 {
 	BZP_C_API_GUARD_BEGIN()
-	return bzpRunLoopDriveUntilState(EStopped, timeoutMS);
+	return bzpRunLoopDriveUntilShutdownEx(timeoutMS) == BZP_RUN_LOOP_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+BZPRunLoopResult bzpRunLoopDriveUntilShutdownEx(int timeoutMS)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return bzpRunLoopDriveUntilStateEx(EStopped, timeoutMS);
+	BZP_C_API_GUARD_END_RETURN(BZP_RUN_LOOP_ACTIVATION_FAILED)
 }

@@ -13,10 +13,12 @@
 
 #include "../src/BluezAdvertisingSupport.h"
 #include "../src/BluezAdapterCompat.h"
+#include "../src/ServerCompat.h"
 #include "../src/ServerUtils.h"
 #include "../src/StructuredLogger.h"
 
 #include <cstdlib>
+#include <algorithm>
 #include <chrono>
 #include <exception>
 #include <functional>
@@ -63,6 +65,7 @@ using bzp::Server;
 using bzp::StructuredLogger;
 using bzp::Utils;
 using bzp::setActiveServer;
+using bzp::setActiveServerForRuntime;
 using bzp::setActiveBluezAdapterForRuntime;
 using bzp::makeRuntimeBluezAdapterPtr;
 using bzp::detail::canUseExtendedAdvertising;
@@ -569,11 +572,14 @@ void testBluezAdapterAccessors()
 {
 	decltype(auto) adapter = getActiveBluezAdapter();
 	auto *adapterPtr = getActiveBluezAdapterPtr();
+	auto *runtimeAdapterPtr = bzp::getRuntimeBluezAdapterPtr();
 
 	require(adapterPtr != nullptr, "Active BlueZ adapter pointer accessor should never return null");
 	require(adapterPtr == &adapter, "BlueZ adapter reference and pointer accessors should resolve to the same instance");
 	require(adapterPtr == getActiveBluezAdapterPtr(), "BlueZ adapter pointer accessor should remain stable across calls");
 	require(&getActiveBluezAdapter() == &adapter, "BlueZ adapter reference accessor should remain stable across calls");
+	require(runtimeAdapterPtr == nullptr || runtimeAdapterPtr == adapterPtr,
+		"Runtime BlueZ adapter pointer should either be absent or match the currently active adapter");
 
 #if BZP_ENABLE_LEGACY_SINGLETON_COMPAT
 #if defined(__clang__) || defined(__GNUC__)
@@ -591,9 +597,12 @@ void testBluezAdapterAccessors()
 void testBluezAdapterRuntimeOwnership()
 {
 	auto *originalAdapter = getActiveBluezAdapterPtr();
+	auto *originalRuntimeAdapter = bzp::getRuntimeBluezAdapterPtr();
 	auto runtimeAdapter = makeRuntimeBluezAdapterPtr();
 	setActiveBluezAdapterForRuntime(runtimeAdapter.get());
 
+	require(bzp::getRuntimeBluezAdapterPtr() == runtimeAdapter.get(),
+		"Runtime adapter accessor should expose the runtime-owned adapter directly");
 	require(getActiveBluezAdapterPtr() == runtimeAdapter.get(),
 		"Runtime-owned adapter should become the active adapter pointer");
 	require(&getActiveBluezAdapter() == runtimeAdapter.get(),
@@ -611,7 +620,9 @@ void testBluezAdapterRuntimeOwnership()
 #endif
 #endif
 
-	setActiveBluezAdapterForRuntime(originalAdapter);
+	setActiveBluezAdapterForRuntime(originalRuntimeAdapter);
+	require(bzp::getRuntimeBluezAdapterPtr() == originalRuntimeAdapter,
+		"Restoring runtime ownership should restore the previous runtime adapter pointer");
 	require(getActiveBluezAdapterPtr() == originalAdapter,
 		"Restoring the previous active adapter should restore the original pointer");
 }
@@ -619,6 +630,8 @@ void testBluezAdapterRuntimeOwnership()
 void testServerAccessorCompatibilityStorage()
 {
 	auto originalServer = getActiveServer();
+	auto originalRuntimeServer = bzp::getRuntimeServer();
+	setActiveServerForRuntime(nullptr);
 	setActiveServer(nullptr);
 
 #if BZP_ENABLE_LEGACY_SINGLETON_COMPAT
@@ -655,6 +668,56 @@ void testServerAccessorCompatibilityStorage()
 #endif
 
 	setActiveServer(originalServer);
+	setActiveServerForRuntime(originalRuntimeServer);
+}
+
+void testServerRuntimeOwnership()
+{
+	auto originalServer = getActiveServer();
+	auto originalRuntimeServer = bzp::getRuntimeServer();
+	setActiveServerForRuntime(nullptr);
+	setActiveServer(nullptr);
+
+	auto runtimeServer = std::make_shared<Server>("bzperi.tests.runtime-server", "", "", &nullGetter, &acceptingSetter);
+	setActiveServerForRuntime(runtimeServer);
+
+	require(bzp::getRuntimeServer().get() == runtimeServer.get(),
+		"Runtime server shared accessor should expose the runtime-owned server directly");
+	require(bzp::getRuntimeServerPtr() == runtimeServer.get(),
+		"Runtime server accessor should expose the runtime-owned server directly");
+	require(getActiveServerPtr() == runtimeServer.get(),
+		"Runtime-owned server should become the active server pointer");
+	require(getActiveServer().get() == runtimeServer.get(),
+		"Runtime-owned server should become the active server reference");
+
+	auto compatibilityServer = std::make_shared<Server>("bzperi.tests.compat-server", "", "", &nullGetter, &acceptingSetter);
+	setActiveServer(compatibilityServer);
+
+	require(getActiveServerPtr() == runtimeServer.get(),
+		"Compatibility setter should not replace the runtime-owned active server");
+	require(getActiveServer().get() == runtimeServer.get(),
+		"Runtime-owned server should remain visible through accessors while active");
+
+#if BZP_ENABLE_LEGACY_SINGLETON_COMPAT
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+	require(bzp::TheServer.get() == runtimeServer.get(),
+		"Legacy TheServer mirror should follow the runtime-owned server while it is active");
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+#endif
+
+	setActiveServerForRuntime(nullptr);
+	require(bzp::getRuntimeServerPtr() == nullptr,
+		"Clearing runtime ownership should clear the runtime server accessor");
+	require(getActiveServerPtr() == compatibilityServer.get(),
+		"Clearing runtime ownership should reveal the compatibility-assigned server again");
+
+	setActiveServer(originalServer);
+	setActiveServerForRuntime(originalRuntimeServer);
 }
 
 void testUtilsVariantWrappers()
@@ -670,7 +733,7 @@ void testUtilsVariantWrappers()
 
 	GVariant *bytesValue = g_variant_ref_sink(Utils::dbusVariantFromByteArray(std::string("payload")).get());
 	require(g_variant_is_of_type(bytesValue, G_VARIANT_TYPE_BYTESTRING), "Utils::dbusVariantFromByteArray should create a byte-string variant");
-	require(Utils::stringFromGVariantByteArray(bytesValue) == "payload", "Utils::dbusVariantFromByteArray should preserve byte payloads");
+	require(Utils::stringFromGVariantByteArray(DBusVariantRef(bytesValue)) == "payload", "Utils::dbusVariantFromByteArray should preserve byte payloads");
 	g_variant_unref(bytesValue);
 
 	GVariant *signalPayload = g_variant_ref_sink(g_variant_new_string("signal"));
@@ -756,6 +819,8 @@ void testManagedObjectsPayloadBuilder()
 void testWaitHelpers()
 {
 	require(bzpGetServerRunState() == EUninitialized, "Unit tests should begin with the server in the uninitialized state");
+	require(bzpTriggerShutdownEx() == BZP_SHUTDOWN_TRIGGER_NOT_RUNNING,
+		"bzpTriggerShutdownEx should distinguish shutdown requests before startup");
 	require(bzpWaitForState(EUninitialized, 0) != 0, "bzpWaitForState should succeed immediately for the current state");
 	require(bzpWaitForState(ERunning, 0) == 0, "bzpWaitForState should fail immediately for an unreached state");
 	require(bzpWaitForStateEx(EUninitialized, 0) == BZP_WAIT_OK,
@@ -1292,6 +1357,149 @@ void testRunLoopPollApi()
 		"bzpRunLoopDriveUntilShutdown should still clean up after hidden poll API use");
 }
 
+void testRunLoopExResults()
+{
+	struct RestoreState
+	{
+		std::shared_ptr<Server> activeServer = getActiveServer();
+		BZPServerRunState runState = bzpGetServerRunState();
+		BZPServerHealth health = bzpGetServerHealth();
+
+		~RestoreState()
+		{
+			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
+			{
+				bzpTriggerShutdown();
+				bzpRunLoopDriveUntilShutdown(100);
+			}
+
+			setActiveServer(activeServer);
+			bzp::setServerHealth(health);
+			bzp::setServerRunState(runState);
+		}
+	} restore;
+
+	RunLoopInvokeState state;
+	require(bzpRunLoopIterationEx(0) == BZP_RUN_LOOP_NOT_MANUAL_MODE,
+		"bzpRunLoopIterationEx should distinguish pre-start manual-mode misuse");
+	require(bzpRunLoopAttachEx() == BZP_RUN_LOOP_NOT_MANUAL_MODE,
+		"bzpRunLoopAttachEx should distinguish pre-start manual-mode misuse");
+	require(bzpRunLoopDetachEx() == BZP_RUN_LOOP_NOT_MANUAL_MODE,
+		"bzpRunLoopDetachEx should distinguish pre-start manual-mode misuse");
+	require(bzpRunLoopInvokeEx(nullptr, nullptr) == BZP_RUN_LOOP_INVALID_ARGUMENT,
+		"bzpRunLoopInvokeEx should distinguish null callbacks");
+	require(bzpRunLoopInvokeEx(&runLoopInvokeHandler, &state) == BZP_RUN_LOOP_NOT_ACTIVE,
+		"bzpRunLoopInvokeEx should distinguish the lack of an active run loop before startup");
+	require(bzpRunLoopPollPrepareEx(nullptr, nullptr, nullptr) == BZP_RUN_LOOP_NOT_MANUAL_MODE,
+		"bzpRunLoopPollPrepareEx should distinguish pre-start manual-mode misuse");
+	require(bzpRunLoopPollQueryEx(nullptr, 0, nullptr) == BZP_RUN_LOOP_NO_POLL_CYCLE,
+		"bzpRunLoopPollQueryEx should distinguish the lack of an active poll cycle");
+	require(bzpRunLoopPollDispatchEx() == BZP_RUN_LOOP_NO_POLL_CYCLE,
+		"bzpRunLoopPollDispatchEx should distinguish the lack of an active poll cycle");
+	require(bzpRunLoopDriveUntilStateEx(static_cast<BZPServerRunState>(999), 0) == BZP_RUN_LOOP_INVALID_STATE,
+		"bzpRunLoopDriveUntilStateEx should distinguish invalid target states");
+	require(bzpRunLoopDriveUntilShutdownEx(0) == BZP_RUN_LOOP_NOT_MANUAL_MODE,
+		"bzpRunLoopDriveUntilShutdownEx should distinguish pre-start manual-mode misuse");
+
+	require(bzpStartManual("bzperi.tests.manual-ex-results", "", "", &nullGetter, &acceptingSetter) != 0,
+		"bzpStartManual should succeed before run-loop Ex testing");
+	require(bzpRunLoopDriveUntilStateEx(EInitializing, 0) == BZP_RUN_LOOP_OK,
+		"bzpRunLoopDriveUntilStateEx should succeed immediately for the current initializing state");
+	require(bzpRunLoopAttachEx() == BZP_RUN_LOOP_OK,
+		"bzpRunLoopAttachEx should succeed after manual startup");
+
+	BZPRunLoopResult wrongThreadDetach = BZP_RUN_LOOP_OK;
+	std::thread wrongThread([&wrongThreadDetach] {
+		wrongThreadDetach = bzpRunLoopDetachEx();
+	});
+	wrongThread.join();
+	require(wrongThreadDetach == BZP_RUN_LOOP_WRONG_THREAD,
+		"bzpRunLoopDetachEx should distinguish wrong-thread detach attempts");
+
+	require(bzpRunLoopDetachEx() == BZP_RUN_LOOP_OK,
+		"bzpRunLoopDetachEx should succeed for the current owner thread");
+	require(bzpRunLoopDetachEx() == BZP_RUN_LOOP_NOT_ATTACHED,
+		"bzpRunLoopDetachEx should distinguish missing ownership");
+
+	require(bzpRunLoopInvokeEx(&runLoopInvokeHandler, &state) == BZP_RUN_LOOP_OK,
+		"bzpRunLoopInvokeEx should queue work after manual startup");
+	require(bzpRunLoopIterationForEx(25) == BZP_RUN_LOOP_OK,
+		"bzpRunLoopIterationForEx should report dispatched work");
+	require(state.called,
+		"bzpRunLoopIterationForEx should still dispatch queued invoke work");
+
+	RunLoopInvokeState pollState;
+	require(bzpRunLoopInvokeEx(&runLoopInvokeHandler, &pollState) == BZP_RUN_LOOP_OK,
+		"bzpRunLoopInvokeEx should queue work before hidden poll Ex testing");
+
+	int timeoutMS = -1;
+	int requiredFDCount = -1;
+	int dispatchReady = 0;
+	require(bzpRunLoopPollPrepareEx(&timeoutMS, &requiredFDCount, &dispatchReady) == BZP_RUN_LOOP_OK,
+		"bzpRunLoopPollPrepareEx should succeed after manual startup");
+	require(bzpRunLoopIterationEx(0) == BZP_RUN_LOOP_POLL_CYCLE_ACTIVE,
+		"bzpRunLoopIterationEx should distinguish mixed use while a hidden poll cycle is active");
+
+	int queriedFDCount = -1;
+	require(bzpRunLoopPollQueryEx(nullptr, 0, &queriedFDCount) == BZP_RUN_LOOP_OK,
+		"bzpRunLoopPollQueryEx should support descriptor-count discovery");
+	if (queriedFDCount > 0)
+	{
+		std::vector<BZPPollFD> tooSmallPollFDs(static_cast<size_t>(std::max(1, queriedFDCount - 1)));
+		require(bzpRunLoopPollQueryEx(
+			tooSmallPollFDs.data(),
+			queriedFDCount - 1,
+			&queriedFDCount) == BZP_RUN_LOOP_BUFFER_TOO_SMALL,
+			"bzpRunLoopPollQueryEx should distinguish descriptor buffers that are too small");
+	}
+
+	require(bzpRunLoopPollCancelEx() == BZP_RUN_LOOP_OK,
+		"bzpRunLoopPollCancelEx should succeed for an active hidden poll cycle");
+	require(!pollState.called,
+		"Canceling the hidden poll cycle should keep queued work pending");
+	require(bzpRunLoopDriveUntilShutdownEx(100) == BZP_RUN_LOOP_OK,
+		"bzpRunLoopDriveUntilShutdownEx should drive manual shutdown to completion");
+}
+
+void testShutdownTriggerEx()
+{
+	struct RestoreState
+	{
+		std::shared_ptr<Server> activeServer = getActiveServer();
+		BZPServerRunState runState = bzpGetServerRunState();
+		BZPServerHealth health = bzpGetServerHealth();
+
+		~RestoreState()
+		{
+			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
+			{
+				bzpTriggerShutdown();
+				bzpRunLoopDriveUntilShutdown(100);
+			}
+
+			setActiveServer(activeServer);
+			bzp::setServerHealth(health);
+			bzp::setServerRunState(runState);
+		}
+	} restore;
+
+	require(bzpTriggerShutdownEx() == BZP_SHUTDOWN_TRIGGER_NOT_RUNNING,
+		"bzpTriggerShutdownEx should report NOT_RUNNING before startup");
+
+	require(bzpStartManual("bzperi.tests.shutdown-trigger", "", "", &nullGetter, &acceptingSetter) != 0,
+		"bzpStartManual should succeed before shutdown-trigger testing");
+	require(bzpTriggerShutdownEx() == BZP_SHUTDOWN_TRIGGER_OK,
+		"bzpTriggerShutdownEx should report OK for the first shutdown request");
+	require(bzpGetServerRunState() == EStopping,
+		"bzpTriggerShutdownEx should transition the server into EStopping");
+	require(bzpTriggerShutdownEx() == BZP_SHUTDOWN_TRIGGER_ALREADY_STOPPING,
+		"bzpTriggerShutdownEx should distinguish repeated shutdown requests while stopping");
+	require(bzpRunLoopDriveUntilShutdownEx(100) == BZP_RUN_LOOP_OK,
+		"Manual shutdown should still drain to completion after trigger testing");
+	require(bzpTriggerShutdownEx() == BZP_SHUTDOWN_TRIGGER_NOT_RUNNING,
+		"bzpTriggerShutdownEx should report NOT_RUNNING after shutdown completes");
+}
+
 void testDBusMethodTypeMismatchIsSafe()
 {
 	Server server("bzperi.tests.method-mismatch", "", "", &nullGetter, &acceptingSetter);
@@ -1512,6 +1720,7 @@ int main()
 		{"BlueZ adapter accessors", testBluezAdapterAccessors},
 		{"BlueZ adapter runtime ownership", testBluezAdapterRuntimeOwnership},
 		{"Server accessor compatibility storage", testServerAccessorCompatibilityStorage},
+		{"Server runtime ownership", testServerRuntimeOwnership},
 		{"Utils wrapper variants", testUtilsVariantWrappers},
 		{"Advertising service UUID selection", testAdvertisingServiceUuidSelection},
 		{"Managed objects payload builder", testManagedObjectsPayloadBuilder},
@@ -1523,6 +1732,8 @@ int main()
 		{"Run-loop attach/detach", testRunLoopAttachDetach},
 		{"Run-loop drive helpers", testRunLoopDriveHelpers},
 		{"Run-loop hidden poll API", testRunLoopPollApi},
+		{"Run-loop Ex result helpers", testRunLoopExResults},
+		{"Shutdown trigger Ex helper", testShutdownTriggerEx},
 		{"DBusMethod type mismatch safety", testDBusMethodTypeMismatchIsSafe},
 		{"GLib log capture toggle", testGLibLogCaptureToggle},
 		{"Structured logger level routing", testStructuredLoggerLevelRouting},

@@ -273,6 +273,8 @@ private:
 
 std::shared_ptr<Server> getActiveServer();
 Server* getActiveServerPtr() noexcept;
+std::shared_ptr<Server> getRuntimeServer();
+Server* getRuntimeServerPtr() noexcept;
 void setActiveServer(std::shared_ptr<Server> server);
 
 #if BZP_ENABLE_LEGACY_SINGLETON_COMPAT

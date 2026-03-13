@@ -117,7 +117,9 @@ struct Utils
 	static DBusVariantRef dbusVariantFromByteArray(gint32 data);
 	static DBusVariantRef dbusVariantFromByteArray(guint64 data);
 	static DBusVariantRef dbusVariantFromByteArray(gint64 data);
+	static std::string stringFromGVariantByteArray(DBusVariantRef variant);
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	// Returns a GVariant containing a floating reference to a utf8 string
 	BZP_DEPRECATED("Use Utils::dbusVariantFromString() instead of raw GVariant helpers")
 	static GVariant *gvariantFromString(const char *pStr);
@@ -215,7 +217,9 @@ struct Utils
 	static GVariant *gvariantFromByteArray(const gint64 data);
 
 	// Extracts a string from an array of bytes ("ay")
+	BZP_DEPRECATED("Use Utils::stringFromGVariantByteArray(DBusVariantRef) instead of raw GVariant* access")
 	static std::string stringFromGVariantByteArray(const GVariant *pVariant);
+#endif
 
 	// -----------------------------------------------------------------------------------------------------------------------------
 	// Endian conversion

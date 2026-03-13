@@ -76,6 +76,7 @@ struct GattInterface : DBusInterface
 	//
 	// There are helper methods for common types (UUIDs, strings, boolean, etc.) Use this method when no helper method exists for
 	// the type you want to use. There is also a helper method for adding a named property of a pre-built `GattProperty`.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	BZP_DEPRECATED("Use GattInterface::addProperty() with DBusVariantRef instead of raw GVariant* values")
 	T &addProperty(const std::string &name, GVariant *pValue)
@@ -83,14 +84,12 @@ struct GattInterface : DBusInterface
 		return addProperty<T>(GattProperty(name, pValue));
 	}
 
-#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	BZP_DEPRECATED("Use GattInterface::addProperty() with DBusVariantRef and wrapper getter/setter handlers")
 	T &addProperty(const std::string &name, GVariant *pValue, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
 	{
 		return addProperty<T>(GattProperty(name, pValue, getter, setter));
 	}
-#endif
 
 	template<typename T>
 	BZP_DEPRECATED("Use GattInterface::addProperty() with DBusVariantRef and wrapper handlers instead of raw GVariant* values")
@@ -105,6 +104,7 @@ struct GattInterface : DBusInterface
 	{
 		return addProperty<T>(GattProperty(name, pValue, getter, setter));
 	}
+#endif
 
 	template<typename T>
 	T &addProperty(const std::string &name, DBusVariantRef value)
@@ -336,7 +336,7 @@ struct GattInterface : DBusInterface
 	//
 	// This method is intended to be used in the server description. An example usage would be:
 	//
-	//     self.setDataPointer("text/string", stringFromGVariantByteArray(pAyBuffer).c_str());
+	//     self.setDataPointer("text/string", stringFromGVariantByteArray(DBusVariantRef(pAyBuffer)).c_str());
 	template<typename T>
 	bool setDataPointer(const char *pName, const T pointer) const
 	{

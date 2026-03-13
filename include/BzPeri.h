@@ -480,6 +480,34 @@ extern "C"
 		BZP_WAIT_FAILED = 6
 	};
 
+	enum BZPShutdownTriggerResult
+	{
+		BZP_SHUTDOWN_TRIGGER_OK = 1,
+		BZP_SHUTDOWN_TRIGGER_NOT_RUNNING = 0,
+		BZP_SHUTDOWN_TRIGGER_ALREADY_STOPPING = -1,
+		BZP_SHUTDOWN_TRIGGER_FAILED = -2
+	};
+
+	enum BZPShutdownTriggerResult bzpTriggerShutdownEx();
+
+	enum BZPRunLoopResult
+	{
+		BZP_RUN_LOOP_OK = 1,
+		BZP_RUN_LOOP_IDLE = 0,
+		BZP_RUN_LOOP_INVALID_ARGUMENT = -1,
+		BZP_RUN_LOOP_NOT_MANUAL_MODE = -2,
+		BZP_RUN_LOOP_NOT_ACTIVE = -3,
+		BZP_RUN_LOOP_WRONG_THREAD = -4,
+		BZP_RUN_LOOP_POLL_CYCLE_ACTIVE = -5,
+		BZP_RUN_LOOP_NO_POLL_CYCLE = -6,
+		BZP_RUN_LOOP_BUFFER_TOO_SMALL = -7,
+		BZP_RUN_LOOP_ACTIVATION_FAILED = -8,
+		BZP_RUN_LOOP_ALLOCATION_FAILED = -9,
+		BZP_RUN_LOOP_INVALID_STATE = -10,
+		BZP_RUN_LOOP_INVALID_TIMEOUT = -11,
+		BZP_RUN_LOOP_NOT_ATTACHED = -12
+	};
+
 	enum BZPWaitResult bzpShutdownAndWaitEx();
 
 	// Retrieve the current running state of the server
@@ -518,6 +546,7 @@ extern "C"
 	//
 	// Returns non-zero if work was dispatched or shutdown cleanup completed, otherwise 0.
 	int bzpRunLoopIteration(int mayBlock);
+	enum BZPRunLoopResult bzpRunLoopIterationEx(int mayBlock);
 
 	// Run one iteration of the dedicated GLib context with a bounded timeout.
 	//
@@ -525,18 +554,21 @@ extern "C"
 	// `timeoutMS == 0` performs a non-blocking poll.
 	// `timeoutMS > 0` waits up to the requested timeout and returns 0 if no work was dispatched before it expired.
 	int bzpRunLoopIterationFor(int timeoutMS);
+	enum BZPRunLoopResult bzpRunLoopIterationForEx(int timeoutMS);
 
 	// Explicitly attach the manual run loop to the current thread.
 	//
 	// This is optional. If not called, the first successful `bzpRunLoopIteration*()` call implicitly attaches the current thread.
 	// Returns non-zero on success, otherwise 0.
 	int bzpRunLoopAttach();
+	enum BZPRunLoopResult bzpRunLoopAttachEx();
 
 	// Detach the manual run loop from the current thread without shutting it down.
 	//
 	// After detaching, another thread may attach by calling `bzpRunLoopAttach()` or `bzpRunLoopIteration*()`.
 	// Returns non-zero on success, otherwise 0.
 	int bzpRunLoopDetach();
+	enum BZPRunLoopResult bzpRunLoopDetachEx();
 
 	// Returns non-zero when the server is currently using the manual run-loop execution model.
 	int bzpRunLoopIsManualMode();
@@ -554,6 +586,7 @@ extern "C"
 	//
 	// Returns non-zero if the callback was queued successfully, otherwise 0.
 	int bzpRunLoopInvoke(BZPRunLoopCallback callback, void *pUserData);
+	enum BZPRunLoopResult bzpRunLoopInvokeEx(BZPRunLoopCallback callback, void *pUserData);
 
 	// Begin a GLib-hidden poll cycle for the manual run loop.
 	//
@@ -567,6 +600,7 @@ extern "C"
 	//
 	// Returns non-zero if the poll cycle was prepared successfully, otherwise 0.
 	int bzpRunLoopPollPrepare(int *pTimeoutMS, int *pRequiredFDCount, int *pDispatchReady);
+	enum BZPRunLoopResult bzpRunLoopPollPrepareEx(int *pTimeoutMS, int *pRequiredFDCount, int *pDispatchReady);
 
 	// Query the poll descriptors for the currently active manual run-loop poll cycle.
 	//
@@ -578,6 +612,7 @@ extern "C"
 	//
 	// Returns non-zero on success, otherwise 0.
 	int bzpRunLoopPollQuery(BZPPollFD *pPollFDs, int pollFDCount, int *pRequiredFDCount);
+	enum BZPRunLoopResult bzpRunLoopPollQueryEx(BZPPollFD *pPollFDs, int pollFDCount, int *pRequiredFDCount);
 
 	// Check whether the currently active manual run-loop poll cycle is ready to dispatch after the host poll step.
 	//
@@ -585,6 +620,7 @@ extern "C"
 	//
 	// Returns non-zero when dispatch is ready, otherwise 0.
 	int bzpRunLoopPollCheck(const BZPPollFD *pPollFDs, int pollFDCount);
+	enum BZPRunLoopResult bzpRunLoopPollCheckEx(const BZPPollFD *pPollFDs, int pollFDCount);
 
 	// Dispatch the currently active manual run-loop poll cycle.
 	//
@@ -592,11 +628,13 @@ extern "C"
 	//
 	// Returns non-zero if work was dispatched or shutdown cleanup completed, otherwise 0.
 	int bzpRunLoopPollDispatch();
+	enum BZPRunLoopResult bzpRunLoopPollDispatchEx();
 
 	// Cancel the currently active manual run-loop poll cycle without dispatching any work.
 	//
 	// Returns non-zero if an active poll cycle was canceled, otherwise 0.
 	int bzpRunLoopPollCancel();
+	enum BZPRunLoopResult bzpRunLoopPollCancelEx();
 
 	// Drive the manual run loop until the requested state is reached or the timeout expires.
 	//
@@ -605,9 +643,11 @@ extern "C"
 	//
 	// `timeoutMS` uses the same semantics as `bzpWaitForState()`.
 	int bzpRunLoopDriveUntilState(enum BZPServerRunState state, int timeoutMS);
+	enum BZPRunLoopResult bzpRunLoopDriveUntilStateEx(enum BZPServerRunState state, int timeoutMS);
 
 	// Convenience form of `bzpRunLoopDriveUntilState(EStopped, timeoutMS)`.
 	int bzpRunLoopDriveUntilShutdown(int timeoutMS);
+	enum BZPRunLoopResult bzpRunLoopDriveUntilShutdownEx(int timeoutMS);
 
 	// Convert a `BZPServerRunState` into a human-readable string
 	const char *bzpGetServerRunStateString(enum BZPServerRunState state);

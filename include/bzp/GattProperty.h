@@ -50,20 +50,20 @@ struct GattProperty
 	//
 	// In general, properties should not be constructed directly as properties are typically instanticated by adding them to to an
 	// interface using one of the the interface's `addProperty` methods.
-	BZP_DEPRECATED("Use GattProperty(const std::string&, DBusVariantRef) instead of raw GVariant* values")
-	GattProperty(const std::string &name, GVariant *pValue);
 	GattProperty(const std::string &name, DBusVariantRef value);
 #if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	BZP_DEPRECATED("Use GattProperty(const std::string&, DBusVariantRef) instead of raw GVariant* values")
+	GattProperty(const std::string &name, GVariant *pValue);
 	BZP_DEPRECATED("Use GattProperty wrapper getter/setter handlers or the constructor without raw GDBus property callbacks")
 	GattProperty(const std::string &name, GVariant *pValue, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr);
 	BZP_DEPRECATED("Use GattProperty wrapper getter/setter handlers or the constructor without raw GDBus property callbacks")
 	GattProperty(const std::string &name, DBusVariantRef value, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr);
-#endif
 	BZP_DEPRECATED("Use GattProperty(const std::string&, DBusVariantRef, GetterHandler, SetterHandler) instead of raw GVariant* values")
 	GattProperty(const std::string &name, GVariant *pValue, const GetterHandler &getter, const SetterHandler &setter = {});
-	GattProperty(const std::string &name, DBusVariantRef value, const GetterHandler &getter, const SetterHandler &setter = {});
 	BZP_DEPRECATED("Use GattProperty(const std::string&, DBusVariantRef, GetterCallHandler, SetterCallHandler) instead of raw GVariant* values")
 	GattProperty(const std::string &name, GVariant *pValue, const GetterCallHandler &getter, const SetterCallHandler &setter = {});
+#endif
+	GattProperty(const std::string &name, DBusVariantRef value, const GetterHandler &getter, const SetterHandler &setter = {});
 	GattProperty(const std::string &name, DBusVariantRef value, const GetterCallHandler &getter, const SetterCallHandler &setter = {});
 	GattProperty(const GattProperty &other);
 	GattProperty(GattProperty &&other) noexcept;
@@ -91,16 +91,20 @@ struct GattProperty
 	//
 
 	// Returns the property's value
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattProperty::getValueRef() instead of raw GVariant* access")
 	const GVariant *getValue() const;
+#endif
 	DBusVariantRef getValueRef() const;
 
 	// Sets the property's value
 	//
 	// In general, this method should not be called directly as properties are typically added to an interface using one of the the
 	// interface's `addProperty` methods.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattProperty::setValue(DBusVariantRef) instead of raw GVariant* values")
 	GattProperty &setValue(GVariant *pValue);
+#endif
 	GattProperty &setValue(DBusVariantRef value);
 
 	//

@@ -43,6 +43,7 @@ struct DBusObjectPath;
 // Useful Lambdas
 // ---------------------------------------------------------------------------------------------------------------------------------
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 #define INTERFACE_METHOD_CALLBACK_LAMBDA [] \
 ( \
        const DBusInterface &self, \
@@ -52,6 +53,7 @@ struct DBusObjectPath;
        GDBusMethodInvocation *pInvocation, \
        void *pUserData \
 )
+#endif
 
 #define INTERFACE_METHOD_HANDLER_LAMBDA [] \
 ( \

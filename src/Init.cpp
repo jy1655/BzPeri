@@ -202,21 +202,21 @@ static bool hasActiveRunLoopPollCycle()
 	return runLoopPollCycle.active;
 }
 
-static bool ensureRunLoopPollCycleThread(const char *context)
+static BZPRunLoopResult ensureRunLoopPollCycleThread(const char *context)
 {
 	if (!runLoopPollCycle.active)
 	{
 		Logger::warn(SSTR << context << " requires an active manual run-loop poll cycle");
-		return false;
+		return BZP_RUN_LOOP_NO_POLL_CYCLE;
 	}
 
 	if (runLoopPollCycle.ownerThread != std::this_thread::get_id())
 	{
 		Logger::warn(SSTR << context << " must be called from the thread that prepared the current manual run-loop poll cycle");
-		return false;
+		return BZP_RUN_LOOP_WRONG_THREAD;
 	}
 
-	return true;
+	return BZP_RUN_LOOP_OK;
 }
 
 static void releaseRunLoopPollCycle()
@@ -303,42 +303,42 @@ static bool activateRunLoopOnCurrentThread()
 	return true;
 }
 
-static bool detachRunLoopFromCurrentThread()
+static BZPRunLoopResult detachRunLoopFromCurrentThread()
 {
 	if (!bManualRunLoopMode)
 	{
 		Logger::warn("detachRunLoopFromCurrentThread() is only valid in manual run-loop mode");
-		return false;
+		return BZP_RUN_LOOP_NOT_MANUAL_MODE;
 	}
 
 	if (pMainContext == nullptr)
 	{
 		Logger::warn("detachRunLoopFromCurrentThread() called without an active manual run loop");
-		return false;
+		return BZP_RUN_LOOP_NOT_ACTIVE;
 	}
 
 	if (!bThreadDefaultContextPushed || mainContextOwnerThread == std::thread::id())
 	{
 		Logger::warn("detachRunLoopFromCurrentThread() called with no attached owner thread");
-		return false;
+		return BZP_RUN_LOOP_NOT_ATTACHED;
 	}
 
 	if (mainContextOwnerThread != std::this_thread::get_id())
 	{
 		Logger::warn("detachRunLoopFromCurrentThread() must be called from the current manual run-loop owner thread");
-		return false;
+		return BZP_RUN_LOOP_WRONG_THREAD;
 	}
 
 	if (hasActiveRunLoopPollCycle())
 	{
 		Logger::warn("detachRunLoopFromCurrentThread() cannot detach while a manual run-loop poll cycle is active");
-		return false;
+		return BZP_RUN_LOOP_POLL_CYCLE_ACTIVE;
 	}
 
 	g_main_context_pop_thread_default(pMainContext);
 	bThreadDefaultContextPushed = false;
 	mainContextOwnerThread = std::thread::id();
-	return true;
+	return BZP_RUN_LOOP_OK;
 }
 
 static bool initializeRunLoop(Server *serverContextPtr, BluezAdapter *adapterContextPtr, bool installSignalHandlers, bool activateImmediately)
@@ -394,15 +394,15 @@ static void finalizeRunLoop()
 	restoreGLibHandlers();
 }
 
-static bool ensureRunLoopOwnerThread(const char *context)
+static BZPRunLoopResult ensureRunLoopOwnerThread(const char *context)
 {
 	if (mainContextOwnerThread == std::thread::id() || mainContextOwnerThread == std::this_thread::get_id())
 	{
-		return true;
+		return BZP_RUN_LOOP_OK;
 	}
 
 	Logger::warn(SSTR << context << " must be called from the thread that owns the manual BzPeri run loop");
-	return false;
+	return BZP_RUN_LOOP_WRONG_THREAD;
 }
 
 static bool finalizeManualRunLoopIfStopped()
@@ -635,12 +635,18 @@ void uninit()
 // Trigger a graceful, asynchronous shutdown of the server
 //
 // This method is non-blocking and as such, will only trigger the shutdown process but not wait for it
-void shutdown()
+BZPShutdownTriggerResult shutdownEx()
 {
-	if (bzpGetServerRunState() > ERunning)
+	if (bzpGetServerRunState() == EUninitialized || bzpGetServerRunState() == EStopped)
+	{
+		Logger::warn("Ignoring call to shutdown (the server is not running)");
+		return BZP_SHUTDOWN_TRIGGER_NOT_RUNNING;
+	}
+
+	if (bzpGetServerRunState() == EStopping)
 	{
 		Logger::warn("Ignoring call to shutdown (we are already shutting down)");
-		return;
+		return BZP_SHUTDOWN_TRIGGER_ALREADY_STOPPING;
 	}
 
 	// Our new state: shutting down
@@ -659,6 +665,13 @@ void shutdown()
 	{
 		g_main_context_wakeup(pMainContext);
 	}
+
+	return BZP_SHUTDOWN_TRIGGER_OK;
+}
+
+void shutdown()
+{
+	(void)shutdownEx();
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -1621,29 +1634,30 @@ bool startServerLoopManually(Server *serverContextPtr, BluezAdapter *adapterCont
 	return true;
 }
 
-int runServerLoopIteration(int mayBlock)
+BZPRunLoopResult runServerLoopIterationEx(int mayBlock)
 {
 	if (!bManualRunLoopMode)
 	{
 		Logger::warn("runServerLoopIteration() is only valid after startServerLoopManually()");
-		return 0;
+		return BZP_RUN_LOOP_NOT_MANUAL_MODE;
 	}
 
 	if (pMainContext == nullptr)
 	{
 		Logger::warn("runServerLoopIteration() called without an active manual run loop");
-		return 0;
+		return BZP_RUN_LOOP_NOT_ACTIVE;
 	}
 
-	if (!ensureRunLoopOwnerThread("runServerLoopIteration()"))
+	if (const BZPRunLoopResult ownerResult = ensureRunLoopOwnerThread("runServerLoopIteration()");
+		ownerResult != BZP_RUN_LOOP_OK)
 	{
-		return 0;
+		return ownerResult;
 	}
 
 	if (hasActiveRunLoopPollCycle())
 	{
 		Logger::warn("runServerLoopIteration() cannot run while a manual run-loop poll cycle is active; call dispatch or cancel first");
-		return 0;
+		return BZP_RUN_LOOP_POLL_CYCLE_ACTIVE;
 	}
 
 	if (!activateRunLoopOnCurrentThread())
@@ -1651,56 +1665,57 @@ int runServerLoopIteration(int mayBlock)
 		setServerHealth(EFailedInit);
 		setServerRunState(EStopped);
 		finalizeRunLoop();
-		return 0;
+		return BZP_RUN_LOOP_ACTIVATION_FAILED;
 	}
 
 	if (finalizeManualRunLoopIfStopped())
 	{
-		return 1;
+		return BZP_RUN_LOOP_OK;
 	}
 
 	const gboolean dispatched = g_main_context_iteration(pMainContext, mayBlock ? TRUE : FALSE);
 	if (finalizeManualRunLoopIfStopped())
 	{
-		return 1;
+		return BZP_RUN_LOOP_OK;
 	}
 
-	return dispatched ? 1 : 0;
+	return dispatched ? BZP_RUN_LOOP_OK : BZP_RUN_LOOP_IDLE;
 }
 
-int runServerLoopIterationFor(int timeoutMS)
+BZPRunLoopResult runServerLoopIterationForEx(int timeoutMS)
 {
 	if (timeoutMS < 0)
 	{
-		return runServerLoopIteration(1);
+		return runServerLoopIterationEx(1);
 	}
 
 	if (timeoutMS == 0)
 	{
-		return runServerLoopIteration(0);
+		return runServerLoopIterationEx(0);
 	}
 
 	if (!bManualRunLoopMode)
 	{
 		Logger::warn("runServerLoopIterationFor() is only valid after startServerLoopManually()");
-		return 0;
+		return BZP_RUN_LOOP_NOT_MANUAL_MODE;
 	}
 
 	if (pMainContext == nullptr)
 	{
 		Logger::warn("runServerLoopIterationFor() called without an active manual run loop");
-		return 0;
+		return BZP_RUN_LOOP_NOT_ACTIVE;
 	}
 
-	if (!ensureRunLoopOwnerThread("runServerLoopIterationFor()"))
+	if (const BZPRunLoopResult ownerResult = ensureRunLoopOwnerThread("runServerLoopIterationFor()");
+		ownerResult != BZP_RUN_LOOP_OK)
 	{
-		return 0;
+		return ownerResult;
 	}
 
 	if (hasActiveRunLoopPollCycle())
 	{
 		Logger::warn("runServerLoopIterationFor() cannot run while a manual run-loop poll cycle is active; call dispatch or cancel first");
-		return 0;
+		return BZP_RUN_LOOP_POLL_CYCLE_ACTIVE;
 	}
 
 	if (!activateRunLoopOnCurrentThread())
@@ -1708,12 +1723,12 @@ int runServerLoopIterationFor(int timeoutMS)
 		setServerHealth(EFailedInit);
 		setServerRunState(EStopped);
 		finalizeRunLoop();
-		return 0;
+		return BZP_RUN_LOOP_ACTIVATION_FAILED;
 	}
 
 	if (finalizeManualRunLoopIfStopped())
 	{
-		return 1;
+		return BZP_RUN_LOOP_OK;
 	}
 
 	RunLoopTimeoutWake timeoutWake;
@@ -1740,40 +1755,49 @@ int runServerLoopIterationFor(int timeoutMS)
 
 	if (finalizeManualRunLoopIfStopped())
 	{
-		return 1;
+		return BZP_RUN_LOOP_OK;
 	}
 
 	if (timeoutWake.fired)
 	{
-		return 0;
+		return BZP_RUN_LOOP_IDLE;
 	}
 
-	return dispatched ? 1 : 0;
+	return dispatched ? BZP_RUN_LOOP_OK : BZP_RUN_LOOP_IDLE;
 }
 
-bool attachServerLoopToCurrentThread()
+BZPRunLoopResult attachServerLoopToCurrentThreadEx()
 {
 	if (!bManualRunLoopMode)
 	{
 		Logger::warn("attachServerLoopToCurrentThread() is only valid after startServerLoopManually()");
-		return false;
+		return BZP_RUN_LOOP_NOT_MANUAL_MODE;
 	}
 
 	if (pMainContext == nullptr)
 	{
 		Logger::warn("attachServerLoopToCurrentThread() called without an active manual run loop");
-		return false;
+		return BZP_RUN_LOOP_NOT_ACTIVE;
 	}
 
-	if (!ensureRunLoopOwnerThread("attachServerLoopToCurrentThread()"))
+	if (const BZPRunLoopResult ownerResult = ensureRunLoopOwnerThread("attachServerLoopToCurrentThread()");
+		ownerResult != BZP_RUN_LOOP_OK)
 	{
-		return false;
+		return ownerResult;
 	}
 
-	return activateRunLoopOnCurrentThread();
+	if (!activateRunLoopOnCurrentThread())
+	{
+		setServerHealth(EFailedInit);
+		setServerRunState(EStopped);
+		finalizeRunLoop();
+		return BZP_RUN_LOOP_ACTIVATION_FAILED;
+	}
+
+	return BZP_RUN_LOOP_OK;
 }
 
-bool detachServerLoopFromCurrentThread()
+BZPRunLoopResult detachServerLoopFromCurrentThreadEx()
 {
 	return detachRunLoopFromCurrentThread();
 }
@@ -1793,29 +1817,30 @@ bool isCurrentThreadServerLoopOwner()
 	return mainContextOwnerThread != std::thread::id() && mainContextOwnerThread == std::this_thread::get_id();
 }
 
-bool prepareServerLoopPoll(int *timeoutMS, int *requiredFDCount, int *dispatchReady)
+BZPRunLoopResult prepareServerLoopPollEx(int *timeoutMS, int *requiredFDCount, int *dispatchReady)
 {
 	if (!bManualRunLoopMode)
 	{
 		Logger::warn("prepareServerLoopPoll() is only valid after startServerLoopManually()");
-		return false;
+		return BZP_RUN_LOOP_NOT_MANUAL_MODE;
 	}
 
 	if (pMainContext == nullptr)
 	{
 		Logger::warn("prepareServerLoopPoll() called without an active manual run loop");
-		return false;
+		return BZP_RUN_LOOP_NOT_ACTIVE;
 	}
 
 	if (hasActiveRunLoopPollCycle())
 	{
 		Logger::warn("prepareServerLoopPoll() cannot start a nested manual run-loop poll cycle");
-		return false;
+		return BZP_RUN_LOOP_POLL_CYCLE_ACTIVE;
 	}
 
-	if (!ensureRunLoopOwnerThread("prepareServerLoopPoll()"))
+	if (const BZPRunLoopResult ownerResult = ensureRunLoopOwnerThread("prepareServerLoopPoll()");
+		ownerResult != BZP_RUN_LOOP_OK)
 	{
-		return false;
+		return ownerResult;
 	}
 
 	if (!activateRunLoopOnCurrentThread())
@@ -1823,18 +1848,18 @@ bool prepareServerLoopPoll(int *timeoutMS, int *requiredFDCount, int *dispatchRe
 		setServerHealth(EFailedInit);
 		setServerRunState(EStopped);
 		finalizeRunLoop();
-		return false;
+		return BZP_RUN_LOOP_ACTIVATION_FAILED;
 	}
 
 	if (finalizeManualRunLoopIfStopped())
 	{
-		return false;
+		return BZP_RUN_LOOP_NOT_ACTIVE;
 	}
 
 	if (!g_main_context_acquire(pMainContext))
 	{
 		Logger::warn("prepareServerLoopPoll() could not acquire the manual run-loop context");
-		return false;
+		return BZP_RUN_LOOP_ACTIVATION_FAILED;
 	}
 
 	resetRunLoopPollCycle();
@@ -1870,26 +1895,27 @@ bool prepareServerLoopPoll(int *timeoutMS, int *requiredFDCount, int *dispatchRe
 		*dispatchReady = runLoopPollCycle.preparedReady ? 1 : 0;
 	}
 
-	return true;
+	return BZP_RUN_LOOP_OK;
 }
 
-bool queryServerLoopPoll(BZPPollFD *pollFDs, int pollFDCount, int *requiredFDCount)
+BZPRunLoopResult queryServerLoopPollEx(BZPPollFD *pollFDs, int pollFDCount, int *requiredFDCount)
 {
 	if (pollFDCount < 0)
 	{
 		Logger::warn("queryServerLoopPoll() requires a non-negative pollFDCount");
-		return false;
+		return BZP_RUN_LOOP_INVALID_ARGUMENT;
 	}
 
 	if (pollFDCount > 0 && pollFDs == nullptr)
 	{
 		Logger::warn("queryServerLoopPoll() requires a non-null pollFDs buffer when pollFDCount is positive");
-		return false;
+		return BZP_RUN_LOOP_INVALID_ARGUMENT;
 	}
 
-	if (!ensureRunLoopPollCycleThread("queryServerLoopPoll()"))
+	if (const BZPRunLoopResult pollCycleResult = ensureRunLoopPollCycleThread("queryServerLoopPoll()");
+		pollCycleResult != BZP_RUN_LOOP_OK)
 	{
-		return false;
+		return pollCycleResult;
 	}
 
 	std::vector<GPollFD> gpollFDs(static_cast<size_t>(pollFDCount));
@@ -1912,15 +1938,15 @@ bool queryServerLoopPoll(BZPPollFD *pollFDs, int pollFDCount, int *requiredFDCou
 	{
 		if (pollFDCount == 0 && pollFDs == nullptr)
 		{
-			return true;
+			return BZP_RUN_LOOP_OK;
 		}
 
-		return false;
+		return BZP_RUN_LOOP_BUFFER_TOO_SMALL;
 	}
 
 	if (neededFDCount == 0)
 	{
-		return true;
+		return BZP_RUN_LOOP_OK;
 	}
 
 	for (int index = 0; index < neededFDCount; ++index)
@@ -1930,26 +1956,27 @@ bool queryServerLoopPoll(BZPPollFD *pollFDs, int pollFDCount, int *requiredFDCou
 		pollFDs[index].revents = gpollFDs[index].revents;
 	}
 
-	return true;
+	return BZP_RUN_LOOP_OK;
 }
 
-bool checkServerLoopPoll(const BZPPollFD *pollFDs, int pollFDCount)
+BZPRunLoopResult checkServerLoopPollEx(const BZPPollFD *pollFDs, int pollFDCount)
 {
 	if (pollFDCount < 0)
 	{
 		Logger::warn("checkServerLoopPoll() requires a non-negative pollFDCount");
-		return false;
+		return BZP_RUN_LOOP_INVALID_ARGUMENT;
 	}
 
 	if (pollFDCount > 0 && pollFDs == nullptr)
 	{
 		Logger::warn("checkServerLoopPoll() requires a non-null pollFDs buffer when pollFDCount is positive");
-		return false;
+		return BZP_RUN_LOOP_INVALID_ARGUMENT;
 	}
 
-	if (!ensureRunLoopPollCycleThread("checkServerLoopPoll()"))
+	if (const BZPRunLoopResult pollCycleResult = ensureRunLoopPollCycleThread("checkServerLoopPoll()");
+		pollCycleResult != BZP_RUN_LOOP_OK)
 	{
-		return false;
+		return pollCycleResult;
 	}
 
 	std::vector<GPollFD> gpollFDs(static_cast<size_t>(pollFDCount));
@@ -1966,14 +1993,15 @@ bool checkServerLoopPoll(const BZPPollFD *pollFDs, int pollFDCount)
 		pollFDCount > 0 ? gpollFDs.data() : nullptr,
 		pollFDCount) != FALSE;
 
-	return runLoopPollCycle.ready;
+	return runLoopPollCycle.ready ? BZP_RUN_LOOP_OK : BZP_RUN_LOOP_IDLE;
 }
 
-int dispatchServerLoopPoll()
+BZPRunLoopResult dispatchServerLoopPollEx()
 {
-	if (!ensureRunLoopPollCycleThread("dispatchServerLoopPoll()"))
+	if (const BZPRunLoopResult pollCycleResult = ensureRunLoopPollCycleThread("dispatchServerLoopPoll()");
+		pollCycleResult != BZP_RUN_LOOP_OK)
 	{
-		return 0;
+		return pollCycleResult;
 	}
 
 	const bool ready = runLoopPollCycle.ready;
@@ -1986,43 +2014,44 @@ int dispatchServerLoopPoll()
 
 	if (finalizeManualRunLoopIfStopped())
 	{
-		return 1;
+		return BZP_RUN_LOOP_OK;
 	}
 
-	return ready ? 1 : 0;
+	return ready ? BZP_RUN_LOOP_OK : BZP_RUN_LOOP_IDLE;
 }
 
-bool cancelServerLoopPoll()
+BZPRunLoopResult cancelServerLoopPollEx()
 {
-	if (!ensureRunLoopPollCycleThread("cancelServerLoopPoll()"))
+	if (const BZPRunLoopResult pollCycleResult = ensureRunLoopPollCycleThread("cancelServerLoopPoll()");
+		pollCycleResult != BZP_RUN_LOOP_OK)
 	{
-		return false;
+		return pollCycleResult;
 	}
 
 	releaseRunLoopPollCycle();
 	(void)finalizeManualRunLoopIfStopped();
-	return true;
+	return BZP_RUN_LOOP_OK;
 }
 
-bool invokeOnServerLoop(void (*callback)(void *), void *userData)
+BZPRunLoopResult invokeOnServerLoopEx(void (*callback)(void *), void *userData)
 {
 	if (callback == nullptr)
 	{
 		Logger::warn("invokeOnServerLoop() requires a non-null callback");
-		return false;
+		return BZP_RUN_LOOP_INVALID_ARGUMENT;
 	}
 
 	if (pMainContext == nullptr)
 	{
 		Logger::warn("invokeOnServerLoop() called without an active BzPeri run loop");
-		return false;
+		return BZP_RUN_LOOP_NOT_ACTIVE;
 	}
 
 	RunLoopInvocation *invocation = new (std::nothrow) RunLoopInvocation{callback, userData};
 	if (invocation == nullptr)
 	{
 		Logger::error("Unable to allocate run-loop invocation state");
-		return false;
+		return BZP_RUN_LOOP_ALLOCATION_FAILED;
 	}
 
 	if (mainContextOwnerThread != std::thread::id() && mainContextOwnerThread != std::this_thread::get_id())
@@ -2039,7 +2068,7 @@ bool invokeOnServerLoop(void (*callback)(void *), void *userData)
 			[](gpointer data) {
 				delete static_cast<RunLoopInvocation *>(data);
 			});
-		return true;
+		return BZP_RUN_LOOP_OK;
 	}
 
 	GSource *source = g_idle_source_new();
@@ -2058,7 +2087,7 @@ bool invokeOnServerLoop(void (*callback)(void *), void *userData)
 	g_source_attach(source, pMainContext);
 	g_source_unref(source);
 
-	return true;
+	return BZP_RUN_LOOP_OK;
 }
 
 }; // namespace bzp
