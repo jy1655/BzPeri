@@ -90,12 +90,42 @@ extern "C"
 		BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN = 3
 	};
 
+	enum BZPGLibLogCaptureTarget
+	{
+		BZP_GLIB_LOG_CAPTURE_TARGET_PRINT = 1 << 0,
+		BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR = 1 << 1,
+		BZP_GLIB_LOG_CAPTURE_TARGET_LOG = 1 << 2,
+		BZP_GLIB_LOG_CAPTURE_TARGET_ALL =
+			BZP_GLIB_LOG_CAPTURE_TARGET_PRINT
+			| BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR
+			| BZP_GLIB_LOG_CAPTURE_TARGET_LOG
+	};
+
 	enum BZPGLibLogCaptureResult
 	{
 		BZP_GLIB_LOG_CAPTURE_RESULT_OK = 0,
 		BZP_GLIB_LOG_CAPTURE_RESULT_WRONG_MODE = 1,
 		BZP_GLIB_LOG_CAPTURE_RESULT_NOT_INSTALLED = 2,
 		BZP_GLIB_LOG_CAPTURE_RESULT_FAILED = 3
+	};
+
+	enum BZPGLibLogCaptureModeSetResult
+	{
+		BZP_GLIB_LOG_CAPTURE_MODE_SET_OK = 0,
+		BZP_GLIB_LOG_CAPTURE_MODE_SET_INVALID_MODE = 1
+	};
+
+	enum BZPGLibLogCaptureTargetsSetResult
+	{
+		BZP_GLIB_LOG_CAPTURE_TARGETS_SET_OK = 0,
+		BZP_GLIB_LOG_CAPTURE_TARGETS_SET_INVALID_TARGETS = 1
+	};
+
+	enum BZPQueryResult
+	{
+		BZP_QUERY_OK = 1,
+		BZP_QUERY_INVALID_ARGUMENT = -1,
+		BZP_QUERY_FAILED = -2
 	};
 
 	// Each of these methods registers a log receiver method. Receivers are set when registered. To unregister a log receiver,
@@ -119,6 +149,7 @@ extern "C"
 	// `BZP_GLIB_LOG_CAPTURE_DISABLED` when disabled. Use `bzpSetGLibLogCaptureMode()` for host-managed integration.
 	void bzpSetGLibLogCaptureEnabled(int enabled);
 	int bzpGetGLibLogCaptureEnabled();
+	enum BZPQueryResult bzpGetGLibLogCaptureEnabledEx(int *pEnabled);
 
 	// Configure how BzPeri captures GLib process-global print/log handlers.
 	//
@@ -129,7 +160,12 @@ extern "C"
 	// `STARTUP_AND_SHUTDOWN`: capture GLib handlers during initialization and again during shutdown, but release them once the
 	// server reaches `ERunning` so the process-global override does not remain active for the full runtime.
 	void bzpSetGLibLogCaptureMode(enum BZPGLibLogCaptureMode mode);
+	enum BZPGLibLogCaptureModeSetResult bzpSetGLibLogCaptureModeEx(enum BZPGLibLogCaptureMode mode);
 	enum BZPGLibLogCaptureMode bzpGetGLibLogCaptureMode();
+	void bzpSetGLibLogCaptureTargets(unsigned int targets);
+	enum BZPGLibLogCaptureTargetsSetResult bzpSetGLibLogCaptureTargetsEx(unsigned int targets);
+	unsigned int bzpGetGLibLogCaptureTargets();
+	unsigned int bzpGetConfiguredGLibLogCaptureTargets();
 
 	// Returns the build-time default GLib capture mode configured into this BzPeri build.
 	enum BZPGLibLogCaptureMode bzpGetConfiguredGLibLogCaptureMode();
@@ -150,6 +186,7 @@ extern "C"
 
 	// Returns non-zero when BzPeri currently has GLib process-global handlers installed.
 	int bzpIsGLibLogCaptureInstalled();
+	enum BZPQueryResult bzpIsGLibLogCaptureInstalledEx(int *pInstalled);
 
 	// -----------------------------------------------------------------------------------------------------------------------------
 	// SERVER DATA
@@ -279,12 +316,15 @@ extern "C"
 
 	// Returns 1 if the queue is empty, otherwise 0
 	int bzpUpdateQueueIsEmpty();
+	enum BZPQueryResult bzpUpdateQueueIsEmptyEx(int *pIsEmpty);
 
 	// Returns the number of entries waiting in the queue
 	int bzpUpdateQueueSize();
+	enum BZPQueryResult bzpUpdateQueueSizeEx(int *pSize);
 
 	// Removes all entries from the queue
 	void bzpUpdateQueueClear();
+	enum BZPQueryResult bzpUpdateQueueClearEx(int *pClearedCount);
 
 	// -----------------------------------------------------------------------------------------------------------------------------
 	// SERVER CONTROL
@@ -480,7 +520,8 @@ extern "C"
 		BZP_WAIT_INVALID_TIMEOUT = 3,
 		BZP_WAIT_DEADLOCK = 4,
 		BZP_WAIT_JOIN_FAILED = 5,
-		BZP_WAIT_FAILED = 6
+		BZP_WAIT_FAILED = 6,
+		BZP_WAIT_NOT_RUNNING = 7
 	};
 
 	enum BZPShutdownTriggerResult
@@ -512,6 +553,7 @@ extern "C"
 	};
 
 	enum BZPWaitResult bzpShutdownAndWaitEx();
+	enum BZPWaitResult bzpWaitEx();
 
 	// Retrieve the current running state of the server
 	//
@@ -575,12 +617,15 @@ extern "C"
 
 	// Returns non-zero when the server is currently using the manual run-loop execution model.
 	int bzpRunLoopIsManualMode();
+	enum BZPQueryResult bzpRunLoopIsManualModeEx(int *pIsManualMode);
 
 	// Returns non-zero when the manual run loop currently has an owning thread attached.
 	int bzpRunLoopHasOwner();
+	enum BZPQueryResult bzpRunLoopHasOwnerEx(int *pHasOwner);
 
 	// Returns non-zero when the calling thread is the current manual run-loop owner.
 	int bzpRunLoopIsCurrentThreadOwner();
+	enum BZPQueryResult bzpRunLoopIsCurrentThreadOwnerEx(int *pIsOwner);
 
 	// Schedule a callback to run on BzPeri's dedicated GLib run loop.
 	//
@@ -657,6 +702,7 @@ extern "C"
 
 	// Convenience method to check ServerRunState for a running server
 	int bzpIsServerRunning();
+	enum BZPQueryResult bzpIsServerRunningEx(int *pIsRunning);
 
 	// -----------------------------------------------------------------------------------------------------------------------------
 	// SERVER HEALTH

@@ -830,6 +830,8 @@ void testWaitHelpers()
 	require(bzpWaitForState(static_cast<BZPServerRunState>(999), 0) == 0, "bzpWaitForState should reject invalid states");
 	require(bzpWaitForStateEx(static_cast<BZPServerRunState>(999), 0) == BZP_WAIT_INVALID_STATE,
 		"bzpWaitForStateEx should distinguish invalid states");
+	require(bzpWaitEx() == BZP_WAIT_NOT_RUNNING,
+		"bzpWaitEx should distinguish pre-start indefinite waits from a successful shutdown wait");
 	require(bzpWaitForShutdown(0) == 0, "bzpWaitForShutdown should not report success before the server has started and stopped");
 	require(bzpWaitForShutdownEx(0) == BZP_WAIT_TIMEOUT,
 		"bzpWaitForShutdownEx should report timeout before the server has started and stopped");
@@ -1500,6 +1502,115 @@ void testShutdownTriggerEx()
 		"bzpTriggerShutdownEx should report NOT_RUNNING after shutdown completes");
 }
 
+void testQueryExHelpers()
+{
+	struct RestoreState
+	{
+		std::shared_ptr<Server> activeServer = getActiveServer();
+		BZPServerRunState runState = bzpGetServerRunState();
+		BZPServerHealth health = bzpGetServerHealth();
+		BZPGLibLogCaptureMode mode = bzpGetGLibLogCaptureMode();
+
+		~RestoreState()
+		{
+			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
+			{
+				bzpTriggerShutdown();
+				bzpRunLoopDriveUntilShutdown(100);
+			}
+
+			bzpUpdateQueueClear();
+			bzpSetGLibLogCaptureMode(mode);
+			setActiveServer(activeServer);
+			bzp::setServerHealth(health);
+			bzp::setServerRunState(runState);
+		}
+	} restore;
+
+	int value = -1;
+
+	require(bzpGetGLibLogCaptureEnabledEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
+		"bzpGetGLibLogCaptureEnabledEx should reject null outputs");
+	require(bzpGetGLibLogCaptureEnabledEx(&value) == BZP_QUERY_OK,
+		"bzpGetGLibLogCaptureEnabledEx should succeed with a valid output");
+	require(value == bzpGetGLibLogCaptureEnabled(),
+		"bzpGetGLibLogCaptureEnabledEx should match the legacy boolean getter");
+
+	require(bzpIsGLibLogCaptureInstalledEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
+		"bzpIsGLibLogCaptureInstalledEx should reject null outputs");
+	require(bzpIsGLibLogCaptureInstalledEx(&value) == BZP_QUERY_OK,
+		"bzpIsGLibLogCaptureInstalledEx should succeed with a valid output");
+	require(value == bzpIsGLibLogCaptureInstalled(),
+		"bzpIsGLibLogCaptureInstalledEx should match the legacy boolean getter");
+
+	bzpUpdateQueueClear();
+	require(bzpUpdateQueueIsEmptyEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
+		"bzpUpdateQueueIsEmptyEx should reject null outputs");
+	require(bzpUpdateQueueSizeEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
+		"bzpUpdateQueueSizeEx should reject null outputs");
+	require(bzpUpdateQueueClearEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
+		"bzpUpdateQueueClearEx should reject null outputs");
+	require(bzpUpdateQueueIsEmptyEx(&value) == BZP_QUERY_OK && value != 0,
+		"bzpUpdateQueueIsEmptyEx should report an empty queue after clearing");
+	require(bzpUpdateQueueSizeEx(&value) == BZP_QUERY_OK && value == 0,
+		"bzpUpdateQueueSizeEx should report zero entries after clearing");
+
+	require(bzpNotifyUpdatedCharacteristic("/com/example/query-ex") != 0,
+		"Legacy enqueue API should still populate the queue for Ex query testing");
+	require(bzpUpdateQueueIsEmptyEx(&value) == BZP_QUERY_OK && value == 0,
+		"bzpUpdateQueueIsEmptyEx should report a non-empty queue after enqueue");
+	require(bzpUpdateQueueSizeEx(&value) == BZP_QUERY_OK && value == 1,
+		"bzpUpdateQueueSizeEx should report the enqueued entry count");
+	require(bzpUpdateQueueClearEx(&value) == BZP_QUERY_OK && value == 1,
+		"bzpUpdateQueueClearEx should report the number of cleared entries");
+	require(bzpUpdateQueueIsEmptyEx(&value) == BZP_QUERY_OK && value != 0,
+		"bzpUpdateQueueClearEx should leave the queue empty");
+
+	char element[256] = {};
+	require(bzpNotifyUpdatedCharacteristic("/com/example/query-ex") != 0,
+		"Legacy enqueue API should still repopulate the queue after clear testing");
+	require(bzpPopUpdateQueueEx(element, sizeof(element), 0) == BZP_UPDATE_QUEUE_OK,
+		"bzpPopUpdateQueueEx should still interoperate with the queue query helpers");
+
+	require(bzpIsServerRunningEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
+		"bzpIsServerRunningEx should reject null outputs");
+	require(bzpIsServerRunningEx(&value) == BZP_QUERY_OK,
+		"bzpIsServerRunningEx should succeed with a valid output");
+	require(value == bzpIsServerRunning(),
+		"bzpIsServerRunningEx should match the legacy running predicate");
+
+	require(bzpRunLoopIsManualModeEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
+		"bzpRunLoopIsManualModeEx should reject null outputs");
+	require(bzpRunLoopHasOwnerEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
+		"bzpRunLoopHasOwnerEx should reject null outputs");
+	require(bzpRunLoopIsCurrentThreadOwnerEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
+		"bzpRunLoopIsCurrentThreadOwnerEx should reject null outputs");
+
+	require(bzpRunLoopIsManualModeEx(&value) == BZP_QUERY_OK && value == 0,
+		"bzpRunLoopIsManualModeEx should report false before manual startup");
+	require(bzpRunLoopHasOwnerEx(&value) == BZP_QUERY_OK && value == 0,
+		"bzpRunLoopHasOwnerEx should report false before manual startup");
+	require(bzpRunLoopIsCurrentThreadOwnerEx(&value) == BZP_QUERY_OK && value == 0,
+		"bzpRunLoopIsCurrentThreadOwnerEx should report false before manual startup");
+
+	require(bzpStartManual("bzperi.tests.query-ex", "", "", &nullGetter, &acceptingSetter) != 0,
+		"bzpStartManual should succeed before Ex query helper testing");
+	require(bzpRunLoopIsManualModeEx(&value) == BZP_QUERY_OK && value != 0,
+		"bzpRunLoopIsManualModeEx should report true after manual startup");
+	require(bzpRunLoopHasOwnerEx(&value) == BZP_QUERY_OK && value == 0,
+		"bzpRunLoopHasOwnerEx should report no owner before attachment");
+	require(bzpRunLoopAttachEx() == BZP_RUN_LOOP_OK,
+		"bzpRunLoopAttachEx should succeed before owner-state query testing");
+	require(bzpRunLoopHasOwnerEx(&value) == BZP_QUERY_OK && value != 0,
+		"bzpRunLoopHasOwnerEx should report true after attachment");
+	require(bzpRunLoopIsCurrentThreadOwnerEx(&value) == BZP_QUERY_OK && value != 0,
+		"bzpRunLoopIsCurrentThreadOwnerEx should report true for the attached owner thread");
+	require(bzpTriggerShutdownEx() == BZP_SHUTDOWN_TRIGGER_OK,
+		"Shutdown should still be requestable during Ex query helper testing");
+	require(bzpRunLoopDriveUntilShutdownEx(100) == BZP_RUN_LOOP_OK,
+		"Manual shutdown should still drain after Ex query helper testing");
+}
+
 void testDBusMethodTypeMismatchIsSafe()
 {
 	Server server("bzperi.tests.method-mismatch", "", "", &nullGetter, &acceptingSetter);
@@ -1538,13 +1649,18 @@ void testGLibLogCaptureToggle()
 {
 	const int original = bzpGetGLibLogCaptureEnabled();
 	const auto originalMode = bzpGetGLibLogCaptureMode();
+	const auto originalTargets = bzpGetGLibLogCaptureTargets();
 	const auto configuredMode = bzpGetConfiguredGLibLogCaptureMode();
+	const auto configuredTargets = bzpGetConfiguredGLibLogCaptureTargets();
 	require(configuredMode == static_cast<BZPGLibLogCaptureMode>(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE),
 		"Configured GLib log capture mode should match the build-time default");
+	require(configuredTargets == static_cast<unsigned int>(BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE),
+		"Configured GLib log capture targets should match the build-time default");
 
 	struct RestoreState
 	{
 		BZPGLibLogCaptureMode mode;
+		unsigned int targets;
 
 		~RestoreState()
 		{
@@ -1556,13 +1672,27 @@ void testGLibLogCaptureToggle()
 				}
 			}
 
+			bzpSetGLibLogCaptureTargets(targets);
 			bzpSetGLibLogCaptureMode(mode);
 		}
-	} restore{originalMode};
+	} restore{originalMode, originalTargets};
 
 	bzpSetGLibLogCaptureMode(configuredMode);
 	require(bzpGetGLibLogCaptureMode() == configuredMode,
 		"Current GLib log capture mode should be settable back to the configured default");
+	bzpSetGLibLogCaptureTargets(configuredTargets);
+	require(bzpGetGLibLogCaptureTargets() == configuredTargets,
+		"Current GLib log capture targets should be settable back to the configured default");
+	require(bzpSetGLibLogCaptureModeEx(static_cast<BZPGLibLogCaptureMode>(99)) == BZP_GLIB_LOG_CAPTURE_MODE_SET_INVALID_MODE,
+		"GLib log capture mode Ex setter should distinguish invalid modes");
+	require(bzpSetGLibLogCaptureTargetsEx(0) == BZP_GLIB_LOG_CAPTURE_TARGETS_SET_INVALID_TARGETS,
+		"GLib log capture targets Ex setter should reject an empty capture mask");
+	require(bzpSetGLibLogCaptureTargetsEx(0x80U) == BZP_GLIB_LOG_CAPTURE_TARGETS_SET_INVALID_TARGETS,
+		"GLib log capture targets Ex setter should reject unknown capture bits");
+	require(bzpSetGLibLogCaptureTargetsEx(BZP_GLIB_LOG_CAPTURE_TARGET_LOG) == BZP_GLIB_LOG_CAPTURE_TARGETS_SET_OK,
+		"GLib log capture targets Ex setter should accept log-only capture");
+	require(bzpGetGLibLogCaptureTargets() == BZP_GLIB_LOG_CAPTURE_TARGET_LOG,
+		"GLib log capture target getter should expose the configured mask");
 
 	bzpSetGLibLogCaptureEnabled(0);
 	require(bzpGetGLibLogCaptureEnabled() == 0, "GLib log capture toggle should disable capture");
@@ -1573,6 +1703,8 @@ void testGLibLogCaptureToggle()
 		"Legacy GLib log capture toggle should map enabled=true to automatic mode");
 
 	bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_HOST_MANAGED);
+	require(bzpSetGLibLogCaptureModeEx(BZP_GLIB_LOG_CAPTURE_HOST_MANAGED) == BZP_GLIB_LOG_CAPTURE_MODE_SET_OK,
+		"GLib log capture mode Ex setter should report success for host-managed mode");
 	require(bzpGetGLibLogCaptureMode() == BZP_GLIB_LOG_CAPTURE_HOST_MANAGED,
 		"Explicit GLib log capture mode should support host-managed integration");
 	require(bzpGetGLibLogCaptureEnabled() == 0,
@@ -1591,6 +1723,12 @@ void testGLibLogCaptureToggle()
 		"Host-managed GLib log capture Ex API should restore explicitly");
 	require(bzpIsGLibLogCaptureInstalled() == 0,
 		"Host-managed GLib log capture should report not installed after explicit restore");
+	require(bzpSetGLibLogCaptureTargetsEx(BZP_GLIB_LOG_CAPTURE_TARGET_LOG | BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR)
+		== BZP_GLIB_LOG_CAPTURE_TARGETS_SET_OK,
+		"GLib log capture targets Ex setter should allow mixed target masks");
+	require(bzpGetGLibLogCaptureTargets()
+		== (BZP_GLIB_LOG_CAPTURE_TARGET_LOG | BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR),
+		"GLib log capture target getter should preserve mixed target masks");
 
 	bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_DISABLED);
 	require(bzpInstallGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_WRONG_MODE,
@@ -1601,6 +1739,8 @@ void testGLibLogCaptureToggle()
 		"Explicit GLib log capture restore should report wrong-mode outside host-managed mode");
 
 	bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN);
+	require(bzpSetGLibLogCaptureModeEx(BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN) == BZP_GLIB_LOG_CAPTURE_MODE_SET_OK,
+		"GLib log capture mode Ex setter should report success for startup-and-shutdown mode");
 	require(bzpGetGLibLogCaptureMode() == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN,
 		"Explicit GLib log capture mode should support startup-and-shutdown integration");
 	require(bzpGetGLibLogCaptureEnabled() == 1,
@@ -1608,6 +1748,9 @@ void testGLibLogCaptureToggle()
 
 	bzpSetGLibLogCaptureEnabled(original);
 	require(bzpGetGLibLogCaptureEnabled() == original, "GLib log capture toggle should restore the original state");
+	bzpSetGLibLogCaptureTargets(originalTargets);
+	require(bzpGetGLibLogCaptureTargets() == originalTargets,
+		"GLib log capture targets should restore the original mask");
 	bzpSetGLibLogCaptureMode(originalMode);
 	require(bzpGetGLibLogCaptureMode() == originalMode, "GLib log capture mode should restore the original mode");
 }
@@ -1785,6 +1928,7 @@ int main()
 		{"Run-loop hidden poll API", testRunLoopPollApi},
 		{"Run-loop Ex result helpers", testRunLoopExResults},
 		{"Shutdown trigger Ex helper", testShutdownTriggerEx},
+		{"Generic query Ex helpers", testQueryExHelpers},
 		{"DBusMethod type mismatch safety", testDBusMethodTypeMismatchIsSafe},
 		{"GLib log capture toggle", testGLibLogCaptureToggle},
 		{"GLib log startup-shutdown mode", testGLibLogCaptureStartupAndShutdownMode},

@@ -35,6 +35,7 @@ option(ENABLE_LEGACY_SINGLETON_COMPAT "Build deprecated TheServer and BluezAdapt
 option(ENABLE_LEGACY_RAW_GLIB_COMPAT "Build deprecated raw GLib callback/method compatibility APIs" ON)
 set(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE "AUTOMATIC" CACHE STRING "Default GLib log capture mode: AUTOMATIC, DISABLED, HOST_MANAGED, or STARTUP_AND_SHUTDOWN")
 set_property(CACHE BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE PROPERTY STRINGS AUTOMATIC DISABLED HOST_MANAGED STARTUP_AND_SHUTDOWN)
+set(BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS "ALL" CACHE STRING "Default GLib log capture targets: ALL or a comma-separated subset of PRINT, PRINTERR, LOG")
 
 if(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE STREQUAL "AUTOMATIC")
     set(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE 0)
@@ -46,6 +47,30 @@ elseif(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE STREQUAL "STARTUP_AND_SHUTDOWN")
     set(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE 3)
 else()
     message(FATAL_ERROR "BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE must be AUTOMATIC, DISABLED, HOST_MANAGED, or STARTUP_AND_SHUTDOWN")
+endif()
+
+string(TOUPPER "${BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS}" BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_NORMALIZED)
+if(BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_NORMALIZED STREQUAL "ALL")
+    set(BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE 7)
+else()
+    set(BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE 0)
+    string(REPLACE "," ";" BZP_GLIB_LOG_CAPTURE_TARGET_LIST "${BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_NORMALIZED}")
+    foreach(BZP_GLIB_LOG_CAPTURE_TARGET IN LISTS BZP_GLIB_LOG_CAPTURE_TARGET_LIST)
+        string(STRIP "${BZP_GLIB_LOG_CAPTURE_TARGET}" BZP_GLIB_LOG_CAPTURE_TARGET)
+        if(BZP_GLIB_LOG_CAPTURE_TARGET STREQUAL "PRINT")
+            math(EXPR BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE "${BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE} | 1")
+        elseif(BZP_GLIB_LOG_CAPTURE_TARGET STREQUAL "PRINTERR")
+            math(EXPR BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE "${BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE} | 2")
+        elseif(BZP_GLIB_LOG_CAPTURE_TARGET STREQUAL "LOG")
+            math(EXPR BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE "${BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE} | 4")
+        elseif(BZP_GLIB_LOG_CAPTURE_TARGET STREQUAL "")
+        else()
+            message(FATAL_ERROR "BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS must be ALL or a comma-separated subset of PRINT, PRINTERR, LOG")
+        endif()
+    endforeach()
+    if(BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE EQUAL 0)
+        message(FATAL_ERROR "BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS must not resolve to an empty capture mask")
+    endif()
 endif()
 
 # Optional: override version from CI/tag
@@ -145,7 +170,7 @@ set(BZPERI_SOURCES
     src/Init.cpp
     src/Logger.cpp
     src/FormatCompat.cpp
-    src/ServerCompat.cpp
+    src/ServerRuntime.cpp
     src/ServerTypes.cpp
     src/Server.cpp
     src/ServiceRegistry.cpp
@@ -158,11 +183,22 @@ set(BZPERI_SOURCES
 if(LINUX)
     list(APPEND BZPERI_SOURCES
         src/BluezAdapter.cpp
-        src/BluezAdapterCompat.cpp
+        src/BluezAdapterRuntime.cpp
         src/BluezAdvertisingSupport.cpp
         src/BluezTypes.cpp
         src/BluezAdvertisement.cpp
     )
+endif()
+
+if(ENABLE_LEGACY_SINGLETON_COMPAT)
+    list(APPEND BZPERI_SOURCES
+        src/ServerCompat.cpp
+    )
+    if(LINUX)
+        list(APPEND BZPERI_SOURCES
+            src/BluezAdapterCompat.cpp
+        )
+    endif()
 endif()
 
 # Create library

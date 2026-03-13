@@ -91,6 +91,7 @@ namespace bzp
 {
 	namespace {
 		constexpr int kConfiguredGLibLogCaptureMode = BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE;
+		constexpr unsigned int kConfiguredGLibLogCaptureTargets = BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE;
 
 		RuntimeBluezAdapterPtr& runtimeBluezAdapterStorage()
 		{
@@ -120,6 +121,18 @@ namespace bzp
 		{
 			setActiveServerForRuntime(nullptr);
 		}
+
+		template<typename Getter>
+		BZPQueryResult queryIntValue(int *pValue, Getter &&getter)
+		{
+			if (!pValue)
+			{
+				return BZP_QUERY_INVALID_ARGUMENT;
+			}
+
+			*pValue = getter();
+			return BZP_QUERY_OK;
+		}
 	}
 
 	// During initialization, we'll check for complation at this interval
@@ -138,6 +151,7 @@ namespace bzp
 	static std::condition_variable stateChangedCV;
 	static std::mutex stateChangedMutex;
 	static std::atomic<int> glibLogCaptureMode{kConfiguredGLibLogCaptureMode};
+	static std::atomic<unsigned int> glibLogCaptureTargets{kConfiguredGLibLogCaptureTargets};
 	static std::atomic<unsigned int> automaticGLibCaptureInstalls{0};
 
 	// RAII guard that saves and restores GLib global handlers
@@ -145,28 +159,78 @@ namespace bzp
 		GPrintFunc savedPrint = nullptr;
 		GPrintFunc savedPrinterr = nullptr;
 		GLogFunc savedLog = nullptr;
+		unsigned int activeTargets = 0;
 		bool active = false;
 		unsigned int installDepth = 0;
 		std::mutex mutex;
 
-		bool install() {
+		static void printHandler(const gchar *s)
+		{
+			Logger::info(s);
+		}
+
+		static void printerrHandler(const gchar *s)
+		{
+			Logger::error(s);
+		}
+
+		static void logHandler(const gchar *d, GLogLevelFlags f, const gchar *m, gpointer)
+		{
+			std::string str = std::string(d ? d : "") + ": " + (m ? m : "");
+			if ((f & (G_LOG_FLAG_RECURSION|G_LOG_FLAG_FATAL)) != 0) Logger::fatal(str);
+			else if ((f & (G_LOG_LEVEL_CRITICAL|G_LOG_LEVEL_ERROR)) != 0) Logger::error(str);
+			else if ((f & G_LOG_LEVEL_WARNING) != 0) Logger::warn(str);
+			else if ((f & G_LOG_LEVEL_DEBUG) != 0) Logger::debug(str);
+			else Logger::info(str);
+		}
+
+		void reconfigureLocked(unsigned int targets)
+		{
+			if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINT) != 0)
+			{
+				savedPrint = g_set_print_handler(&printHandler);
+			}
+			else if ((activeTargets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINT) != 0)
+			{
+				g_set_print_handler(savedPrint);
+				savedPrint = nullptr;
+			}
+
+			if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR) != 0)
+			{
+				savedPrinterr = g_set_printerr_handler(&printerrHandler);
+			}
+			else if ((activeTargets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR) != 0)
+			{
+				g_set_printerr_handler(savedPrinterr);
+				savedPrinterr = nullptr;
+			}
+
+			if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_LOG) != 0)
+			{
+				savedLog = g_log_set_default_handler(&logHandler, nullptr);
+			}
+			else if ((activeTargets & BZP_GLIB_LOG_CAPTURE_TARGET_LOG) != 0)
+			{
+				g_log_set_default_handler(savedLog, nullptr);
+				savedLog = nullptr;
+			}
+
+			activeTargets = targets;
+			active = activeTargets != 0;
+		}
+
+		bool install(unsigned int targets) {
 			std::lock_guard<std::mutex> lock(mutex);
 			if (installDepth++ > 0)
 			{
+				if (targets != activeTargets)
+				{
+					reconfigureLocked(targets);
+				}
 				return true;
 			}
-			savedPrint = g_set_print_handler([](const gchar* s) { Logger::info(s); });
-			savedPrinterr = g_set_printerr_handler([](const gchar* s) { Logger::error(s); });
-			savedLog = g_log_set_default_handler(
-				[](const gchar* d, GLogLevelFlags f, const gchar* m, gpointer) {
-					std::string str = std::string(d ? d : "") + ": " + (m ? m : "");
-					if ((f & (G_LOG_FLAG_RECURSION|G_LOG_FLAG_FATAL)) != 0) Logger::fatal(str);
-					else if ((f & (G_LOG_LEVEL_CRITICAL|G_LOG_LEVEL_ERROR)) != 0) Logger::error(str);
-					else if ((f & G_LOG_LEVEL_WARNING) != 0) Logger::warn(str);
-					else if ((f & G_LOG_LEVEL_DEBUG) != 0) Logger::debug(str);
-					else Logger::info(str);
-				}, nullptr);
-			active = true;
+			reconfigureLocked(targets);
 			return true;
 		}
 
@@ -180,15 +244,23 @@ namespace bzp
 			{
 				return true;
 			}
-			if (active) {
+			if ((activeTargets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINT) != 0)
+			{
 				g_set_print_handler(savedPrint);
-				g_set_printerr_handler(savedPrinterr);
-				g_log_set_default_handler(savedLog, nullptr);
-				active = false;
 				savedPrint = nullptr;
+			}
+			if ((activeTargets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR) != 0)
+			{
+				g_set_printerr_handler(savedPrinterr);
 				savedPrinterr = nullptr;
+			}
+			if ((activeTargets & BZP_GLIB_LOG_CAPTURE_TARGET_LOG) != 0)
+			{
+				g_log_set_default_handler(savedLog, nullptr);
 				savedLog = nullptr;
 			}
+			active = false;
+			activeTargets = 0;
 			return true;
 		}
 
@@ -215,6 +287,11 @@ namespace bzp
 		return glibLogCaptureMode.load(std::memory_order_acquire) == BZP_GLIB_LOG_CAPTURE_HOST_MANAGED;
 	}
 
+	bool isValidGLibLogCaptureTargets(unsigned int targets) noexcept
+	{
+		return targets != 0 && (targets & ~static_cast<unsigned int>(BZP_GLIB_LOG_CAPTURE_TARGET_ALL)) == 0;
+	}
+
 	bool shouldReleaseAutomaticGLibLogsAtRunning()
 	{
 		return glibLogCaptureMode.load(std::memory_order_acquire) == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN;
@@ -227,7 +304,13 @@ namespace bzp
 			return false;
 		}
 
-		if (!glibHandlerGuard.install())
+		const unsigned int targets = glibLogCaptureTargets.load(std::memory_order_acquire);
+		if (!isValidGLibLogCaptureTargets(targets))
+		{
+			return false;
+		}
+
+		if (!glibHandlerGuard.install(targets))
 		{
 			return false;
 		}
@@ -432,20 +515,32 @@ BZPUpdateEnqueueResult enqueueUpdate(const char *pObjectPath, const char *pInter
 
 void bzpSetGLibLogCaptureEnabled(int enabled)
 {
-	glibLogCaptureMode.store(enabled != 0 ? BZP_GLIB_LOG_CAPTURE_AUTOMATIC : BZP_GLIB_LOG_CAPTURE_DISABLED, std::memory_order_release);
-	if (enabled == 0)
-	{
-		restoreAutomaticGLibHandlers();
-	}
+	(void)bzpSetGLibLogCaptureModeEx(enabled != 0 ? BZP_GLIB_LOG_CAPTURE_AUTOMATIC : BZP_GLIB_LOG_CAPTURE_DISABLED);
 }
 
 int bzpGetGLibLogCaptureEnabled()
 {
-	const int mode = glibLogCaptureMode.load(std::memory_order_acquire);
-	return (mode == BZP_GLIB_LOG_CAPTURE_AUTOMATIC || mode == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN) ? 1 : 0;
+	int enabled = 0;
+	(void)bzpGetGLibLogCaptureEnabledEx(&enabled);
+	return enabled;
+}
+
+BZPQueryResult bzpGetGLibLogCaptureEnabledEx(int *pEnabled)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return queryIntValue(pEnabled, []() {
+		const int mode = glibLogCaptureMode.load(std::memory_order_acquire);
+		return (mode == BZP_GLIB_LOG_CAPTURE_AUTOMATIC || mode == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN) ? 1 : 0;
+	});
+	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
 }
 
 void bzpSetGLibLogCaptureMode(BZPGLibLogCaptureMode mode)
+{
+	(void)bzpSetGLibLogCaptureModeEx(mode);
+}
+
+BZPGLibLogCaptureModeSetResult bzpSetGLibLogCaptureModeEx(BZPGLibLogCaptureMode mode)
 {
 	if (mode != BZP_GLIB_LOG_CAPTURE_AUTOMATIC
 		&& mode != BZP_GLIB_LOG_CAPTURE_DISABLED
@@ -453,7 +548,7 @@ void bzpSetGLibLogCaptureMode(BZPGLibLogCaptureMode mode)
 		&& mode != BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN)
 	{
 		Logger::warn(SSTR << "Ignoring invalid GLib log capture mode (" << static_cast<int>(mode) << ")");
-		return;
+		return BZP_GLIB_LOG_CAPTURE_MODE_SET_INVALID_MODE;
 	}
 
 	glibLogCaptureMode.store(mode, std::memory_order_release);
@@ -463,11 +558,46 @@ void bzpSetGLibLogCaptureMode(BZPGLibLogCaptureMode mode)
 	{
 		restoreAutomaticGLibHandlers();
 	}
+
+	return BZP_GLIB_LOG_CAPTURE_MODE_SET_OK;
 }
 
 BZPGLibLogCaptureMode bzpGetGLibLogCaptureMode()
 {
 	return static_cast<BZPGLibLogCaptureMode>(glibLogCaptureMode.load(std::memory_order_acquire));
+}
+
+void bzpSetGLibLogCaptureTargets(unsigned int targets)
+{
+	(void)bzpSetGLibLogCaptureTargetsEx(targets);
+}
+
+BZPGLibLogCaptureTargetsSetResult bzpSetGLibLogCaptureTargetsEx(unsigned int targets)
+{
+	if (!isValidGLibLogCaptureTargets(targets))
+	{
+		Logger::warn(SSTR << "Ignoring invalid GLib log capture targets mask (" << targets << ")");
+		return BZP_GLIB_LOG_CAPTURE_TARGETS_SET_INVALID_TARGETS;
+	}
+
+	glibLogCaptureTargets.store(targets, std::memory_order_release);
+
+	if (glibHandlerGuard.isInstalled())
+	{
+		(void)glibHandlerGuard.install(targets);
+	}
+
+	return BZP_GLIB_LOG_CAPTURE_TARGETS_SET_OK;
+}
+
+unsigned int bzpGetGLibLogCaptureTargets()
+{
+	return glibLogCaptureTargets.load(std::memory_order_acquire);
+}
+
+unsigned int bzpGetConfiguredGLibLogCaptureTargets()
+{
+	return kConfiguredGLibLogCaptureTargets;
 }
 
 BZPGLibLogCaptureMode bzpGetConfiguredGLibLogCaptureMode()
@@ -483,7 +613,8 @@ BZPGLibLogCaptureResult bzpInstallGLibLogCaptureEx()
 		return BZP_GLIB_LOG_CAPTURE_RESULT_WRONG_MODE;
 	}
 
-	return glibHandlerGuard.install()
+	const unsigned int targets = glibLogCaptureTargets.load(std::memory_order_acquire);
+	return isValidGLibLogCaptureTargets(targets) && glibHandlerGuard.install(targets)
 		? BZP_GLIB_LOG_CAPTURE_RESULT_OK
 		: BZP_GLIB_LOG_CAPTURE_RESULT_FAILED;
 }
@@ -513,7 +644,18 @@ int bzpRestoreGLibLogCapture()
 
 int bzpIsGLibLogCaptureInstalled()
 {
-	return glibHandlerGuard.isInstalled() ? 1 : 0;
+	int installed = 0;
+	(void)bzpIsGLibLogCaptureInstalledEx(&installed);
+	return installed;
+}
+
+BZPQueryResult bzpIsGLibLogCaptureInstalledEx(int *pInstalled)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return queryIntValue(pInstalled, []() {
+		return glibHandlerGuard.isInstalled() ? 1 : 0;
+	});
+	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -720,28 +862,56 @@ enum BZPUpdateQueueResult bzpPopUpdateQueueEx(char *pElementBuffer, int elementL
 // Returns 1 if the queue is empty, otherwise 0
 int bzpUpdateQueueIsEmpty()
 {
+	int isEmpty = 1;
+	(void)bzpUpdateQueueIsEmptyEx(&isEmpty);
+	return isEmpty;
+}
+
+BZPQueryResult bzpUpdateQueueIsEmptyEx(int *pIsEmpty)
+{
 	BZP_C_API_GUARD_BEGIN()
-	std::lock_guard<std::mutex> guard(updateQueueMutex);
-	return updateQueue.empty() ? 1 : 0;
-	BZP_C_API_GUARD_END_RETURN_INT(1)
+	return queryIntValue(pIsEmpty, []() {
+		std::lock_guard<std::mutex> guard(updateQueueMutex);
+		return updateQueue.empty() ? 1 : 0;
+	});
+	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
 }
 
 // Returns the number of entries waiting in the queue
 int bzpUpdateQueueSize()
 {
+	int size = 0;
+	(void)bzpUpdateQueueSizeEx(&size);
+	return size;
+}
+
+BZPQueryResult bzpUpdateQueueSizeEx(int *pSize)
+{
 	BZP_C_API_GUARD_BEGIN()
-	std::lock_guard<std::mutex> guard(updateQueueMutex);
-	return static_cast<int>(updateQueue.size());
-	BZP_C_API_GUARD_END_RETURN_INT(0)
+	return queryIntValue(pSize, []() {
+		std::lock_guard<std::mutex> guard(updateQueueMutex);
+		return static_cast<int>(updateQueue.size());
+	});
+	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
 }
 
 // Removes all entries from the queue
 void bzpUpdateQueueClear()
 {
+	int clearedCount = 0;
+	(void)bzpUpdateQueueClearEx(&clearedCount);
+}
+
+BZPQueryResult bzpUpdateQueueClearEx(int *pClearedCount)
+{
 	BZP_C_API_GUARD_BEGIN()
-	std::lock_guard<std::mutex> guard(updateQueueMutex);
-	updateQueue.clear();
-	BZP_C_API_GUARD_END_RETURN_VOID()
+	return queryIntValue(pClearedCount, []() {
+		std::lock_guard<std::mutex> guard(updateQueueMutex);
+		const int clearedCount = static_cast<int>(updateQueue.size());
+		updateQueue.clear();
+		return clearedCount;
+	});
+	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -779,7 +949,18 @@ const char *bzpGetServerRunStateString(BZPServerRunState state)
 // Convenience method to check ServerRunState for a running server
 int bzpIsServerRunning()
 {
-	return serverRunState <= ERunning ? 1 : 0;
+	int isRunning = 0;
+	(void)bzpIsServerRunningEx(&isRunning);
+	return isRunning;
+}
+
+BZPQueryResult bzpIsServerRunningEx(int *pIsRunning)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return queryIntValue(pIsRunning, []() {
+		return serverRunState <= ERunning ? 1 : 0;
+	});
+	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -880,12 +1061,23 @@ BZPWaitResult bzpShutdownAndWaitEx()
 // Typically, a call to this method would follow `bzpTriggerShutdown()`.
 int bzpWait()
 {
+	return bzpWaitEx() == BZP_WAIT_OK ? 1 : 0;
+}
+
+BZPWaitResult bzpWaitEx()
+{
+	if (bzpGetServerRunState() == EUninitialized)
+	{
+		Logger::warn("bzpWait() called before the server has started");
+		return BZP_WAIT_NOT_RUNNING;
+	}
+
 	if (bzpGetServerRunState() <= ERunning)
 	{
 		Logger::info("Waiting for BzPeri server to stop");
 	}
 
-	return bzpWaitForShutdownEx(-1) == BZP_WAIT_OK ? 1 : 0;
+	return bzpWaitForShutdownEx(-1);
 }
 
 BZPWaitResult bzpWaitForStateEx(BZPServerRunState state, int timeoutMS)
@@ -1372,23 +1564,50 @@ BZPRunLoopResult bzpRunLoopDetachEx()
 
 int bzpRunLoopIsManualMode()
 {
+	int isManualMode = 0;
+	(void)bzpRunLoopIsManualModeEx(&isManualMode);
+	return isManualMode;
+}
+
+BZPQueryResult bzpRunLoopIsManualModeEx(int *pIsManualMode)
+{
 	BZP_C_API_GUARD_BEGIN()
-	return isManualServerLoopMode() ? 1 : 0;
-	BZP_C_API_GUARD_END_RETURN_INT(0)
+	return queryIntValue(pIsManualMode, []() {
+		return isManualServerLoopMode() ? 1 : 0;
+	});
+	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
 }
 
 int bzpRunLoopHasOwner()
 {
+	int hasOwner = 0;
+	(void)bzpRunLoopHasOwnerEx(&hasOwner);
+	return hasOwner;
+}
+
+BZPQueryResult bzpRunLoopHasOwnerEx(int *pHasOwner)
+{
 	BZP_C_API_GUARD_BEGIN()
-	return hasServerLoopOwner() ? 1 : 0;
-	BZP_C_API_GUARD_END_RETURN_INT(0)
+	return queryIntValue(pHasOwner, []() {
+		return hasServerLoopOwner() ? 1 : 0;
+	});
+	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
 }
 
 int bzpRunLoopIsCurrentThreadOwner()
 {
+	int isOwner = 0;
+	(void)bzpRunLoopIsCurrentThreadOwnerEx(&isOwner);
+	return isOwner;
+}
+
+BZPQueryResult bzpRunLoopIsCurrentThreadOwnerEx(int *pIsOwner)
+{
 	BZP_C_API_GUARD_BEGIN()
-	return isCurrentThreadServerLoopOwner() ? 1 : 0;
-	BZP_C_API_GUARD_END_RETURN_INT(0)
+	return queryIntValue(pIsOwner, []() {
+		return isCurrentThreadServerLoopOwner() ? 1 : 0;
+	});
+	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
 }
 
 int bzpRunLoopInvoke(BZPRunLoopCallback callback, void *pUserData)

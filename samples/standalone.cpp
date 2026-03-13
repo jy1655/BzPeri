@@ -99,6 +99,7 @@
 #include <thread>
 #include <sstream>
 #include <cstdlib>
+#include <vector>
 
 #include "../include/BzPeri.h"
 #include "../include/BzPeriConfigurator.h"
@@ -110,6 +111,86 @@
 
 // Maximum time to wait for any single async process to timeout during initialization
 static const int kMaxAsyncInitTimeoutMS = 30 * 1000;
+
+static std::string describeGLibCaptureTargets(unsigned int targets)
+{
+	if (targets == BZP_GLIB_LOG_CAPTURE_TARGET_ALL)
+	{
+		return "all";
+	}
+
+	std::vector<std::string> parts;
+	if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_LOG) != 0)
+	{
+		parts.emplace_back("log");
+	}
+	if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINT) != 0)
+	{
+		parts.emplace_back("print");
+	}
+	if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR) != 0)
+	{
+		parts.emplace_back("printerr");
+	}
+
+	std::ostringstream stream;
+	for (size_t i = 0; i < parts.size(); ++i)
+	{
+		if (i != 0)
+		{
+			stream << ',';
+		}
+		stream << parts[i];
+	}
+	return stream.str();
+}
+
+static bool parseGLibCaptureTargets(const std::string &value, unsigned int *targetsOut)
+{
+	if (!targetsOut)
+	{
+		return false;
+	}
+
+	std::string normalized = value;
+	std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+	if (normalized == "all")
+	{
+		*targetsOut = BZP_GLIB_LOG_CAPTURE_TARGET_ALL;
+		return true;
+	}
+
+	unsigned int targets = 0;
+	std::stringstream stream(normalized);
+	std::string part;
+	while (std::getline(stream, part, ','))
+	{
+		if (part == "log")
+		{
+			targets |= BZP_GLIB_LOG_CAPTURE_TARGET_LOG;
+		}
+		else if (part == "print")
+		{
+			targets |= BZP_GLIB_LOG_CAPTURE_TARGET_PRINT;
+		}
+		else if (part == "printerr")
+		{
+			targets |= BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR;
+		}
+		else if (!part.empty())
+		{
+			return false;
+		}
+	}
+
+	if (targets == 0)
+	{
+		return false;
+	}
+
+	*targetsOut = targets;
+	return true;
+}
 
 //
 // Server data values
@@ -258,6 +339,7 @@ int main(int argc, char **ppArgv)
 	bool includeSampleServices = true;
 	bool manualLoopMode = false;
 	BZPGLibLogCaptureMode glibCaptureMode = bzpGetConfiguredGLibLogCaptureMode();
+	unsigned int glibCaptureTargets = bzpGetConfiguredGLibLogCaptureTargets();
 	bool installHostManagedCapture = false;
 
 	// A basic command-line parser
@@ -340,6 +422,18 @@ int main(int argc, char **ppArgv)
 				return -1;
 			}
 		}
+		else if (arg.rfind("--glib-log-targets=", 0) == 0)
+		{
+			unsigned int parsedTargets = 0;
+			const std::string targetSpec = arg.substr(19);
+			if (!parseGLibCaptureTargets(targetSpec, &parsedTargets))
+			{
+				LogFatal((std::string("Unknown GLib log capture targets: '") + targetSpec + "'").c_str());
+				LogFatal("Expected 'all' or a comma-separated subset of: log, print, printerr");
+				return -1;
+			}
+			glibCaptureTargets = parsedTargets;
+		}
 		else if (arg.rfind("--sample-namespace=", 0) == 0)
 		{
 			sampleNamespace = arg.substr(19);
@@ -364,6 +458,7 @@ int main(int argc, char **ppArgv)
 			LogAlways("  --sample-namespace=NODE  Namespace node for example services (default samples)");
 			LogAlways("  --manual-loop            Drive BzPeri via bzpRunLoopIteration() instead of the internal thread");
 			LogAlways("  --glib-log-capture=MODE Set GLib capture mode: auto, off, host, or startup-shutdown");
+			LogAlways("  --glib-log-targets=SET  Set GLib capture targets: all or comma-separated log,print,printerr");
 			LogAlways("  --no-sample-services      Disable bundled example GATT services");
 			LogAlways("  --with-sample-services    Re-enable bundled example services after disabling");
 			LogAlways("  --help, -h                Show this help message");
@@ -454,6 +549,7 @@ int main(int argc, char **ppArgv)
 	bzpLogRegisterTrace(LogTrace);
 
 	bzpSetGLibLogCaptureMode(glibCaptureMode);
+	bzpSetGLibLogCaptureTargets(glibCaptureTargets);
 	if (glibCaptureMode == BZP_GLIB_LOG_CAPTURE_AUTOMATIC)
 	{
 		LogStatus("GLib log capture mode: automatic");
@@ -470,6 +566,7 @@ int main(int argc, char **ppArgv)
 	{
 		LogStatus("GLib log capture mode: host-managed");
 	}
+	LogStatus((std::string("GLib log capture targets: ") + describeGLibCaptureTargets(glibCaptureTargets)).c_str());
 
 	bool hostManagedCaptureInstalled = false;
 	if (installHostManagedCapture)
