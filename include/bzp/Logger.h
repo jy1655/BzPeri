@@ -34,6 +34,10 @@
 
 namespace bzp {
 
+#ifndef BZP_COMPILED_LOG_LEVEL_VALUE
+#define BZP_COMPILED_LOG_LEVEL_VALUE 0
+#endif
+
 // Modern C++20 log level concept
 template<typename T>
 concept LogLevel = std::same_as<T, const char*> || std::same_as<T, std::string_view> || std::same_as<T, std::string>;
@@ -41,11 +45,21 @@ concept LogLevel = std::same_as<T, const char*> || std::same_as<T, std::string_v
 // Our handy stringstream macro (maintained for compatibility)
 #define SSTR std::ostringstream().flush()
 
-// Modern C++20 format-based logging macros
-#define LOG_DEBUG_F(...) Logger::debug(bzp::safeFormat(__VA_ARGS__))
-#define LOG_INFO_F(...) Logger::info(bzp::safeFormat(__VA_ARGS__))
-#define LOG_WARN_F(...) Logger::warn(bzp::safeFormat(__VA_ARGS__))
-#define LOG_ERROR_F(...) Logger::error(bzp::safeFormat(__VA_ARGS__))
+// Modern C++20 format-based logging macros that skip formatting when the level is disabled.
+#define LOG_DEBUG_F(...) do { if (::bzp::Logger::isDebugCompiledIn() && ::bzp::Logger::isDebugEnabled()) ::bzp::Logger::debug(::bzp::safeFormat(__VA_ARGS__)); } while (0)
+#define LOG_INFO_F(...) do { if (::bzp::Logger::isInfoCompiledIn() && ::bzp::Logger::isInfoEnabled()) ::bzp::Logger::info(::bzp::safeFormat(__VA_ARGS__)); } while (0)
+#define LOG_WARN_F(...) do { if (::bzp::Logger::isWarnCompiledIn() && ::bzp::Logger::isWarnEnabled()) ::bzp::Logger::warn(::bzp::safeFormat(__VA_ARGS__)); } while (0)
+#define LOG_ERROR_F(...) do { if (::bzp::Logger::isErrorCompiledIn() && ::bzp::Logger::isErrorEnabled()) ::bzp::Logger::error(::bzp::safeFormat(__VA_ARGS__)); } while (0)
+#define LOG_STATUS_F(...) do { if (::bzp::Logger::isStatusCompiledIn() && ::bzp::Logger::isStatusEnabled()) ::bzp::Logger::status(::bzp::safeFormat(__VA_ARGS__)); } while (0)
+#define LOG_TRACE_F(...) do { if (::bzp::Logger::isTraceCompiledIn() && ::bzp::Logger::isTraceEnabled()) ::bzp::Logger::trace(::bzp::safeFormat(__VA_ARGS__)); } while (0)
+
+// Stream-based helpers for hot paths that still use SSTR-style logging.
+#define LOG_DEBUG_STREAM(expr) do { if (::bzp::Logger::isDebugCompiledIn() && ::bzp::Logger::isDebugEnabled()) ::bzp::Logger::debug((expr)); } while (0)
+#define LOG_INFO_STREAM(expr) do { if (::bzp::Logger::isInfoCompiledIn() && ::bzp::Logger::isInfoEnabled()) ::bzp::Logger::info((expr)); } while (0)
+#define LOG_WARN_STREAM(expr) do { if (::bzp::Logger::isWarnCompiledIn() && ::bzp::Logger::isWarnEnabled()) ::bzp::Logger::warn((expr)); } while (0)
+#define LOG_ERROR_STREAM(expr) do { if (::bzp::Logger::isErrorCompiledIn() && ::bzp::Logger::isErrorEnabled()) ::bzp::Logger::error((expr)); } while (0)
+#define LOG_STATUS_STREAM(expr) do { if (::bzp::Logger::isStatusCompiledIn() && ::bzp::Logger::isStatusEnabled()) ::bzp::Logger::status((expr)); } while (0)
+#define LOG_TRACE_STREAM(expr) do { if (::bzp::Logger::isTraceCompiledIn() && ::bzp::Logger::isTraceEnabled()) ::bzp::Logger::trace((expr)); } while (0)
 
 class Logger
 {
@@ -86,6 +100,25 @@ public:
 	// Register logging receiver for TRACE logging.  To register a logging level, simply call with a delegate that performs the
 	// appropriate logging action. To unregister, call with `nullptr`
 	static void registerTraceReceiver(BZPLogReceiver receiver);
+
+	static constexpr int compiledLogLevelValue() noexcept { return BZP_COMPILED_LOG_LEVEL_VALUE; }
+	static constexpr bool isTraceCompiledIn() noexcept { return compiledLogLevelValue() <= 0; }
+	static constexpr bool isDebugCompiledIn() noexcept { return compiledLogLevelValue() <= 1; }
+	static constexpr bool isInfoCompiledIn() noexcept { return compiledLogLevelValue() <= 2; }
+	static constexpr bool isStatusCompiledIn() noexcept { return compiledLogLevelValue() <= 3; }
+	static constexpr bool isWarnCompiledIn() noexcept { return compiledLogLevelValue() <= 4; }
+	static constexpr bool isErrorCompiledIn() noexcept { return compiledLogLevelValue() <= 5; }
+	static constexpr bool isFatalCompiledIn() noexcept { return compiledLogLevelValue() <= 6; }
+	static constexpr bool isAlwaysCompiledIn() noexcept { return compiledLogLevelValue() <= 7; }
+
+	static bool isDebugEnabled() noexcept { return logReceiverDebug != nullptr; }
+	static bool isInfoEnabled() noexcept { return logReceiverInfo != nullptr; }
+	static bool isStatusEnabled() noexcept { return logReceiverStatus != nullptr; }
+	static bool isWarnEnabled() noexcept { return logReceiverWarn != nullptr; }
+	static bool isErrorEnabled() noexcept { return logReceiverError != nullptr; }
+	static bool isFatalEnabled() noexcept { return logReceiverFatal != nullptr; }
+	static bool isAlwaysEnabled() noexcept { return logReceiverAlways != nullptr; }
+	static bool isTraceEnabled() noexcept { return logReceiverTrace != nullptr; }
 
 
 	//
@@ -250,20 +283,24 @@ public:
 	template<LogLevel T>
 	static void debugWithContext(T&& message, const LogContext& ctx = {}) noexcept
 	{
-		if (!ctx.component.empty()) {
-			debug(safeFormat("[{}] {}", ctx.component, std::forward<T>(message)));
-		} else {
-			debug(std::forward<T>(message));
+		if constexpr (isDebugCompiledIn()) {
+			if (!ctx.component.empty()) {
+				debug(safeFormat("[{}] {}", ctx.component, std::forward<T>(message)));
+			} else {
+				debug(std::forward<T>(message));
+			}
 		}
 	}
 
 	template<LogLevel T>
 	static void infoWithContext(T&& message, const LogContext& ctx = {}) noexcept
 	{
-		if (!ctx.component.empty()) {
-			info(safeFormat("[{}] {}", ctx.component, std::forward<T>(message)));
-		} else {
-			info(std::forward<T>(message));
+		if constexpr (isInfoCompiledIn()) {
+			if (!ctx.component.empty()) {
+				info(safeFormat("[{}] {}", ctx.component, std::forward<T>(message)));
+			} else {
+				info(std::forward<T>(message));
+			}
 		}
 	}
 };

@@ -151,11 +151,11 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #include <algorithm>
+#include <cctype>
 
 #include <bzp/Server.h>
 #include "ServerUtils.h"
 #include <bzp/Utils.h>
-#include <bzp/Globals.h>
 #include <bzp/DBusObject.h>
 #include <bzp/DBusInterface.h>
 #include <bzp/GattProperty.h>
@@ -176,13 +176,6 @@ namespace bzp {
 	#pragma GCC diagnostic push
 	#pragma GCC diagnostic ignored "-Wunused-parameter"
 #endif
-
-// ---------------------------------------------------------------------------------------------------------------------------------
-// Globals
-// ---------------------------------------------------------------------------------------------------------------------------------
-
-// Our one and only server. It's global.
-std::shared_ptr<Server> TheServer = nullptr;
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Object implementation
@@ -266,7 +259,20 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 	// e.g., "bzperi.myapp" becomes "/com/bzperi/myapp"
 	std::string pathServiceName = getServiceName();
 	std::replace(pathServiceName.begin(), pathServiceName.end(), '.', '/');
-	objects.push_back(DBusObject(DBusObjectPath() + "com" + pathServiceName));
+	for (char &pathChar : pathServiceName)
+	{
+		if (pathChar == '/')
+		{
+			continue;
+		}
+
+		const auto normalized = static_cast<unsigned char>(pathChar);
+		if (!std::isalnum(normalized) && pathChar != '_')
+		{
+			pathChar = '_';
+		}
+	}
+	objects.push_back(DBusObject(*this, DBusObjectPath() + "com" + pathServiceName));
 
 	// Cache the root node for downstream configurators (example services, application-defined services, etc.)
 	rootObject = &objects.back();
@@ -308,7 +314,7 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 	// This is a non-published object (as specified by the 'false' parameter in the DBusObject constructor.) This way, we can
 	// include this within our server hieararchy (i.e., within the `objects` list) but it won't be exposed by BlueZ as a Bluetooth
 	// service to clietns.
-	objects.push_back(DBusObject(DBusObjectPath(), false));
+	objects.push_back(DBusObject(*this, DBusObjectPath(), false));
 
 	// Get a reference to the new object as it resides in the list
 	DBusObject &objectManager = objects.back();
@@ -325,8 +331,8 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 	// 'org.freedesktop.DBus.ObjectManager' interface.
 	const char *pInArgs[] = { nullptr };
 	const char *pOutArgs = "a{oa{sa{sv}}}";
-	omInterface->addMethod("GetManagedObjects", pInArgs, pOutArgs, [](const DBusInterface& self, GDBusConnection* pConnection, const std::string& methodName, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
-		ServerUtils::getManagedObjects(pInvocation);
+	omInterface->addMethod("GetManagedObjects", pInArgs, pOutArgs, [](const DBusInterface& self, const std::string&, DBusMethodCallRef methodCall) {
+		ServerUtils::getManagedObjects(self.getOwner().getServer(), methodCall);
 	});
 
 }
@@ -366,11 +372,18 @@ std::shared_ptr<const DBusInterface> Server::findInterface(const DBusObjectPath 
 // Find and call a D-Bus method within the given D-Bus object on the given D-Bus interface
 //
 // If the method was called, this method returns true, otherwise false. There is no result from the method call itself.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view interfaceName, std::string_view methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const
+{
+	return callMethod(objectPath, interfaceName, methodName, DBusMethodCallRef(pConnection, pParameters, pInvocation, pUserData));
+}
+#endif
+
+bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view interfaceName, std::string_view methodName, DBusMethodCallRef methodCall) const
 {
 	for (const DBusObject &object : objects)
 	{
-		if (object.callMethod(objectPath, std::string(interfaceName), std::string(methodName), pConnection, pParameters, pInvocation, pUserData))
+		if (object.callMethod(objectPath, std::string(interfaceName), std::string(methodName), methodCall))
 		{
 			return true;
 		}
@@ -378,6 +391,13 @@ bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view inter
 
 	return false;
 }
+
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view interfaceName, std::string_view methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const
+{
+	return callMethod(objectPath, interfaceName, methodName, DBusMethodCallRef(connection, parameters, invocation, pUserData));
+}
+#endif
 
 // Find a GATT Property within the given D-Bus object on the given D-Bus interface
 //

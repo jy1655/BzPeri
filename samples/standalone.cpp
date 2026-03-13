@@ -18,13 +18,14 @@
 // >>
 //
 // Very little is required ("MUST") by a stand-alone application to instantiate a valid BzPeri server. There are also some
-// things that are reocommended ("SHOULD").
+// things that are recommended ("SHOULD").
 //
 // * A stand-alone application MUST:
 //
 //     * Start the server via a call to `bzpStart()`.
 //
-//         Once started the server will run on its own thread.
+//         Once started the server will run on its own thread. In the `v0.2.x` line, a stand-alone application may also choose
+//         the manual run-loop path (`bzpStartManual*()` plus `bzpRunLoopIteration*()`) when it wants to own the event loop.
 //
 //         Two of the parameters to `bzpStart()` are delegates responsible for providing data accessors for the server, a
 //         `BZPServerDataGetter` delegate and a 'BZPServerDataSetter' delegate. The getter method simply receives a string name (for
@@ -32,7 +33,7 @@
 //         the same only in reverse.
 //
 //         While the server is running, you will likely need to update the data being served. This is done by calling
-//         `bzpNofifyUpdatedCharacteristic()` or `bzpNofifyUpdatedDescriptor()` with the full path to the characteristic or delegate
+//         `bzpNotifyUpdatedCharacteristic()` or `bzpNotifyUpdatedDescriptor()` with the full path to the characteristic or delegate
 //         whose data has been updated. This will trigger your server's `onUpdatedValue()` method, which can perform whatever
 //         actions are needed such as sending out a change notification (or in BlueZ parlance, a "PropertiesChanged" signal.)
 //
@@ -44,12 +45,12 @@
 //         that begins the asynchronous shutdown process.
 //
 //         Before your application terminates, it should wait for the server to be completely stopped. This is done via a call to
-//         `bzpWait()`. If the server has not yet reached the `EStopped` state when `bzpWait()` is called, it will block until the
-//         server has done so.
+//         `bzpWait()` or the bounded form `bzpWaitForShutdown(timeoutMS)`. If the server has not yet reached the `EStopped` state
+//         when `bzpWait()` is called, it will block until the server has done so.
 //
-//         To avoid the blocking behavior of `bzpWait()`, ensure that the server has stopped before calling it. This can be done
-//         by ensuring `bzpGetServerRunState() == EStopped`. Even if the server has stopped, it is recommended to call `bzpWait()`
-//         to ensure the server has cleaned up all threads and other internals.
+//         To avoid the blocking behavior of `bzpWait()`, use `bzpWaitForShutdown(timeoutMS)` or wait for
+//         `bzpGetServerRunState() == EStopped` first. Even if the server has stopped, it is recommended to call `bzpWait()` (or
+//         `bzpWaitForShutdown(0)`) to ensure the server has cleaned up all threads and other internals.
 //
 //         If you want to keep things simple, there is a method `bzpShutdownAndWait()` which will trigger the shutdown and then
 //         block until the server has stopped.
@@ -82,10 +83,10 @@
 // >>>  Building with BZPERI
 // >>
 //
-// The BzPeri distribution includes this file as part of the BzPeri files with everything compiling to a single, stand-
-// alone binary. It is built this way because BzPeri is not intended to be a generic library. You will need to make your
-// custom modifications to it. Don't worry, a lot of work went into BzPeri to make it almost trivial to customize
-// (see Server.cpp).
+// The BzPeri distribution includes this file as part of the BzPeri files with everything compiling to a single stand-alone
+// binary. It remains a useful integration sample even though BzPeri now also ships as a reusable library/package.
+// The sample intentionally exercises the public C API surface, logging controls, and runtime options that downstream users are
+// most likely to need when validating a new release such as `v0.2.0`.
 //
 // If it is important to you or your build process that BzPeri exist as a library, you are welcome to do so. Just configure
 // your build process to build the BzPeri files (minus this file) as a library and link against that instead. All that is
@@ -99,6 +100,7 @@
 #include <thread>
 #include <sstream>
 #include <cstdlib>
+#include <vector>
 
 #include "../include/BzPeri.h"
 #include "../include/BzPeriConfigurator.h"
@@ -110,6 +112,207 @@
 
 // Maximum time to wait for any single async process to timeout during initialization
 static const int kMaxAsyncInitTimeoutMS = 30 * 1000;
+
+static const char *describeCompiledLogLevel(BZPCompiledLogLevel level)
+{
+	switch (level)
+	{
+	case BZP_COMPILED_LOG_LEVEL_TRACE:
+		return "trace";
+	case BZP_COMPILED_LOG_LEVEL_DEBUG:
+		return "debug";
+	case BZP_COMPILED_LOG_LEVEL_INFO:
+		return "info";
+	case BZP_COMPILED_LOG_LEVEL_STATUS:
+		return "status";
+	case BZP_COMPILED_LOG_LEVEL_WARN:
+		return "warn";
+	case BZP_COMPILED_LOG_LEVEL_ERROR:
+		return "error";
+	case BZP_COMPILED_LOG_LEVEL_FATAL:
+		return "fatal";
+	case BZP_COMPILED_LOG_LEVEL_ALWAYS:
+		return "always";
+	default:
+		return "unknown";
+	}
+}
+
+static std::string describeGLibCaptureTargets(unsigned int targets)
+{
+	if (targets == BZP_GLIB_LOG_CAPTURE_TARGET_ALL)
+	{
+		return "all";
+	}
+
+	std::vector<std::string> parts;
+	if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_LOG) != 0)
+	{
+		parts.emplace_back("log");
+	}
+	if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINT) != 0)
+	{
+		parts.emplace_back("print");
+	}
+	if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR) != 0)
+	{
+		parts.emplace_back("printerr");
+	}
+
+	std::ostringstream stream;
+	for (size_t i = 0; i < parts.size(); ++i)
+	{
+		if (i != 0)
+		{
+			stream << ',';
+		}
+		stream << parts[i];
+	}
+	return stream.str();
+}
+
+static std::string describeGLibCaptureDomains(unsigned int domains)
+{
+	if (domains == BZP_GLIB_LOG_CAPTURE_DOMAIN_ALL)
+	{
+		return "all";
+	}
+
+	std::vector<std::string> parts;
+	if ((domains & BZP_GLIB_LOG_CAPTURE_DOMAIN_DEFAULT) != 0)
+	{
+		parts.emplace_back("default");
+	}
+	if ((domains & BZP_GLIB_LOG_CAPTURE_DOMAIN_GLIB) != 0)
+	{
+		parts.emplace_back("glib");
+	}
+	if ((domains & BZP_GLIB_LOG_CAPTURE_DOMAIN_GIO) != 0)
+	{
+		parts.emplace_back("gio");
+	}
+	if ((domains & BZP_GLIB_LOG_CAPTURE_DOMAIN_BLUEZ) != 0)
+	{
+		parts.emplace_back("bluez");
+	}
+	if ((domains & BZP_GLIB_LOG_CAPTURE_DOMAIN_OTHER) != 0)
+	{
+		parts.emplace_back("other");
+	}
+
+	std::ostringstream stream;
+	for (size_t i = 0; i < parts.size(); ++i)
+	{
+		if (i != 0)
+		{
+			stream << ',';
+		}
+		stream << parts[i];
+	}
+	return stream.str();
+}
+
+static bool parseGLibCaptureTargets(const std::string &value, unsigned int *targetsOut)
+{
+	if (!targetsOut)
+	{
+		return false;
+	}
+
+	std::string normalized = value;
+	std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+	if (normalized == "all")
+	{
+		*targetsOut = BZP_GLIB_LOG_CAPTURE_TARGET_ALL;
+		return true;
+	}
+
+	unsigned int targets = 0;
+	std::stringstream stream(normalized);
+	std::string part;
+	while (std::getline(stream, part, ','))
+	{
+		if (part == "log")
+		{
+			targets |= BZP_GLIB_LOG_CAPTURE_TARGET_LOG;
+		}
+		else if (part == "print")
+		{
+			targets |= BZP_GLIB_LOG_CAPTURE_TARGET_PRINT;
+		}
+		else if (part == "printerr")
+		{
+			targets |= BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR;
+		}
+		else if (!part.empty())
+		{
+			return false;
+		}
+	}
+
+	if (targets == 0)
+	{
+		return false;
+	}
+
+	*targetsOut = targets;
+	return true;
+}
+
+static bool parseGLibCaptureDomains(const std::string &value, unsigned int *domainsOut)
+{
+	if (!domainsOut)
+	{
+		return false;
+	}
+
+	std::string normalized = value;
+	std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+	if (normalized == "all")
+	{
+		*domainsOut = BZP_GLIB_LOG_CAPTURE_DOMAIN_ALL;
+		return true;
+	}
+
+	unsigned int domains = 0;
+	std::stringstream stream(normalized);
+	std::string part;
+	while (std::getline(stream, part, ','))
+	{
+		if (part == "default")
+		{
+			domains |= BZP_GLIB_LOG_CAPTURE_DOMAIN_DEFAULT;
+		}
+		else if (part == "glib")
+		{
+			domains |= BZP_GLIB_LOG_CAPTURE_DOMAIN_GLIB;
+		}
+		else if (part == "gio")
+		{
+			domains |= BZP_GLIB_LOG_CAPTURE_DOMAIN_GIO;
+		}
+		else if (part == "bluez")
+		{
+			domains |= BZP_GLIB_LOG_CAPTURE_DOMAIN_BLUEZ;
+		}
+		else if (part == "other")
+		{
+			domains |= BZP_GLIB_LOG_CAPTURE_DOMAIN_OTHER;
+		}
+		else if (!part.empty())
+		{
+			return false;
+		}
+	}
+
+	if (domains == 0)
+	{
+		return false;
+	}
+
+	*domainsOut = domains;
+	return true;
+}
 
 //
 // Server data values
@@ -123,6 +326,9 @@ static std::string serverDataTextString = "Hello, world!";
 
 // Cached D-Bus path for the sample battery characteristic
 static std::string batteryLevelObjectPath;
+
+// Signal state is shared with the sample's main loop and must stay async-signal-safe.
+static volatile sig_atomic_t pendingShutdownSignal = 0;
 
 //
 // Logging
@@ -155,20 +361,19 @@ void LogTrace(const char *pText) { std::cout << "-Trace-: " << pText << std::end
 // Signal handling
 //
 
-// We setup a couple Unix signals to perform graceful shutdown in the case of SIGTERM or get an SIGING (CTRL-C)
+// We setup a couple Unix signals to request graceful shutdown in the case of SIGTERM or SIGINT (CTRL-C).
 void signalHandler(int signum)
 {
-	switch (signum)
-	{
-		case SIGINT:
-			LogStatus("SIGINT recieved, shutting down");
-			bzpTriggerShutdown();
-			break;
-		case SIGTERM:
-			LogStatus("SIGTERM recieved, shutting down");
-			bzpTriggerShutdown();
-			break;
-	}
+	pendingShutdownSignal = signum;
+}
+
+void installSignalHandler(int signum)
+{
+	struct sigaction action = {};
+	action.sa_handler = signalHandler;
+	sigemptyset(&action.sa_mask);
+	action.sa_flags = 0;
+	sigaction(signum, &action, nullptr);
 }
 
 //
@@ -254,6 +459,13 @@ int main(int argc, char **ppArgv)
 	std::string advertisingShortName = "BzPeri";
 	std::string sampleNamespace = "samples";
 	bool includeSampleServices = true;
+	bool manualLoopMode = false;
+	BZPGLibLogCaptureMode glibCaptureMode = bzpGetConfiguredGLibLogCaptureMode();
+	unsigned int glibCaptureTargets = bzpGetConfiguredGLibLogCaptureTargets();
+	unsigned int glibCaptureDomains = bzpGetConfiguredGLibLogCaptureDomains();
+	bool sleepIntegrationEnabled = bzpGetConfiguredPrepareForSleepIntegrationEnabled() != 0;
+	bool sleepInhibitorEnabled = bzpGetConfiguredSleepInhibitorEnabled() != 0;
+	bool installHostManagedCapture = false;
 
 	// A basic command-line parser
 	for (int i = 1; i < argc; ++i)
@@ -303,6 +515,100 @@ int main(int argc, char **ppArgv)
 		{
 			includeSampleServices = true;
 		}
+		else if (arg == "--manual-loop")
+		{
+			manualLoopMode = true;
+		}
+		else if (arg.rfind("--sleep-integration=", 0) == 0)
+		{
+			std::string mode = arg.substr(20);
+			std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+			if (mode == "on" || mode == "enable" || mode == "enabled" || mode == "true")
+			{
+				sleepIntegrationEnabled = true;
+			}
+			else if (mode == "off" || mode == "disable" || mode == "disabled" || mode == "false")
+			{
+				sleepIntegrationEnabled = false;
+			}
+			else
+			{
+				LogFatal((std::string("Unknown sleep integration mode: '") + mode + "'").c_str());
+				LogFatal("Expected one of: on, off");
+				return -1;
+			}
+		}
+		else if (arg.rfind("--sleep-inhibitor=", 0) == 0)
+		{
+			std::string mode = arg.substr(19);
+			std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+			if (mode == "on" || mode == "enable" || mode == "enabled" || mode == "true")
+			{
+				sleepInhibitorEnabled = true;
+			}
+			else if (mode == "off" || mode == "disable" || mode == "disabled" || mode == "false")
+			{
+				sleepInhibitorEnabled = false;
+			}
+			else
+			{
+				LogFatal((std::string("Unknown sleep inhibitor mode: '") + mode + "'").c_str());
+				LogFatal("Expected one of: on, off");
+				return -1;
+			}
+		}
+		else if (arg.rfind("--glib-log-capture=", 0) == 0)
+		{
+			std::string mode = arg.substr(19);
+			std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+			if (mode == "auto" || mode == "automatic")
+			{
+				glibCaptureMode = BZP_GLIB_LOG_CAPTURE_AUTOMATIC;
+			}
+			else if (mode == "off" || mode == "disabled" || mode == "disable")
+			{
+				glibCaptureMode = BZP_GLIB_LOG_CAPTURE_DISABLED;
+			}
+			else if (mode == "host" || mode == "host-managed")
+			{
+				glibCaptureMode = BZP_GLIB_LOG_CAPTURE_HOST_MANAGED;
+				installHostManagedCapture = true;
+			}
+			else if (mode == "startup-shutdown" || mode == "transient")
+			{
+				glibCaptureMode = BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN;
+			}
+			else
+			{
+				LogFatal((std::string("Unknown GLib log capture mode: '") + mode + "'").c_str());
+				LogFatal("Expected one of: auto, off, host, startup-shutdown");
+				return -1;
+			}
+		}
+		else if (arg.rfind("--glib-log-targets=", 0) == 0)
+		{
+			unsigned int parsedTargets = 0;
+			const std::string targetSpec = arg.substr(19);
+			if (!parseGLibCaptureTargets(targetSpec, &parsedTargets))
+			{
+				LogFatal((std::string("Unknown GLib log capture targets: '") + targetSpec + "'").c_str());
+				LogFatal("Expected 'all' or a comma-separated subset of: log, print, printerr");
+				return -1;
+			}
+			glibCaptureTargets = parsedTargets;
+		}
+		else if (arg.rfind("--glib-log-domains=", 0) == 0)
+		{
+			unsigned int parsedDomains = 0;
+			const std::string domainSpec = arg.substr(19);
+			if (!parseGLibCaptureDomains(domainSpec, &parsedDomains))
+			{
+				LogFatal((std::string("Unknown GLib log capture domains: '") + domainSpec + "'").c_str());
+				LogFatal("Expected 'all' or a comma-separated subset of: default, glib, gio, bluez, other");
+				return -1;
+			}
+			glibCaptureDomains = parsedDomains;
+		}
 		else if (arg.rfind("--sample-namespace=", 0) == 0)
 		{
 			sampleNamespace = arg.substr(19);
@@ -325,6 +631,12 @@ int main(int argc, char **ppArgv)
 			LogAlways("  --advertise-name=NAME    Set LE advertising name (default BzPeri)");
 			LogAlways("  --advertise-short=NAME   Set LE advertising short name (default BzPeri)");
 			LogAlways("  --sample-namespace=NODE  Namespace node for example services (default samples)");
+			LogAlways("  --manual-loop            Drive BzPeri via bzpRunLoopIteration() instead of the internal thread");
+			LogAlways("  --sleep-integration=MODE Enable or disable systemd PrepareForSleep integration: on or off");
+			LogAlways("  --sleep-inhibitor=MODE   Enable or disable systemd sleep inhibitor support: on or off");
+			LogAlways("  --glib-log-capture=MODE Set GLib capture mode: auto, off, host, or startup-shutdown");
+			LogAlways("  --glib-log-targets=SET  Set GLib capture targets: all or comma-separated log,print,printerr");
+			LogAlways("  --glib-log-domains=SET  Set GLib log domains: all or comma-separated default,glib,gio,bluez,other");
 			LogAlways("  --no-sample-services      Disable bundled example GATT services");
 			LogAlways("  --with-sample-services    Re-enable bundled example services after disabling");
 			LogAlways("  --help, -h                Show this help message");
@@ -401,8 +713,8 @@ int main(int argc, char **ppArgv)
 	}
 
 	// Setup our signal handlers
-	signal(SIGINT, signalHandler);
-	signal(SIGTERM, signalHandler);
+	installSignalHandler(SIGINT);
+	installSignalHandler(SIGTERM);
 
 	// Register our loggers
 	bzpLogRegisterDebug(LogDebug);
@@ -413,6 +725,49 @@ int main(int argc, char **ppArgv)
 	bzpLogRegisterFatal(LogFatal);
 	bzpLogRegisterAlways(LogAlways);
 	bzpLogRegisterTrace(LogTrace);
+
+	bzpSetPrepareForSleepIntegrationEnabled(sleepIntegrationEnabled ? 1 : 0);
+	bzpSetSleepInhibitorEnabled(sleepInhibitorEnabled ? 1 : 0);
+	bzpSetGLibLogCaptureMode(glibCaptureMode);
+	bzpSetGLibLogCaptureTargets(glibCaptureTargets);
+	bzpSetGLibLogCaptureDomains(glibCaptureDomains);
+	LogStatus((std::string("Compiled log level: ") + describeCompiledLogLevel(bzpGetConfiguredCompiledLogLevel())).c_str());
+	LogStatus((std::string("PrepareForSleep integration: ") + (sleepIntegrationEnabled ? "enabled" : "disabled")).c_str());
+	LogStatus((std::string("Sleep inhibitor integration: ") + (sleepInhibitorEnabled ? "enabled" : "disabled")).c_str());
+	if (glibCaptureMode == BZP_GLIB_LOG_CAPTURE_AUTOMATIC)
+	{
+		LogStatus("GLib log capture mode: automatic");
+	}
+	else if (glibCaptureMode == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN)
+	{
+		LogStatus("GLib log capture mode: startup-and-shutdown");
+	}
+	else if (glibCaptureMode == BZP_GLIB_LOG_CAPTURE_DISABLED)
+	{
+		LogStatus("GLib log capture mode: disabled");
+	}
+	else
+	{
+		LogStatus("GLib log capture mode: host-managed");
+	}
+	LogStatus((std::string("GLib log capture targets: ") + describeGLibCaptureTargets(glibCaptureTargets)).c_str());
+	LogStatus((std::string("GLib log capture domains: ") + describeGLibCaptureDomains(glibCaptureDomains)).c_str());
+
+	bool hostManagedCaptureInstalled = false;
+	if (installHostManagedCapture)
+	{
+		hostManagedCaptureInstalled = bzpInstallGLibLogCapture() != 0;
+		if (!hostManagedCaptureInstalled)
+		{
+			LogFatal("Failed to install host-managed GLib log capture");
+			return -1;
+		}
+	}
+
+	if (manualLoopMode)
+	{
+		LogStatus("Using manual BzPeri run-loop mode");
+	}
 
 	// Start the server's ascync processing
 	//
@@ -426,29 +781,114 @@ int main(int argc, char **ppArgv)
 	//     The last parameter (enableBondable=1) allows client devices to pair/bond with this server. This is typically
 	//     required for modern BLE applications. Set to 0 to disable pairing if you need an open, non-authenticated connection.
 	//
-	if (!bzpStartWithBondable(serviceName.c_str(), advertisingName.c_str(), advertisingShortName.c_str(), dataGetter, dataSetter, kMaxAsyncInitTimeoutMS, 1))
+	const int started = manualLoopMode
+		? bzpStartWithBondableManual(serviceName.c_str(), advertisingName.c_str(), advertisingShortName.c_str(), dataGetter, dataSetter, 1)
+		: bzpStartWithBondable(serviceName.c_str(), advertisingName.c_str(), advertisingShortName.c_str(), dataGetter, dataSetter, kMaxAsyncInitTimeoutMS, 1);
+	if (!started)
 	{
+		if (hostManagedCaptureInstalled)
+		{
+			bzpRestoreGLibLogCapture();
+		}
 		return -1;
 	}
 
 	// Wait for the server to start the shutdown process
 	//
 	// While we wait, every 15 ticks, drop the battery level by one percent until we reach 0
+	bool shutdownTriggered = false;
+	int batteryTickSeconds = 0;
+	constexpr auto kLoopTick = std::chrono::milliseconds(100);
+	auto lastTick = std::chrono::steady_clock::now();
 	while (bzpGetServerRunState() < EStopping)
 	{
-		std::this_thread::sleep_for(std::chrono::seconds(15));
+		if (manualLoopMode)
+		{
+			bzpRunLoopIterationFor(static_cast<int>(kLoopTick.count()));
+		}
+		else
+		{
+			std::this_thread::sleep_for(kLoopTick);
+		}
 
+		if (pendingShutdownSignal != 0 && !shutdownTriggered)
+		{
+			switch (pendingShutdownSignal)
+			{
+				case SIGINT:
+					LogStatus("SIGINT received, shutting down");
+					break;
+				case SIGTERM:
+					LogStatus("SIGTERM received, shutting down");
+					break;
+				default:
+					LogStatus("Termination signal received, shutting down");
+					break;
+			}
+			bzpTriggerShutdown();
+			shutdownTriggered = true;
+		}
+
+		const auto now = std::chrono::steady_clock::now();
+		if (now - lastTick < std::chrono::seconds(1))
+		{
+			continue;
+		}
+
+		lastTick = now;
+		batteryTickSeconds += 1;
+		if (batteryTickSeconds < 15)
+		{
+			continue;
+		}
+
+		batteryTickSeconds = 0;
 		serverDataBatteryLevel = std::max(serverDataBatteryLevel - 1, 0);
 		if (!batteryLevelObjectPath.empty())
 		{
-			bzpNofifyUpdatedCharacteristic(batteryLevelObjectPath.c_str());
+			bzpNotifyUpdatedCharacteristic(batteryLevelObjectPath.c_str());
 		}
+	}
+
+	if (manualLoopMode)
+	{
+		while (bzpGetServerRunState() != EStopped)
+		{
+			if (!bzpRunLoopIterationFor(static_cast<int>(kLoopTick.count())))
+			{
+				std::this_thread::sleep_for(kLoopTick);
+			}
+		}
+
+		if (!bzpWaitForShutdown(0))
+		{
+			if (hostManagedCaptureInstalled)
+			{
+				bzpRestoreGLibLogCapture();
+			}
+			return -1;
+		}
+
+		if (hostManagedCaptureInstalled)
+		{
+			bzpRestoreGLibLogCapture();
+		}
+		return bzpGetServerHealth() == EOk ? 0 : 1;
 	}
 
 	// Wait for the server to come to a complete stop (CTRL-C from the command line)
 	if (!bzpWait())
 	{
+		if (hostManagedCaptureInstalled)
+		{
+			bzpRestoreGLibLogCapture();
+		}
 		return -1;
+	}
+
+	if (hostManagedCaptureInstalled)
+	{
+		bzpRestoreGLibLogCapture();
 	}
 
 	// Return the final server health status as a success (0) or error (-1)

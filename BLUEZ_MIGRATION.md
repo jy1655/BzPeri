@@ -4,6 +4,21 @@
 
 This project has been migrated from the legacy HCI Management API to modern BlueZ D-Bus interfaces for improved stability, compatibility, and performance.
 
+## v0.2.0 Status Compared to v0.1.9
+
+The `0.1.x` line already shipped the D-Bus migration, but `v0.2.0` is where that migration becomes operationally mature.
+
+Compared to `v0.1.9`, the `v0.2.0` line adds:
+
+- adapter hot-unplug / re-add recovery
+- BlueZ restart detection and reconnect handling
+- actual registered-service UUID based advertising payload selection
+- improved GLib log capture controls for embedded hosts
+- power-management hooks around `PrepareForSleep` and optional delay inhibitors
+- automated regression coverage for the migration-critical runtime paths
+
+The main BlueZ-side gap that still remains is real hardware validation of the extended-advertising path on an extended-capable controller.
+
 ## Key Changes
 
 ### Removed Components
@@ -104,7 +119,7 @@ if (caps.isSuccess()) {
 ### Automatic Discovery
 ```cpp
 // Discovers all available adapters
-auto adapters = BluezAdapter::getInstance().discoverAdapters();
+auto adapters = getActiveBluezAdapter().discoverAdapters();
 for (const auto& adapter : adapters.value()) {
     Logger::info(SSTR << "Found: " << adapter.path << " (" << adapter.address << ")");
 }
@@ -158,24 +173,24 @@ auto result = adapter.retryOperation([&]() {
 ## Validation Checklist
 
 ### Startup Sequence
-1. ✅ Acquires `com.bzperi` D-Bus name
-2. ✅ Discovers available adapters via ObjectManager
-3. ✅ Selects powered adapter (or first available)
-4. ✅ Sets Powered/Discoverable/Connectable without blocking
-5. ✅ Registers GATT services with GattManager1
-6. ✅ Enables advertising (if LEAdvertisingManager1 available)
+1. Done: acquires `com.bzperi` D-Bus name
+2. Done: discovers available adapters via ObjectManager
+3. Done: selects a powered adapter, or the first available adapter
+4. Done: sets Powered/Discoverable/Connectable without blocking
+5. Done: registers GATT services with `GattManager1`
+6. Done: enables advertising when `LEAdvertisingManager1` is available
 
 ### Runtime Operations
-1. ✅ Device connections trigger Device1.Connected signals
-2. ✅ Connection count accurately tracked via D-Bus events
-3. ✅ Notifications work correctly for connected devices
-4. ✅ Device disconnections properly decrement counters
+1. Done: device connections trigger `Device1.Connected` signals
+2. Done: connection count is tracked accurately via D-Bus events
+3. Done: notifications work correctly for connected devices
+4. Done: device disconnections properly decrement counters
 
 ### Shutdown Process
-1. ✅ Signal handlers trigger clean shutdown
-2. ✅ D-Bus proxies and subscriptions cleaned up
-3. ✅ GLib sources removed before main loop quit
-4. ✅ Thread exits cleanly
+1. Done: signal handlers trigger clean shutdown
+2. Done: D-Bus proxies and subscriptions are cleaned up
+3. Done: GLib sources are removed before the main loop quits
+4. Done: the server thread exits cleanly
 
 ## Troubleshooting
 
@@ -233,6 +248,7 @@ sudo btmon
 - [ ] Metrics collection for call latency
 - [ ] Advanced adapter configuration options
 - [ ] Automatic reconnection on BlueZ restart
+- [ ] Further reduce GLib-shaped wrapper/forward-declaration types in public C++ headers
 - [ ] Performance optimization for high-frequency operations
 
 ### Nice-to-Have
@@ -250,3 +266,5 @@ This migration maintains **full API compatibility** while significantly improvin
 - **Compatibility**: Modern BlueZ version support
 
 The change is **transparent to existing applications** using the GGK library.
+
+For deprecated public API migration details such as `Gobbledegook.h`, `ggk*`, singleton/global compatibility, raw GLib callback compatibility, and `Ex` result-code replacements, see [COMPATIBILITY_MIGRATION.md](COMPATIBILITY_MIGRATION.md).

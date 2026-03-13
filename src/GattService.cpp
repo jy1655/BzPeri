@@ -47,7 +47,9 @@ GattService::GattService(DBusObject &owner, const std::string &name)
 // Returning the parent pops us one level up the hierarchy
 DBusObject &GattService::gattServiceEnd()
 {
-	return getOwner().getParent();
+	auto parent = getOwner().getParent();
+	// A GattService owner should always have a parent (the root object)
+	return parent.value().get();
 }
 
 // Convenience functions to add a GATT characteristic to the hierarchy

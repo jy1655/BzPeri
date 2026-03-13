@@ -29,13 +29,201 @@
 
 namespace bzp {
 
+namespace {
+
+GVariant *retainVariant(GVariant *variant)
+{
+	return variant != nullptr ? g_variant_ref_sink(variant) : nullptr;
+}
+
+DBusVariantRef retainVariantRef(GVariant *variant)
+{
+	return DBusVariantRef(retainVariant(variant));
+}
+
+void releaseVariant(DBusVariantRef &variant)
+{
+	if (variant.get() != nullptr)
+	{
+		g_variant_unref(variant.get());
+		variant = DBusVariantRef();
+	}
+}
+
+GattProperty::GetterCallHandler makeGetterCallHandler(const GattProperty::GetterHandler &getter)
+{
+	if (!getter)
+	{
+		return {};
+	}
+
+	return [getter](DBusPropertyCallRef call) {
+		return getter(
+			call.connection(),
+			call.sender(),
+			call.objectPath(),
+			call.interfaceName(),
+			call.propertyName(),
+			call.error(),
+			call.userData());
+	};
+}
+
+GattProperty::SetterCallHandler makeSetterCallHandler(const GattProperty::SetterHandler &setter)
+{
+	if (!setter)
+	{
+		return {};
+	}
+
+	return [setter](DBusPropertyCallRef call) {
+		return setter(
+			call.connection(),
+			call.sender(),
+			call.objectPath(),
+			call.interfaceName(),
+			call.propertyName(),
+			call.value(),
+			call.error(),
+			call.userData());
+	};
+}
+
+} // namespace
+
 // Constructs a named property
 //
 // In general, properties should not be constructed directly as properties are typically instanticated by adding them to to an
 // interface using one of the the interface's `addProperty` methods.
-GattProperty::GattProperty(const std::string &name, GVariant *pValue, GDBusInterfaceGetPropertyFunc getter, GDBusInterfaceSetPropertyFunc setter)
-: name(name), pValue(pValue), getterFunc(getter), setterFunc(setter)
+GattProperty::GattProperty(const std::string &name, DBusVariantRef value)
+: name(name), value_(retainVariantRef(value.get()))
 {
+}
+
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+GattProperty::GattProperty(const std::string &name, GVariant *pValue)
+: name(name), value_(retainVariantRef(pValue))
+{
+}
+
+GattProperty::GattProperty(const std::string &name, GVariant *pValue, RawPropertyGetterCallback getter, RawPropertySetterCallback setter)
+: name(name), value_(retainVariantRef(pValue)), getterFunc(getter), setterFunc(setter)
+{
+}
+
+GattProperty::GattProperty(const std::string &name, DBusVariantRef value, RawPropertyGetterCallback getter, RawPropertySetterCallback setter)
+: name(name), value_(retainVariantRef(value.get())), getterFunc(getter), setterFunc(setter)
+{
+}
+GattProperty::GattProperty(const std::string &name, GVariant *pValue, const GetterHandler &getter, const SetterHandler &setter)
+: name(name), value_(retainVariantRef(pValue)), getterHandler(getter), setterHandler(setter),
+  getterCallHandler(makeGetterCallHandler(getter)), setterCallHandler(makeSetterCallHandler(setter))
+{
+}
+#endif
+
+GattProperty::GattProperty(const std::string &name, DBusVariantRef value, const GetterHandler &getter, const SetterHandler &setter)
+: name(name), value_(retainVariantRef(value.get())), getterHandler(getter), setterHandler(setter),
+  getterCallHandler(makeGetterCallHandler(getter)), setterCallHandler(makeSetterCallHandler(setter))
+{
+}
+
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+GattProperty::GattProperty(const std::string &name, GVariant *pValue, const GetterCallHandler &getter, const SetterCallHandler &setter)
+: name(name), value_(retainVariantRef(pValue)), getterCallHandler(getter), setterCallHandler(setter)
+{
+}
+#endif
+
+GattProperty::GattProperty(const std::string &name, DBusVariantRef value, const GetterCallHandler &getter, const SetterCallHandler &setter)
+: name(name), value_(retainVariantRef(value.get())), getterCallHandler(getter), setterCallHandler(setter)
+{
+}
+
+GattProperty::GattProperty(const GattProperty &other)
+: name(other.name),
+  value_(retainVariantRef(other.value_.get())),
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+  getterFunc(other.getterFunc),
+  setterFunc(other.setterFunc),
+#endif
+  getterHandler(other.getterHandler),
+  setterHandler(other.setterHandler),
+  getterCallHandler(other.getterCallHandler),
+  setterCallHandler(other.setterCallHandler)
+{
+}
+
+GattProperty::GattProperty(GattProperty &&other) noexcept
+: name(std::move(other.name)),
+  value_(other.value_),
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+  getterFunc(other.getterFunc),
+  setterFunc(other.setterFunc),
+#endif
+  getterHandler(std::move(other.getterHandler)),
+  setterHandler(std::move(other.setterHandler)),
+  getterCallHandler(std::move(other.getterCallHandler)),
+  setterCallHandler(std::move(other.setterCallHandler))
+{
+	other.value_ = DBusVariantRef();
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	other.getterFunc = nullptr;
+	other.setterFunc = nullptr;
+#endif
+}
+
+GattProperty &GattProperty::operator=(const GattProperty &other)
+{
+	if (this == &other)
+	{
+		return *this;
+	}
+
+	releaseVariant(value_);
+	name = other.name;
+	value_ = retainVariantRef(other.value_.get());
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	getterFunc = other.getterFunc;
+	setterFunc = other.setterFunc;
+#endif
+	getterHandler = other.getterHandler;
+	setterHandler = other.setterHandler;
+	getterCallHandler = other.getterCallHandler;
+	setterCallHandler = other.setterCallHandler;
+	return *this;
+}
+
+GattProperty &GattProperty::operator=(GattProperty &&other) noexcept
+{
+	if (this == &other)
+	{
+		return *this;
+	}
+
+	releaseVariant(value_);
+	name = std::move(other.name);
+	value_ = other.value_;
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	getterFunc = other.getterFunc;
+	setterFunc = other.setterFunc;
+#endif
+	getterHandler = std::move(other.getterHandler);
+	setterHandler = std::move(other.setterHandler);
+	getterCallHandler = std::move(other.getterCallHandler);
+	setterCallHandler = std::move(other.setterCallHandler);
+
+	other.value_ = DBusVariantRef();
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	other.getterFunc = nullptr;
+	other.setterFunc = nullptr;
+#endif
+	return *this;
+}
+
+GattProperty::~GattProperty()
+{
+	releaseVariant(value_);
 }
 
 //
@@ -63,54 +251,141 @@ GattProperty &GattProperty::setName(const std::string &name)
 //
 
 // Returns the property's value
-const GVariant *GattProperty::getValue() const
+DBusVariantRef GattProperty::getValueRef() const
 {
-	return pValue;
+	return value_;
 }
 
 // Sets the property's value
 //
 // In general, this method should not be called directly as properties are typically added to an interface using one of the the
 // interface's `addProperty` methods.
-GattProperty &GattProperty::setValue(GVariant *pValue)
+GattProperty &GattProperty::setValue(DBusVariantRef value)
 {
-	this->pValue = pValue;
+	releaseVariant(value_);
+	value_ = retainVariantRef(value.get());
 	return *this;
 }
+
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+const GVariant *GattProperty::getValue() const
+{
+	return value_.get();
+}
+
+GattProperty &GattProperty::setValue(GVariant *pValue)
+{
+	releaseVariant(value_);
+	value_ = retainVariantRef(pValue);
+	return *this;
+}
+#endif
 
 //
 // Callbacks to get/set this property
 //
 
 // Internal use method to retrieve the getter delegate method used to return custom values for a property
-GDBusInterfaceGetPropertyFunc GattProperty::getGetterFunc() const
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+RawPropertyGetterCallback GattProperty::getGetterFunc() const
 {
 	return getterFunc;
+}
+#endif
+
+const GattProperty::GetterHandler &GattProperty::getGetterHandler() const
+{
+	return getterHandler;
+}
+
+const GattProperty::GetterCallHandler &GattProperty::getGetterCallHandler() const
+{
+	return getterCallHandler;
 }
 
 // Internal use method to set the getter delegate method used to return custom values for a property
 //
 // In general, this method should not be called directly as properties are typically added to an interface using one of the the
 // interface's `addProperty` methods.
-GattProperty &GattProperty::setGetterFunc(GDBusInterfaceGetPropertyFunc func)
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+GattProperty &GattProperty::setGetterFunc(RawPropertyGetterCallback func)
 {
 	getterFunc = func;
+	getterHandler = {};
+	getterCallHandler = {};
+	return *this;
+}
+#endif
+
+GattProperty &GattProperty::setGetterHandler(const GetterHandler &handler)
+{
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	getterFunc = nullptr;
+#endif
+	getterHandler = handler;
+	getterCallHandler = makeGetterCallHandler(handler);
+	return *this;
+}
+
+GattProperty &GattProperty::setGetterCallHandler(const GetterCallHandler &handler)
+{
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	getterFunc = nullptr;
+#endif
+	getterHandler = {};
+	getterCallHandler = handler;
 	return *this;
 }
 
 // Internal use method to retrieve the setter delegate method used to return custom values for a property
-GDBusInterfaceSetPropertyFunc GattProperty::getSetterFunc() const
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+RawPropertySetterCallback GattProperty::getSetterFunc() const
 {
 	return setterFunc;
+}
+#endif
+
+const GattProperty::SetterHandler &GattProperty::getSetterHandler() const
+{
+	return setterHandler;
+}
+
+const GattProperty::SetterCallHandler &GattProperty::getSetterCallHandler() const
+{
+	return setterCallHandler;
 }
 
 // Internal use method to set the setter delegate method used to return custom values for a property
 //
 // In general, this method should not be called directly as properties are typically added to an interface using one of the the
 // interface's `addProperty` methods.
-GattProperty &GattProperty::setSetterFunc(GDBusInterfaceSetPropertyFunc func)
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+GattProperty &GattProperty::setSetterFunc(RawPropertySetterCallback func)
 {
 	setterFunc = func;
+	setterHandler = {};
+	setterCallHandler = {};
+	return *this;
+}
+#endif
+
+GattProperty &GattProperty::setSetterHandler(const SetterHandler &handler)
+{
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	setterFunc = nullptr;
+#endif
+	setterHandler = handler;
+	setterCallHandler = makeSetterCallHandler(handler);
+	return *this;
+}
+
+GattProperty &GattProperty::setSetterCallHandler(const SetterCallHandler &handler)
+{
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	setterFunc = nullptr;
+#endif
+	setterHandler = {};
+	setterCallHandler = handler;
 	return *this;
 }
 
@@ -122,7 +397,7 @@ std::string GattProperty::generateIntrospectionXML(int depth) const
 
 	std::string xml = std::string();
 
-	GVariant *pValue = const_cast<GVariant *>(getValue());
+	GVariant *pValue = getValueRef().get();
 	const gchar *pType = g_variant_get_type_string(pValue);
 	xml += prefix + "<property name='" + getName() + "' type='" + pType + "' access='read'>\n";
 

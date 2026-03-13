@@ -97,6 +97,11 @@ void AsyncDBus::onPropertyGetReady(GObject* source, GAsyncResult* result, gpoint
         auto bluezResult = BluezResult<GVariantPtr>::fromGError(error.get());
         context->callback(bluezResult);
     } else {
+        if (!g_variant_is_of_type(variant.get(), G_VARIANT_TYPE("(v)"))) {
+            Logger::warn("AsyncDBus::onPropertyGetReady: unexpected variant type");
+            context->callback(BluezResult<GVariantPtr>(BluezError::InvalidArgs, "Unexpected variant type"));
+            return;
+        }
         GVariant* innerVariant = nullptr;
         g_variant_get(variant.get(), "(v)", &innerVariant);
         context->callback(BluezResult<GVariantPtr>(make_gvariant(innerVariant)));

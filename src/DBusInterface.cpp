@@ -44,6 +44,7 @@
 #include <bzp/DBusInterface.h>
 #include <bzp/GattProperty.h>
 #include <bzp/DBusObject.h>
+#include <bzp/Server.h>
 #include <bzp/Logger.h>
 
 namespace bzp {
@@ -107,9 +108,30 @@ DBusObjectPath DBusInterface::getPath() const
 // Add a named method to this interface
 //
 // This method returns a reference to `this` in order to enable chaining inside the server description.
-DBusInterface &DBusInterface::addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, DBusMethod::Callback callback)
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+DBusInterface &DBusInterface::addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, RawMethodCallback callback)
 {
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 	methods.push_back(DBusMethod(this, name, pInArgs, pOutArgs, callback));
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+	return *this;
+}
+#endif
+
+DBusInterface &DBusInterface::addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, const MethodHandler &handler)
+{
+	methods.push_back(DBusMethod(this, name, pInArgs, pOutArgs, handler));
+	return *this;
+}
+
+DBusInterface &DBusInterface::addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, const MethodCallHandler &handler)
+{
+	methods.push_back(DBusMethod(this, name, pInArgs, pOutArgs, handler));
 	return *this;
 }
 
@@ -120,19 +142,34 @@ DBusInterface &DBusInterface::addMethod(const std::string &name, const char *pIn
 //
 // NOTE: Subclasses are encouraged to override this method in order to support different callback types that are specific to
 // their subclass type.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 bool DBusInterface::callMethod(const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const
+{
+	return callMethod(methodName, DBusMethodCallRef(pConnection, pParameters, pInvocation, pUserData));
+}
+#endif
+
+bool DBusInterface::callMethod(const std::string &methodName, DBusMethodCallRef methodCall) const
 {
 	for (const DBusMethod &method : methods)
 	{
 		if (methodName == method.getName())
 		{
-			method.call<DBusInterface>(pConnection, getPath(), getName(), methodName, pParameters, pInvocation, pUserData);
+			const std::string notImplementedErrorName = owner.getServer().getOwnedName() + ".NotImplemented";
+			method.call<DBusInterface>(methodCall, getPath(), getName(), methodName, notImplementedErrorName);
 			return true;
 		}
 	}
 
 	return false;
 }
+
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+bool DBusInterface::callMethod(const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const
+{
+	return callMethod(methodName, DBusMethodCallRef(connection, parameters, invocation, pUserData));
+}
+#endif
 
 // Internal method used to generate introspection XML used to describe our services on D-Bus
 std::string DBusInterface::generateIntrospectionXML(int depth) const

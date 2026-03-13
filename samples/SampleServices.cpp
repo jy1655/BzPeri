@@ -60,12 +60,12 @@
 // 4. Optional Descriptors: .gattDescriptorBegin()/.gattDescriptorEnd()
 // 5. Service Completion: .gattServiceEnd()
 //
-// The lambda functions receive standard parameters:
+// The lambda functions can use wrapper-based parameters:
 // * self: Reference to the characteristic/descriptor being accessed
-// * pConnection: D-Bus connection for sending responses
-// * objectPath: D-Bus object path (usually not needed)
-// * pParameters: Input parameters for write operations
-// * pInvocation: Used to send response back to client
+// * connection: D-Bus connection wrapper for notifications/responses
+// * methodName: D-Bus method name (usually not needed in the samples)
+// * parameters: Input parameter wrapper for write operations
+// * invocation: Response wrapper used to reply to the client
 // * pUserData: Custom user data (usually nullptr)
 //
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -159,8 +159,8 @@ void registerSampleServices(const std::string& namespaceNode)
 						//
 						// The `true` parameter indicates this is the final response (no errors).
 						//
-						.onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
-							self.methodReturnValue(pInvocation, "Acme Inc.", true);
+						.onReadValue([](const GattCharacteristic& self, const std::string&, DBusMethodCallRef methodCall) {
+							self.methodReturnValue(DBusReplyRef(methodCall), "Acme Inc.", true);
 						})
 
 					.gattCharacteristicEnd()
@@ -177,8 +177,8 @@ void registerSampleServices(const std::string& namespaceNode)
 						// Returns a static model string. The model name "Marvin-PA" is a playful
 						// reference to Marvin the Paranoid Android (PA = Paranoid Android).
 						//
-						.onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
-							self.methodReturnValue(pInvocation, "Marvin-PA", true);
+						.onReadValue([](const GattCharacteristic& self, const std::string&, DBusMethodCallRef methodCall) {
+							self.methodReturnValue(DBusReplyRef(methodCall), "Marvin-PA", true);
 						})
 
 					.gattCharacteristicEnd()
@@ -214,9 +214,9 @@ void registerSampleServices(const std::string& namespaceNode)
 						//
 						// The second parameter (0) is the default value if the data key is not found.
 						//
-						.onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+						.onReadValue([](const GattCharacteristic& self, const std::string&, DBusMethodCallRef methodCall) {
 							uint8_t batteryLevel = self.getDataValue<uint8_t>("battery/level", 0);
-							self.methodReturnValue(pInvocation, batteryLevel, true);
+							self.methodReturnValue(DBusReplyRef(methodCall), batteryLevel, true);
 						})
 
 						// Handle notification events when battery level changes.
@@ -227,9 +227,9 @@ void registerSampleServices(const std::string& namespaceNode)
 						//
 						// The function should return true to indicate successful notification.
 						//
-						.onUpdatedValue([](const GattCharacteristic& self, GDBusConnection* pConnection, void*) {
+						.onUpdatedValue([](const GattCharacteristic& self, DBusUpdateRef update) {
 							uint8_t batteryLevel = self.getDataValue<uint8_t>("battery/level", 0);
-							self.sendChangeNotificationValue(pConnection, batteryLevel);
+							self.sendChangeNotificationValue(update.connection(), batteryLevel);
 							return true;
 						})
 
@@ -275,7 +275,7 @@ void registerSampleServices(const std::string& namespaceNode)
 						// - Byte 8: Fractions of second (1/256 units)
 						// - Byte 9: Adjust reason (bitfield for DST, time zone, etc.)
 						//
-						.onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+						.onReadValue([](const GattCharacteristic& self, const std::string&, DBusMethodCallRef methodCall) {
 							// Get current time from system
 							time_t timeVal = time(nullptr);
 							struct tm *pTimeStruct = gmtime(&timeVal);
@@ -285,7 +285,7 @@ void registerSampleServices(const std::string& namespaceNode)
 							{
 								Logger::warn("Unable to get current time");
 								// Return empty vector on error
-								self.methodReturnValue(pInvocation, std::vector<uint8_t>{}, true);
+								self.methodReturnValue(DBusReplyRef(methodCall), std::vector<uint8_t>{}, true);
 								return;
 							}
 
@@ -314,7 +314,7 @@ void registerSampleServices(const std::string& namespaceNode)
 							payload[9] = 0;                  // Adjust reason (no adjustments)
 
 							// Return the formatted time data
-							self.methodReturnValue(pInvocation, payload, true);
+							self.methodReturnValue(DBusReplyRef(methodCall), payload, true);
 						})
 
 					.gattCharacteristicEnd()
@@ -354,9 +354,9 @@ void registerSampleServices(const std::string& namespaceNode)
 						// modified by both read operations and write operations from clients.
 						// The empty string "" is returned as default if no data is set.
 						//
-						.onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+						.onReadValue([](const GattCharacteristic& self, const std::string&, DBusMethodCallRef methodCall) {
 							const char* pString = self.getDataPointer<const char*>("text/string", "");
-							self.methodReturnValue(pInvocation, pString, true);
+							self.methodReturnValue(DBusReplyRef(methodCall), pString, true);
 						})
 
 						// Handle write requests to update the text string.
@@ -368,11 +368,11 @@ void registerSampleServices(const std::string& namespaceNode)
 						// 4. Triggering notifications after successful write
 						// 5. Proper GVariant memory management
 						//
-						.onWriteValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string&, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
+						.onWriteValue([](const GattCharacteristic& self, const std::string&, DBusMethodCallRef methodCall) {
 							// Extract the byte array from the D-Bus parameters
 							// BLE write operations send data as byte arrays
-							GVariant* pAyBuffer = g_variant_get_child_value(pParameters, 0);
-							std::string incoming = Utils::stringFromGVariantByteArray(pAyBuffer);
+							GVariant* pAyBuffer = g_variant_get_child_value(methodCall.parameters().get(), 0);
+							std::string incoming = Utils::stringFromGVariantByteArray(DBusVariantRef(pAyBuffer));
 							g_variant_unref(pAyBuffer);  // Important: free GVariant memory
 
 							// Store the new string value in BzPeri's data management system
@@ -381,10 +381,10 @@ void registerSampleServices(const std::string& namespaceNode)
 
 							// Trigger a notification to inform connected clients of the change
 							// This calls the onUpdatedValue handler below
-							self.callOnUpdatedValue(pConnection, pUserData);
+							self.callOnUpdatedValue(DBusUpdateRef(methodCall.connection(), methodCall.userData()));
 
 							// Send success response back to the client
-							self.methodReturnVariant(pInvocation, nullptr);
+							self.methodReturnVariant(DBusReplyRef(methodCall), DBusVariantRef());
 						})
 
 						// Handle notification events when the text string changes.
@@ -393,9 +393,9 @@ void registerSampleServices(const std::string& namespaceNode)
 						// (via callOnUpdatedValue above) and when the application calls
 						// bzpNofifyUpdatedCharacteristic() from external code.
 						//
-						.onUpdatedValue([](const GattCharacteristic& self, GDBusConnection* pConnection, void*) {
+						.onUpdatedValue([](const GattCharacteristic& self, DBusUpdateRef update) {
 							const char* pValue = self.getDataPointer<const char*>("text/string", "");
-							self.sendChangeNotificationValue(pConnection, pValue);
+							self.sendChangeNotificationValue(update.connection(), pValue);
 							return true;
 						})
 
@@ -414,9 +414,9 @@ void registerSampleServices(const std::string& namespaceNode)
 							// characteristic does. Client applications can read this to
 							// understand the characteristic's purpose.
 							//
-							.onReadValue([](const GattDescriptor& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+							.onReadValue([](const GattDescriptor& self, const std::string&, DBusMethodCallRef methodCall) {
 								const char *pDescription = "A mutable text string used for testing. Read and write to me, it tickles!";
-								self.methodReturnValue(pInvocation, pDescription, true);
+								self.methodReturnValue(DBusReplyRef(methodCall), pDescription, true);
 							})
 
 						.gattDescriptorEnd()
@@ -460,7 +460,7 @@ void registerSampleServices(const std::string& namespaceNode)
 						// - Much simpler to implement and debug
 						// - Easier for humans to read during development
 						//
-						.onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+						.onReadValue([](const GattCharacteristic& self, const std::string&, DBusMethodCallRef methodCall) {
 							// Get current time and convert to local timezone
 							time_t timeVal = time(nullptr);
 							struct tm *pTimeStruct = localtime(&timeVal);
@@ -470,15 +470,15 @@ void registerSampleServices(const std::string& namespaceNode)
 							std::string timeString = Utils::trim(asctime(pTimeStruct));
 
 							// Return the cleaned time string
-							self.methodReturnValue(pInvocation, timeString, true);
+							self.methodReturnValue(DBusReplyRef(methodCall), timeString, true);
 						})
 
 						// Descriptor explaining what this characteristic does
 						.gattDescriptorBegin("description", "2901", {"read"})
 
-							.onReadValue([](const GattDescriptor& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+							.onReadValue([](const GattDescriptor& self, const std::string&, DBusMethodCallRef methodCall) {
 								const char *pDescription = "Returns the local time (as reported by POSIX asctime()) each time it is read";
-								self.methodReturnValue(pInvocation, pDescription, true);
+								self.methodReturnValue(DBusReplyRef(methodCall), pDescription, true);
 							})
 
 						.gattDescriptorEnd()
@@ -515,19 +515,19 @@ void registerSampleServices(const std::string& namespaceNode)
 						// The function takes a reference parameter for CPU count and returns
 						// additional CPU information (used by the model characteristic below).
 						//
-						.onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+						.onReadValue([](const GattCharacteristic& self, const std::string&, DBusMethodCallRef methodCall) {
 							int16_t cpuCount = 0;
 							// ServerUtils::getCpuInfo() fills cpuCount and returns CPU model info
 							ServerUtils::getCpuInfo(cpuCount);
-							self.methodReturnValue(pInvocation, cpuCount, true);
+							self.methodReturnValue(DBusReplyRef(methodCall), cpuCount, true);
 						})
 
 						// Descriptor for CPU count characteristic
 						.gattDescriptorBegin("description", "2901", {"read"})
 
-							.onReadValue([](const GattDescriptor& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+							.onReadValue([](const GattDescriptor& self, const std::string&, DBusMethodCallRef methodCall) {
 								const char *pDescription = "This might represent the number of CPUs in the system";
-								self.methodReturnValue(pInvocation, pDescription, true);
+								self.methodReturnValue(DBusReplyRef(methodCall), pDescription, true);
 							})
 
 						.gattDescriptorEnd()
@@ -548,18 +548,18 @@ void registerSampleServices(const std::string& namespaceNode)
 						// the string return value (CPU model) instead of the reference
 						// parameter (CPU count).
 						//
-						.onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+						.onReadValue([](const GattCharacteristic& self, const std::string&, DBusMethodCallRef methodCall) {
 							int16_t cpuCount = 0;  // We don't use this here, but the function requires it
 							// Use the return value which contains CPU model information
-							self.methodReturnValue(pInvocation, ServerUtils::getCpuInfo(cpuCount), true);
+							self.methodReturnValue(DBusReplyRef(methodCall), ServerUtils::getCpuInfo(cpuCount), true);
 						})
 
 						// Descriptor for CPU model characteristic
 						.gattDescriptorBegin("description", "2901", {"read"})
 
-							.onReadValue([](const GattDescriptor& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+							.onReadValue([](const GattDescriptor& self, const std::string&, DBusMethodCallRef methodCall) {
 								const char *pDescription = "Possibly the model of the CPU in the system";
-								self.methodReturnValue(pInvocation, pDescription, true);
+								self.methodReturnValue(DBusReplyRef(methodCall), pDescription, true);
 							})
 
 						.gattDescriptorEnd()

@@ -59,13 +59,26 @@ const std::list<GattProperty> &GattInterface::getProperties() const
 //
 // This is the generalized form that accepts a GVariant *. There is a templated helper method (`methodReturnValue()`) that accepts
 // common types.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 void GattInterface::methodReturnVariant(GDBusMethodInvocation *pInvocation, GVariant *pVariant, bool wrapInTuple) const
 {
-	if (wrapInTuple)
-	{
-		pVariant = g_variant_new_tuple(&pVariant, 1);
-	}
-	g_dbus_method_invocation_return_value(pInvocation, pVariant);
+	methodReturnVariant(DBusReplyRef(pInvocation), DBusVariantRef(pVariant), wrapInTuple);
+}
+#endif
+
+void GattInterface::methodReturnVariant(DBusMethodCallRef methodCall, DBusVariantRef variant, bool wrapInTuple) const
+{
+	methodReturnVariant(DBusReplyRef(methodCall), variant, wrapInTuple);
+}
+
+void GattInterface::methodReturnVariant(DBusMethodInvocationRef invocation, DBusVariantRef variant, bool wrapInTuple) const
+{
+	methodReturnVariant(DBusReplyRef(invocation), variant, wrapInTuple);
+}
+
+void GattInterface::methodReturnVariant(DBusReplyRef reply, DBusVariantRef variant, bool wrapInTuple) const
+{
+	reply.returnValue(variant, wrapInTuple);
 }
 
 // Locates a `GattProperty` within the interface

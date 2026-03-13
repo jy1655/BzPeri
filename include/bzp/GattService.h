@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include <gio/gio.h>
+#include <bzp/GLibTypes.h>
 #include <string>
 #include <list>
 

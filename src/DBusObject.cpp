@@ -45,14 +45,15 @@
 #include <bzp/Utils.h>
 #include <bzp/GattUuid.h>
 #include <bzp/Logger.h>
+#include <bzp/Server.h>
 
 namespace bzp {
 
 // Construct a root object with no parent
 //
 // We'll include a publish flag since only root objects can be published
-DBusObject::DBusObject(const DBusObjectPath &path, bool publish)
-: publish(publish), path(path), pParent(nullptr)
+DBusObject::DBusObject(Server &server, const DBusObjectPath &path, bool publish)
+: server_(&server), publish(publish), path(path), pParent(nullptr)
 {
 }
 
@@ -60,7 +61,7 @@ DBusObject::DBusObject(const DBusObjectPath &path, bool publish)
 //
 // Nodes inherit their parent's publish path
 DBusObject::DBusObject(DBusObject *pParent, const DBusObjectPath &pathElement)
-: publish(pParent->publish), path(pathElement), pParent(pParent)
+: server_(pParent->server_), publish(pParent->publish), path(pathElement), pParent(pParent)
 {
 }
 
@@ -100,16 +101,43 @@ DBusObjectPath DBusObject::getPath() const
 	return path;
 }
 
-// Returns the parent object in the hierarchy
-DBusObject &DBusObject::getParent()
+// Returns whether this object has a parent
+bool DBusObject::hasParent() const noexcept
 {
-	return *pParent;
+	return pParent != nullptr;
+}
+
+// Returns the parent object in the hierarchy (nullopt if root)
+std::optional<std::reference_wrapper<DBusObject>> DBusObject::getParent()
+{
+	if (pParent == nullptr) return std::nullopt;
+	return std::ref(*pParent);
 }
 
 // Returns the list of children objects
 const std::list<DBusObject> &DBusObject::getChildren() const
 {
 	return children;
+}
+
+BZPServerDataGetter DBusObject::getDataGetter() const noexcept
+{
+	return server_ != nullptr ? server_->getDataGetter() : nullptr;
+}
+
+BZPServerDataSetter DBusObject::getDataSetter() const noexcept
+{
+	return server_ != nullptr ? server_->getDataSetter() : nullptr;
+}
+
+Server& DBusObject::getServer() const
+{
+	return *server_;
+}
+
+const std::string &DBusObject::getServiceName() const
+{
+	return server_->getServiceName();
 }
 
 // Add a child to this object
@@ -168,7 +196,14 @@ std::shared_ptr<const DBusInterface> DBusObject::findInterface(const DBusObjectP
 }
 
 // Finds a BlueZ method by name within the specified D-Bus interface
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData, const DBusObjectPath &basePath) const
+{
+	return callMethod(path, interfaceName, methodName, DBusMethodCallRef(pConnection, pParameters, pInvocation, pUserData), basePath);
+}
+#endif
+
+bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, DBusMethodCallRef methodCall, const DBusObjectPath &basePath) const
 {
 	if ((basePath + getPathNode()) == path)
 	{
@@ -176,7 +211,7 @@ bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &inter
 		{
 			if (interfaceName == interface->getName())
 			{
-				if (interface->callMethod(methodName, pConnection, pParameters, pInvocation, pUserData))
+				if (interface->callMethod(methodName, methodCall))
 				{
 					return true;
 				}
@@ -186,7 +221,7 @@ bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &inter
 
 	for (const DBusObject &child : getChildren())
 	{
-		if (child.callMethod(path, interfaceName, methodName, pConnection, pParameters, pInvocation, pUserData, basePath + getPathNode()))
+		if (child.callMethod(path, interfaceName, methodName, methodCall, basePath + getPathNode()))
 		{
 			return true;
 		}
@@ -194,6 +229,13 @@ bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &inter
 
 	return false;
 }
+
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData, const DBusObjectPath &basePath) const
+{
+	return callMethod(path, interfaceName, methodName, DBusMethodCallRef(connection, parameters, invocation, pUserData), basePath);
+}
+#endif
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // XML generation for a D-Bus introspection
@@ -214,7 +256,7 @@ std::string DBusObject::generateIntrospectionXML(int depth) const
 	}
 
 	xml += prefix + "<node name='" + getPathNode().toString() + "'>\n";
-	xml += prefix + "  <annotation name='" + TheServer->getServiceName() + ".DBusObject.path' value='" + getPath().toString() + "' />\n";
+	xml += prefix + "  <annotation name='" + getServiceName() + ".DBusObject.path' value='" + getPath().toString() + "' />\n";
 
 	for (std::shared_ptr<const DBusInterface> interface : interfaces)
 	{
@@ -241,25 +283,68 @@ std::string DBusObject::generateIntrospectionXML(int depth) const
 // D-Bus signals
 // ---------------------------------------------------------------------------------------------------------------------------------
 
-// Emits a signal on the bus from the given path, interface name and signal name, containing a GVariant set of parameters
-void DBusObject::emitSignal(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters)
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+bool DBusObject::emitSignalChecked(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters)
+{
+	return emitSignalChecked(DBusSignalRef(DBusConnectionRef(pBusConnection), interfaceName, signalName, DBusVariantRef(pParameters)));
+}
+#endif
+
+bool DBusObject::emitSignalChecked(DBusConnectionRef busConnection, const std::string &interfaceName, const std::string &signalName, DBusVariantRef parameters)
+{
+	return emitSignalChecked(DBusSignalRef(busConnection, interfaceName, signalName, parameters));
+}
+
+bool DBusObject::emitSignalChecked(DBusSignalRef signal)
 {
 	GError *pError = nullptr;
+	const std::string interfaceName(signal.interfaceName());
+	const std::string signalName(signal.signalName());
 	gboolean result = g_dbus_connection_emit_signal
 	(
-		pBusConnection,          // GDBusConnection *connection
+		signal.connection().get(), // GDBusConnection *connection
 		NULL,                    // const gchar *destination_bus_name
 		getPath().c_str(),       // const gchar *object_path
 		interfaceName.c_str(),   // const gchar *interface_name
 		signalName.c_str(),      // const gchar *signal_name
-		pParameters,             // GVariant *parameters
+		signal.parameters().get(), // GVariant *parameters
 		&pError                  // GError **error
 	);
 
 	if (0 == result)
 	{
 		Logger::error(SSTR << "Failed to emit signal named '" << signalName << "': " << (nullptr == pError ? "Unknown" : pError->message));
+		if (nullptr != pError)
+		{
+			g_error_free(pError);
+		}
+		return false;
 	}
+
+	if (nullptr != pError)
+	{
+		g_error_free(pError);
+	}
+
+	return true;
+}
+
+// Emits a signal on the bus from the given path, interface name and signal name, containing a GVariant set of parameters
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+void DBusObject::emitSignal(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters)
+{
+	(void)emitSignalChecked(DBusSignalRef(DBusConnectionRef(pBusConnection), interfaceName, signalName, DBusVariantRef(pParameters)));
+}
+#endif
+
+void DBusObject::emitSignal(DBusConnectionRef busConnection, const std::string &interfaceName, const std::string &signalName, DBusVariantRef parameters)
+{
+	(void)emitSignalChecked(DBusSignalRef(busConnection, interfaceName, signalName, parameters));
+}
+
+void DBusObject::emitSignal(DBusSignalRef signal)
+{
+	(void)emitSignalChecked(signal);
 }
 
 

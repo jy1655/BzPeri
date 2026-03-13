@@ -38,6 +38,129 @@
 
 namespace bzp {
 
+namespace {
+
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+GVariant *makeStringArrayVariant(const char *pStr, va_list args)
+{
+	if (pStr == nullptr)
+	{
+		return g_variant_new("as", nullptr);
+	}
+
+	g_auto(GVariantBuilder) builder;
+	g_variant_builder_init(&builder, G_VARIANT_TYPE_ARRAY);
+
+	while (pStr != nullptr)
+	{
+		g_variant_builder_add(&builder, "s", pStr);
+		pStr = va_arg(args, const char *);
+	}
+
+	return g_variant_builder_end(&builder);
+}
+#endif
+
+GVariant *makeStringArrayVariant(const std::vector<std::string> &arr)
+{
+	if (arr.empty())
+	{
+		return g_variant_new("as", nullptr);
+	}
+
+	g_auto(GVariantBuilder) builder;
+	g_variant_builder_init(&builder, G_VARIANT_TYPE_ARRAY);
+
+	for (const auto &str : arr)
+	{
+		g_variant_builder_add(&builder, "s", str.c_str());
+	}
+
+	return g_variant_builder_end(&builder);
+}
+
+GVariant *makeStringArrayVariant(const std::vector<const char *> &arr)
+{
+	if (arr.empty())
+	{
+		return g_variant_new("as", nullptr);
+	}
+
+	g_auto(GVariantBuilder) builder;
+	g_variant_builder_init(&builder, G_VARIANT_TYPE_ARRAY);
+
+	for (const auto *pStr : arr)
+	{
+		g_variant_builder_add(&builder, "s", pStr);
+	}
+
+	return g_variant_builder_end(&builder);
+}
+
+GVariant *makeByteArrayVariant(const guint8 *pBytes, int count)
+{
+	GBytes *pGbytes = g_bytes_new(pBytes, count);
+	GVariant *pGVariant = g_variant_new_from_bytes(G_VARIANT_TYPE_BYTESTRING, pGbytes, count);
+	g_bytes_unref(pGbytes);
+	return pGVariant;
+}
+
+GVariant *makeByteArrayVariant(const char *pStr)
+{
+	if (*pStr == 0)
+	{
+		return g_variant_new("ay", nullptr);
+	}
+
+	return makeByteArrayVariant(reinterpret_cast<const guint8 *>(pStr), static_cast<int>(strlen(pStr)));
+}
+
+GVariant *makeByteArrayVariant(const std::string &str)
+{
+	return makeByteArrayVariant(reinterpret_cast<const guint8 *>(str.c_str()), static_cast<int>(str.length()));
+}
+
+GVariant *makeByteArrayVariant(const std::vector<guint8> &bytes)
+{
+	GBytes *pGbytes = g_bytes_new(bytes.data(), bytes.size());
+	GVariant *pGVariant = g_variant_new_from_bytes(G_VARIANT_TYPE_BYTESTRING, pGbytes, bytes.size());
+	g_bytes_unref(pGbytes);
+	return pGVariant;
+}
+
+GVariant *makeByteArrayVariant(std::span<const guint8> bytes)
+{
+	GBytes *pGbytes = g_bytes_new(bytes.data(), bytes.size());
+	GVariant *pGVariant = g_variant_new_from_bytes(G_VARIANT_TYPE_BYTESTRING, pGbytes, bytes.size());
+	g_bytes_unref(pGbytes);
+	return pGVariant;
+}
+
+template<typename T>
+GVariant *makeByteArrayScalarVariant(T data)
+{
+	return makeByteArrayVariant(reinterpret_cast<const guint8 *>(&data), sizeof(data));
+}
+
+std::string readByteArrayString(DBusVariantRef variant)
+{
+	if (!variant)
+	{
+		return {};
+	}
+
+	gsize size = 0;
+	gconstpointer pPtr = g_variant_get_fixed_array(variant.get(), &size, 1);
+	if (pPtr == nullptr || size == 0)
+	{
+		return {};
+	}
+
+	return std::string(static_cast<const gchar *>(pPtr), static_cast<std::size_t>(size));
+}
+
+} // namespace
+
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Handy string functions
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -216,12 +339,125 @@ std::string Utils::bluetoothAddressString(std::span<const uint8_t, 6> address)
 // GVariant helper functions
 // ---------------------------------------------------------------------------------------------------------------------------------
 
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
+DBusVariantRef Utils::dbusVariantFromString(const char *pStr)
+{
+	return DBusVariantRef(g_variant_new_string(pStr));
+}
+
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 // Returns a GVariant containing a floating reference to a utf8 string
 GVariant *Utils::gvariantFromString(const char *pStr)
 {
 	return g_variant_new_string(pStr);
 }
+#endif
 
+DBusVariantRef Utils::dbusVariantFromString(const std::string &str)
+{
+	return DBusVariantRef(g_variant_new_string(str.c_str()));
+}
+
+DBusVariantRef Utils::dbusVariantFromStringArray(const std::vector<std::string> &arr)
+{
+	return DBusVariantRef(makeStringArrayVariant(arr));
+}
+
+DBusVariantRef Utils::dbusVariantFromStringArray(const std::vector<const char *> &arr)
+{
+	return DBusVariantRef(makeStringArrayVariant(arr));
+}
+
+DBusVariantRef Utils::dbusVariantFromObject(const DBusObjectPath &path)
+{
+	return DBusVariantRef(g_variant_new_object_path(path.c_str()));
+}
+
+DBusVariantRef Utils::dbusVariantFromBoolean(bool b)
+{
+	return DBusVariantRef(g_variant_new_boolean(b));
+}
+
+DBusVariantRef Utils::dbusVariantFromInt(gint16 value)
+{
+	return DBusVariantRef(g_variant_new_int16(value));
+}
+
+DBusVariantRef Utils::dbusVariantFromInt(gint32 value)
+{
+	return DBusVariantRef(g_variant_new_int32(value));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const char *pStr)
+{
+	return DBusVariantRef(makeByteArrayVariant(pStr));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const std::string &str)
+{
+	return DBusVariantRef(makeByteArrayVariant(str));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const guint8 *pBytes, int count)
+{
+	return DBusVariantRef(makeByteArrayVariant(pBytes, count));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const std::vector<guint8>& bytes)
+{
+	return DBusVariantRef(makeByteArrayVariant(bytes));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(std::span<const guint8> bytes)
+{
+	return DBusVariantRef(makeByteArrayVariant(bytes));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const guint8 data)
+{
+	return DBusVariantRef(makeByteArrayScalarVariant(data));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const gint8 data)
+{
+	return DBusVariantRef(makeByteArrayScalarVariant(data));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const guint16 data)
+{
+	return DBusVariantRef(makeByteArrayScalarVariant(data));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const gint16 data)
+{
+	return DBusVariantRef(makeByteArrayScalarVariant(data));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const guint32 data)
+{
+	return DBusVariantRef(makeByteArrayScalarVariant(data));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const gint32 data)
+{
+	return DBusVariantRef(makeByteArrayScalarVariant(data));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const guint64 data)
+{
+	return DBusVariantRef(makeByteArrayScalarVariant(data));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const gint64 data)
+{
+	return DBusVariantRef(makeByteArrayScalarVariant(data));
+}
+
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 // Returns a GVariant containing a floating reference to a utf8 string
 GVariant *Utils::gvariantFromString(const std::string &str)
 {
@@ -235,22 +471,7 @@ GVariant *Utils::gvariantFromString(const std::string &str)
 // This is an extension method to the vararg version, which accepts pass-through variable arguments from other mthods.
 GVariant *Utils::gvariantFromStringArray(const char *pStr, va_list args)
 {
-	// Deal with empty arrays
-	if (pStr == 0)
-	{
-		return g_variant_new("as", nullptr);
-	}
-
-	g_auto(GVariantBuilder) builder;
-	g_variant_builder_init(&builder, G_VARIANT_TYPE_ARRAY);
-
-	while(nullptr != pStr)
-	{
-		g_variant_builder_add(&builder, "s", pStr);
-		pStr = va_arg(args, const char *);
-	}
-
-	return g_variant_builder_end(&builder);
+	return makeStringArrayVariant(pStr, args);
 }
 
 // Returns an array of strings ("as") with one string per variable argument.
@@ -258,63 +479,23 @@ GVariant *Utils::gvariantFromStringArray(const char *pStr, va_list args)
 // The array must be terminated with a nullptr.
 GVariant *Utils::gvariantFromStringArray(const char *pStr, ...)
 {
-	// Deal with empty arrays
-	if (pStr == 0)
-	{
-		return g_variant_new("as", nullptr);
-	}
-
-	g_auto(GVariantBuilder) builder;
-	g_variant_builder_init(&builder, G_VARIANT_TYPE_ARRAY);
-
 	va_list args;
 	va_start(args, pStr);
-
-	GVariant *pResult = gvariantFromStringArray(pStr, args);
-
+	GVariant *pResult = makeStringArrayVariant(pStr, args);
 	va_end(args);
-
 	return pResult;
 }
 
 // Returns an array of strings ("as") from an array of strings
 GVariant *Utils::gvariantFromStringArray(const std::vector<std::string> &arr)
 {
-	// Deal with empty arrays
-	if (arr.empty())
-	{
-		return g_variant_new("as", nullptr);
-	}
-
-	g_auto(GVariantBuilder) builder;
-	g_variant_builder_init(&builder, G_VARIANT_TYPE_ARRAY);
-
-	for (const auto& str : arr)
-	{
-		g_variant_builder_add(&builder, "s", str.c_str());
-	}
-
-	return g_variant_builder_end(&builder);
+	return makeStringArrayVariant(arr);
 }
 
 // Returns an array of strings ("as") from an array of C strings
 GVariant *Utils::gvariantFromStringArray(const std::vector<const char *> &arr)
 {
-	// Deal with empty arrays
-	if (arr.empty())
-	{
-		return g_variant_new("as", nullptr);
-	}
-
-	g_auto(GVariantBuilder) builder;
-	g_variant_builder_init(&builder, G_VARIANT_TYPE_ARRAY);
-
-	for (const auto* pStr : arr)
-	{
-		g_variant_builder_add(&builder, "s", pStr);
-	}
-
-	return g_variant_builder_end(&builder);
+	return makeStringArrayVariant(arr);
 }
 
 // Returns an GVariant* containing an object path ("o") from an DBusObjectPath
@@ -344,105 +525,98 @@ GVariant *Utils::gvariantFromInt(gint32 value)
 // Returns an array of bytes ("ay") with the contents of the input C string
 GVariant *Utils::gvariantFromByteArray(const char *pStr)
 {
-	// Deal with empty arrays
-	if (*pStr == 0)
-	{
-		return g_variant_new("ay", nullptr);
-	}
-
-	return gvariantFromByteArray(reinterpret_cast<const guint8 *>(pStr), strlen(pStr));
+	return makeByteArrayVariant(pStr);
 }
 
 // Returns an array of bytes ("ay") with the contents of the input string
 GVariant *Utils::gvariantFromByteArray(const std::string &str)
 {
-	return gvariantFromByteArray(reinterpret_cast<const guint8 *>(str.c_str()), str.length());
+	return makeByteArrayVariant(str);
 }
 
 // Returns an array of bytes ("ay") with the contents of the input array of unsigned 8-bit values
 GVariant *Utils::gvariantFromByteArray(const guint8 *pBytes, int count)
 {
-	GBytes *pGbytes = g_bytes_new(pBytes, count);
-	GVariant *pGVariant = g_variant_new_from_bytes(G_VARIANT_TYPE_BYTESTRING, pGbytes, count);
-	g_bytes_unref(pGbytes);
-	return pGVariant;
+	return makeByteArrayVariant(pBytes, count);
 }
 
 // Returns an array of bytes ("ay") with the contents of the input array of unsigned 8-bit values
 GVariant *Utils::gvariantFromByteArray(const std::vector<guint8>& bytes)
 {
-	GBytes *pGbytes = g_bytes_new(bytes.data(), bytes.size());
-	GVariant *pGVariant = g_variant_new_from_bytes(G_VARIANT_TYPE_BYTESTRING, pGbytes, bytes.size());
-	g_bytes_unref(pGbytes);
-	return pGVariant;
+	return makeByteArrayVariant(bytes);
 }
 
 // Modern safe version using std::span
 GVariant *Utils::gvariantFromByteArray(std::span<const guint8> bytes)
 {
-	GBytes *pGbytes = g_bytes_new(bytes.data(), bytes.size());
-	GVariant *pGVariant = g_variant_new_from_bytes(G_VARIANT_TYPE_BYTESTRING, pGbytes, bytes.size());
-	g_bytes_unref(pGbytes);
-	return pGVariant;
+	return makeByteArrayVariant(bytes);
 }
 
 // Returns an array of bytes ("ay") containing a single unsigned 8-bit value
 GVariant *Utils::gvariantFromByteArray(const guint8 data)
 {
-	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
+	return makeByteArrayScalarVariant(data);
 }
 
 // Returns an array of bytes ("ay") containing a single signed 8-bit value
 GVariant *Utils::gvariantFromByteArray(const gint8 data)
 {
-	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
+	return makeByteArrayScalarVariant(data);
 }
 
 // Returns an array of bytes ("ay") containing a single unsigned 16-bit value
 GVariant *Utils::gvariantFromByteArray(const guint16 data)
 {
-	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
+	return makeByteArrayScalarVariant(data);
 }
 
 // Returns an array of bytes ("ay") containing a single signed 16-bit value
 GVariant *Utils::gvariantFromByteArray(const gint16 data)
 {
-	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
+	return makeByteArrayScalarVariant(data);
 }
 
 // Returns an array of bytes ("ay") containing a single unsigned 32-bit value
 GVariant *Utils::gvariantFromByteArray(const guint32 data)
 {
-	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
+	return makeByteArrayScalarVariant(data);
 }
 
 // Returns an array of bytes ("ay") containing a single signed 32-bit value
 GVariant *Utils::gvariantFromByteArray(const gint32 data)
 {
-	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
+	return makeByteArrayScalarVariant(data);
 }
 
 // Returns an array of bytes ("ay") containing a single unsigned 64-bit value
 GVariant *Utils::gvariantFromByteArray(const guint64 data)
 {
-	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
+	return makeByteArrayScalarVariant(data);
 }
 
 // Returns an array of bytes ("ay") containing a single signed 64-bit value
 GVariant *Utils::gvariantFromByteArray(const gint64 data)
 {
-	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
+	return makeByteArrayScalarVariant(data);
 }
+#endif
+
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 // Extracts a string from an array of bytes ("ay")
+std::string Utils::stringFromGVariantByteArray(DBusVariantRef variant)
+{
+	return readByteArrayString(variant);
+}
+
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 std::string Utils::stringFromGVariantByteArray(const GVariant *pVariant)
 {
-	gsize size;
-	gconstpointer pPtr = g_variant_get_fixed_array(const_cast<GVariant *>(pVariant), &size, 1);
-	std::vector<gchar> array(size + 1, 0);
-	std::memcpy(array.data(), pPtr, size);
-	return array.data();
+	return readByteArrayString(DBusVariantRef(pVariant));
 }
+#endif
 
 // -----------------------------------------------------------------------------------------------------------------------------
 // BlueZ name truncation utilities (moved from deprecated Mgmt class)

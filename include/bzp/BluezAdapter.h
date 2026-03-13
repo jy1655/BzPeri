@@ -29,29 +29,36 @@
 
 #pragma once
 
-#include <gio/gio.h>
+#include <bzp/GLibTypes.h>
 #include <string>
 #include <atomic>
 #include <functional>
 #include <vector>
 #include <memory>
 #include <unordered_map>
+#include <mutex>
 #include <bzp/BluezTypes.h>
 
 namespace bzp {
 
 // Forward declarations
 class BluezAdvertisement;
+struct Server;
 
 class BluezAdapter
 {
 public:
-	// Singleton access
+#if BZP_ENABLE_LEGACY_SINGLETON_COMPAT
+	// Legacy singleton access retained for compatibility.
+	[[deprecated("Use getActiveBluezAdapter() or getActiveBluezAdapterPtr() instead of BluezAdapter::getInstance()")]]
 	static BluezAdapter& getInstance();
+#endif
 
 	// Initialization and cleanup with adapter discovery
 	BluezResult<void> initialize(const std::string& preferredAdapter = "");
 	void shutdown();
+	void setServiceNameContext(std::string serviceName);
+	void setServerContext(const Server* server) noexcept { serverContext_ = server; }
 
 	// Adapter discovery and selection
 	BluezResult<std::vector<AdapterInfo>> discoverAdapters();
@@ -100,10 +107,17 @@ public:
 private:
 	BluezAdapter() = default;
 	~BluezAdapter();
+	static BluezAdapter& activeAdapterStorage() noexcept;
+	friend BluezAdapter* makeBluezAdapterForRuntime();
+	friend void destroyBluezAdapterForRuntime(BluezAdapter *adapter) noexcept;
+	friend void setActiveBluezAdapterForRuntime(BluezAdapter *adapter) noexcept;
+
+	friend BluezAdapter& getActiveBluezAdapter() noexcept;
+	friend BluezAdapter* getActiveBluezAdapterPtr() noexcept;
 
 	// D-Bus property operations with error handling
-	BluezResult<void> setAdapterProperty(const std::string& property, GVariant* value);
-	BluezResult<GVariant*> getAdapterProperty(const std::string& property);
+	BluezResult<void> setAdapterProperty(const std::string& property, DBusVariantRef value);
+	BluezResult<DBusVariantRef> getAdapterProperty(const std::string& property);
 
 	// Object Manager operations
 	BluezResult<void> setupObjectManager();
@@ -112,50 +126,22 @@ private:
 	// Non-blocking retry operations with GLib timeouts
 	BluezResult<void> retryOperationWithTimeout(std::function<BluezResult<void>()> operation, const RetryPolicy& policy);
 
-	// D-Bus signal handlers
-	static void onPropertiesChanged(GDBusConnection* connection,
-									const gchar* sender_name,
-									const gchar* object_path,
-									const gchar* interface_name,
-									const gchar* signal_name,
-									GVariant* parameters,
-									gpointer user_data);
-
-	static void onInterfacesAdded(GDBusConnection* connection,
-								  const gchar* sender_name,
-								  const gchar* object_path,
-								  const gchar* interface_name,
-								  const gchar* signal_name,
-								  GVariant* parameters,
-								  gpointer user_data);
-
-	static void onInterfacesRemoved(GDBusConnection* connection,
-									const gchar* sender_name,
-									const gchar* object_path,
-									const gchar* interface_name,
-									const gchar* signal_name,
-									GVariant* parameters,
-									gpointer user_data);
-
-	static void onNameOwnerChanged(GDBusConnection* connection,
-								   const gchar* sender_name,
-								   const gchar* object_path,
-								   const gchar* interface_name,
-								   const gchar* signal_name,
-								   GVariant* parameters,
-								   gpointer user_data);
+	// D-Bus signal handling
+	void handlePropertiesChanged(std::string_view objectPath, DBusVariantRef parameters);
+	void handleInterfacesAdded(DBusVariantRef parameters);
+	void handleInterfacesRemoved(DBusVariantRef parameters);
+	void handleNameOwnerChanged(DBusVariantRef parameters);
 
 	// Internal connection tracking
 	void handleDeviceConnected(const std::string& devicePath);
 	void handleDeviceDisconnected(const std::string& devicePath);
 
-	// Error handling
-	bool isRetryableError(const GError* error) const;
-
 	// Member variables
 	std::string adapterPath;
-	GDBusConnection* dbusConnection = nullptr;
-	GDBusObjectManager* objectManager = nullptr;
+	std::string serviceNameContext_ = "bzperi";
+	const Server* serverContext_ = nullptr;
+	DBusConnectionRef dbusConnection;
+	DBusObjectManagerRef objectManager;
 	bool initialized = false;
 	std::atomic<int> activeConnections{0};
 
@@ -175,6 +161,7 @@ private:
 
 	// Connected devices tracking
 	std::unordered_map<std::string, DeviceInfo> connectedDevices;
+	mutable std::mutex connectedDevicesMutex_;
 
 	// Configuration
 	RetryPolicy defaultRetryPolicy;
@@ -192,6 +179,7 @@ private:
 
 	// Async retry state
 	struct RetryState {
+		BluezAdapter* owner = nullptr;
 		std::function<BluezResult<void>()> operation;
 		RetryPolicy policy;
 		int currentAttempt;
@@ -203,13 +191,26 @@ private:
 	// Static callback for g_timeout_add
 	static gboolean onRetryTimeout(gpointer user_data);
 	static gboolean onAdvertisingRetryTimeout(gpointer user_data);
+	static gboolean onReconnectTimeout(gpointer user_data);
+	static gboolean onDelayedReconnectTimeout(gpointer user_data);
 	void scheduleAsyncRetry(std::function<BluezResult<void>()> operation,
 	                       const RetryPolicy& policy,
 	                       std::function<void(BluezResult<void>)> completionCallback = nullptr);
 	void scheduleAdvertisingRetry(bool enabled, const RetryPolicy& policy, std::function<void(BluezResult<void>)> callback = nullptr);
+	void clearReconnectTimers();
+	void scheduleReconnectAttempt(unsigned int delaySeconds, bool delayedRetry);
 
 	// Callback for connection events
 	ConnectionCallback connectionCallback;
+
+	// Flag to cancel pending reconnect timers on shutdown
+	std::atomic<bool> reconnectCancelled_{false};
+	guint reconnectTimerId_ = 0;
+	guint delayedReconnectTimerId_ = 0;
 };
+
+[[nodiscard]] BluezAdapter& getActiveBluezAdapter() noexcept;
+[[nodiscard]] BluezAdapter* getActiveBluezAdapterPtr() noexcept;
+[[nodiscard]] BluezAdapter* getRuntimeBluezAdapterPtr() noexcept;
 
 } // namespace bzp

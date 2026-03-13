@@ -31,6 +31,121 @@ option(BUILD_STANDALONE "Build standalone server example" ${LINUX})
 option(BUILD_TESTING "Build tests" OFF)
 option(ENABLE_BLUEZ_ADVANCED "Enable advanced BlueZ 5.77+ features" ${LINUX})
 option(ENABLE_PERFORMANCE_OPTIMIZATION "Enable Linux-specific performance optimizations" ${LINUX})
+option(ENABLE_LEGACY_SINGLETON_COMPAT "Build deprecated TheServer and BluezAdapter::getInstance compatibility APIs" ON)
+option(ENABLE_LEGACY_RAW_GLIB_COMPAT "Build deprecated raw GLib callback/method compatibility APIs" ON)
+set(BZP_COMPILED_LOG_LEVEL "TRACE" CACHE STRING "Minimum compiled log level: TRACE, DEBUG, INFO, STATUS, WARN, ERROR, FATAL, ALWAYS")
+set_property(CACHE BZP_COMPILED_LOG_LEVEL PROPERTY STRINGS TRACE DEBUG INFO STATUS WARN ERROR FATAL ALWAYS)
+set(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE "AUTOMATIC" CACHE STRING "Default GLib log capture mode: AUTOMATIC, DISABLED, HOST_MANAGED, or STARTUP_AND_SHUTDOWN")
+set_property(CACHE BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE PROPERTY STRINGS AUTOMATIC DISABLED HOST_MANAGED STARTUP_AND_SHUTDOWN)
+set(BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS "ALL" CACHE STRING "Default GLib log capture targets: ALL or a comma-separated subset of PRINT, PRINTERR, LOG")
+set(BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS "ALL" CACHE STRING "Default GLib log capture domains: ALL or a comma-separated subset of DEFAULT, GLIB, GIO, BLUEZ, OTHER")
+set(BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION "ON" CACHE STRING "Default systemd PrepareForSleep integration: ON or OFF")
+set_property(CACHE BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION PROPERTY STRINGS ON OFF)
+set(BZP_DEFAULT_SLEEP_INHIBITOR "OFF" CACHE STRING "Default systemd sleep inhibitor integration: ON or OFF")
+set_property(CACHE BZP_DEFAULT_SLEEP_INHIBITOR PROPERTY STRINGS ON OFF)
+
+string(TOUPPER "${BZP_COMPILED_LOG_LEVEL}" BZP_COMPILED_LOG_LEVEL_NORMALIZED)
+if(BZP_COMPILED_LOG_LEVEL_NORMALIZED STREQUAL "TRACE")
+    set(BZP_COMPILED_LOG_LEVEL_VALUE 0)
+elseif(BZP_COMPILED_LOG_LEVEL_NORMALIZED STREQUAL "DEBUG")
+    set(BZP_COMPILED_LOG_LEVEL_VALUE 1)
+elseif(BZP_COMPILED_LOG_LEVEL_NORMALIZED STREQUAL "INFO")
+    set(BZP_COMPILED_LOG_LEVEL_VALUE 2)
+elseif(BZP_COMPILED_LOG_LEVEL_NORMALIZED STREQUAL "STATUS")
+    set(BZP_COMPILED_LOG_LEVEL_VALUE 3)
+elseif(BZP_COMPILED_LOG_LEVEL_NORMALIZED STREQUAL "WARN")
+    set(BZP_COMPILED_LOG_LEVEL_VALUE 4)
+elseif(BZP_COMPILED_LOG_LEVEL_NORMALIZED STREQUAL "ERROR")
+    set(BZP_COMPILED_LOG_LEVEL_VALUE 5)
+elseif(BZP_COMPILED_LOG_LEVEL_NORMALIZED STREQUAL "FATAL")
+    set(BZP_COMPILED_LOG_LEVEL_VALUE 6)
+elseif(BZP_COMPILED_LOG_LEVEL_NORMALIZED STREQUAL "ALWAYS")
+    set(BZP_COMPILED_LOG_LEVEL_VALUE 7)
+else()
+    message(FATAL_ERROR "BZP_COMPILED_LOG_LEVEL must be TRACE, DEBUG, INFO, STATUS, WARN, ERROR, FATAL, or ALWAYS")
+endif()
+
+if(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE STREQUAL "AUTOMATIC")
+    set(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE 0)
+elseif(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE STREQUAL "DISABLED")
+    set(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE 1)
+elseif(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE STREQUAL "HOST_MANAGED")
+    set(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE 2)
+elseif(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE STREQUAL "STARTUP_AND_SHUTDOWN")
+    set(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE 3)
+else()
+    message(FATAL_ERROR "BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE must be AUTOMATIC, DISABLED, HOST_MANAGED, or STARTUP_AND_SHUTDOWN")
+endif()
+
+string(TOUPPER "${BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS}" BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_NORMALIZED)
+if(BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_NORMALIZED STREQUAL "ALL")
+    set(BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE 7)
+else()
+    set(BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE 0)
+    string(REPLACE "," ";" BZP_GLIB_LOG_CAPTURE_TARGET_LIST "${BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_NORMALIZED}")
+    foreach(BZP_GLIB_LOG_CAPTURE_TARGET IN LISTS BZP_GLIB_LOG_CAPTURE_TARGET_LIST)
+        string(STRIP "${BZP_GLIB_LOG_CAPTURE_TARGET}" BZP_GLIB_LOG_CAPTURE_TARGET)
+        if(BZP_GLIB_LOG_CAPTURE_TARGET STREQUAL "PRINT")
+            math(EXPR BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE "${BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE} | 1")
+        elseif(BZP_GLIB_LOG_CAPTURE_TARGET STREQUAL "PRINTERR")
+            math(EXPR BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE "${BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE} | 2")
+        elseif(BZP_GLIB_LOG_CAPTURE_TARGET STREQUAL "LOG")
+            math(EXPR BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE "${BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE} | 4")
+        elseif(BZP_GLIB_LOG_CAPTURE_TARGET STREQUAL "")
+        else()
+            message(FATAL_ERROR "BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS must be ALL or a comma-separated subset of PRINT, PRINTERR, LOG")
+        endif()
+    endforeach()
+    if(BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE EQUAL 0)
+        message(FATAL_ERROR "BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS must not resolve to an empty capture mask")
+    endif()
+endif()
+
+string(TOUPPER "${BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS}" BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_NORMALIZED)
+if(BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_NORMALIZED STREQUAL "ALL")
+    set(BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE 31)
+else()
+    set(BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE 0)
+    string(REPLACE "," ";" BZP_GLIB_LOG_CAPTURE_DOMAIN_LIST "${BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_NORMALIZED}")
+    foreach(BZP_GLIB_LOG_CAPTURE_DOMAIN IN LISTS BZP_GLIB_LOG_CAPTURE_DOMAIN_LIST)
+        string(STRIP "${BZP_GLIB_LOG_CAPTURE_DOMAIN}" BZP_GLIB_LOG_CAPTURE_DOMAIN)
+        if(BZP_GLIB_LOG_CAPTURE_DOMAIN STREQUAL "DEFAULT")
+            math(EXPR BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE "${BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE} | 1")
+        elseif(BZP_GLIB_LOG_CAPTURE_DOMAIN STREQUAL "GLIB")
+            math(EXPR BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE "${BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE} | 2")
+        elseif(BZP_GLIB_LOG_CAPTURE_DOMAIN STREQUAL "GIO")
+            math(EXPR BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE "${BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE} | 4")
+        elseif(BZP_GLIB_LOG_CAPTURE_DOMAIN STREQUAL "BLUEZ")
+            math(EXPR BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE "${BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE} | 8")
+        elseif(BZP_GLIB_LOG_CAPTURE_DOMAIN STREQUAL "OTHER")
+            math(EXPR BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE "${BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE} | 16")
+        elseif(BZP_GLIB_LOG_CAPTURE_DOMAIN STREQUAL "")
+        else()
+            message(FATAL_ERROR "BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS must be ALL or a comma-separated subset of DEFAULT, GLIB, GIO, BLUEZ, OTHER")
+        endif()
+    endforeach()
+    if(BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE EQUAL 0)
+        message(FATAL_ERROR "BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS must not resolve to an empty domain mask")
+    endif()
+endif()
+
+string(TOUPPER "${BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION}" BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION_NORMALIZED)
+if(BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION_NORMALIZED STREQUAL "ON")
+    set(BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION_VALUE 1)
+elseif(BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION_NORMALIZED STREQUAL "OFF")
+    set(BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION_VALUE 0)
+else()
+    message(FATAL_ERROR "BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION must be ON or OFF")
+endif()
+
+string(TOUPPER "${BZP_DEFAULT_SLEEP_INHIBITOR}" BZP_DEFAULT_SLEEP_INHIBITOR_NORMALIZED)
+if(BZP_DEFAULT_SLEEP_INHIBITOR_NORMALIZED STREQUAL "ON")
+    set(BZP_DEFAULT_SLEEP_INHIBITOR_VALUE 1)
+elseif(BZP_DEFAULT_SLEEP_INHIBITOR_NORMALIZED STREQUAL "OFF")
+    set(BZP_DEFAULT_SLEEP_INHIBITOR_VALUE 0)
+else()
+    message(FATAL_ERROR "BZP_DEFAULT_SLEEP_INHIBITOR must be ON or OFF")
+endif()
 
 # Optional: override version from CI/tag
 set(BZPERI_VERSION_OVERRIDE "" CACHE STRING "Override project/package version (e.g., from git tag)")
@@ -129,6 +244,7 @@ set(BZPERI_SOURCES
     src/Init.cpp
     src/Logger.cpp
     src/FormatCompat.cpp
+    src/ServerRuntime.cpp
     src/ServerTypes.cpp
     src/Server.cpp
     src/ServiceRegistry.cpp
@@ -141,9 +257,22 @@ set(BZPERI_SOURCES
 if(LINUX)
     list(APPEND BZPERI_SOURCES
         src/BluezAdapter.cpp
+        src/BluezAdapterRuntime.cpp
+        src/BluezAdvertisingSupport.cpp
         src/BluezTypes.cpp
         src/BluezAdvertisement.cpp
     )
+endif()
+
+if(ENABLE_LEGACY_SINGLETON_COMPAT)
+    list(APPEND BZPERI_SOURCES
+        src/ServerCompat.cpp
+    )
+    if(LINUX)
+        list(APPEND BZPERI_SOURCES
+            src/BluezAdapterCompat.cpp
+        )
+    endif()
 endif()
 
 # Create library
@@ -156,6 +285,12 @@ if(BUILD_SHARED_LIBS)
 else()
     add_library(bzperi STATIC ${BZPERI_SOURCES})
 endif()
+
+target_compile_definitions(bzperi PUBLIC
+    BZP_COMPILED_LOG_LEVEL_VALUE=${BZP_COMPILED_LOG_LEVEL_VALUE}
+    BZP_ENABLE_LEGACY_SINGLETON_COMPAT=$<IF:$<BOOL:${ENABLE_LEGACY_SINGLETON_COMPAT}>,1,0>
+    BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT=$<IF:$<BOOL:${ENABLE_LEGACY_RAW_GLIB_COMPAT}>,1,0>
+)
 
 # Library properties
 set_target_properties(bzperi PROPERTIES
@@ -193,10 +328,41 @@ if(BUILD_STANDALONE AND LINUX)
     )
 endif()
 
+# Tests
+if(BUILD_TESTING)
+    enable_testing()
+
+    if(LINUX)
+        add_executable(bzperi-tests
+            tests/bzperi_tests.cpp
+        )
+        target_link_libraries(bzperi-tests PRIVATE
+            bzperi
+            ${GLIB_LIBRARIES}
+            ${GIO_LIBRARIES}
+            ${GOBJECT_LIBRARIES}
+        )
+        target_include_directories(bzperi-tests PRIVATE
+            ${GLIB_INCLUDE_DIRS}
+            ${GIO_INCLUDE_DIRS}
+            ${GOBJECT_INCLUDE_DIRS}
+        )
+        target_compile_options(bzperi-tests PRIVATE
+            ${GLIB_CFLAGS_OTHER}
+            ${GIO_CFLAGS_OTHER}
+            ${GOBJECT_CFLAGS_OTHER}
+        )
+        add_test(NAME bzperi-unit COMMAND bzperi-tests)
+    else()
+        message(WARNING "BUILD_TESTING is enabled, but tests are only available on Linux")
+    endif()
+endif()
+
 # Installation
 include(GNUInstallDirs)
 
 install(TARGETS bzperi
+    EXPORT bzperi-targets
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT libraries
@@ -224,6 +390,35 @@ configure_file(
 
 install(FILES "${CMAKE_BINARY_DIR}/bzperi.pc"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig COMPONENT headers
+)
+
+# Generate CMake package config files for find_package() support
+include(CMakePackageConfigHelpers)
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/bzperi-config.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/bzperi-config.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/bzperi"
+)
+
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/bzperi-config-version.cmake"
+    VERSION "${PROJECT_VERSION}"
+    COMPATIBILITY SameMajorVersion
+)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/bzperi-config.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/bzperi-config-version.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/bzperi"
+    COMPONENT headers
+)
+
+install(EXPORT bzperi-targets
+    FILE bzperi-targets.cmake
+    NAMESPACE bzp::
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/bzperi"
+    COMPONENT headers
 )
 
 # Install D-Bus policy file
@@ -349,6 +544,14 @@ message(STATUS "  Build type:        ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ standard:      C++${CMAKE_CXX_STANDARD}")
 message(STATUS "  Shared libraries:  ${BUILD_SHARED_LIBS}")
 message(STATUS "  Build standalone:  ${BUILD_STANDALONE}")
+message(STATUS "  Legacy singleton compat: ${ENABLE_LEGACY_SINGLETON_COMPAT}")
+message(STATUS "  Legacy raw GLib compat: ${ENABLE_LEGACY_RAW_GLIB_COMPAT}")
+message(STATUS "  Compiled log level: ${BZP_COMPILED_LOG_LEVEL}")
+message(STATUS "  Default GLib capture: ${BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE}")
+message(STATUS "  Default GLib capture targets: ${BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS}")
+message(STATUS "  Default GLib capture domains: ${BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS}")
+message(STATUS "  Default sleep integration: ${BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION}")
+message(STATUS "  Default sleep inhibitor: ${BZP_DEFAULT_SLEEP_INHIBITOR}")
 message(STATUS "  Platform:          ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  std::format:       ${HAS_STD_FORMAT}")
 if(LINUX)

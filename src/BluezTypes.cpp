@@ -3,6 +3,8 @@
 //
 // BlueZ type definitions and utilities
 
+#include <gio/gio.h>
+
 #include <bzp/BluezTypes.h>
 #include <bzp/Logger.h>
 #include <algorithm>

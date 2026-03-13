@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include <gio/gio.h>
+#include <bzp/GLibTypes.h>
 #include <string>
 #include <list>
 
@@ -43,6 +43,7 @@ struct DBusObjectPath;
 // Useful Lambdas
 // ---------------------------------------------------------------------------------------------------------------------------------
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 #define INTERFACE_METHOD_CALLBACK_LAMBDA [] \
 ( \
        const DBusInterface &self, \
@@ -51,6 +52,24 @@ struct DBusObjectPath;
        GVariant *pParameters, \
        GDBusMethodInvocation *pInvocation, \
        void *pUserData \
+)
+#endif
+
+#define INTERFACE_METHOD_HANDLER_LAMBDA [] \
+( \
+       const DBusInterface &self, \
+       DBusConnectionRef connection, \
+       const std::string &methodName, \
+       DBusVariantRef parameters, \
+       DBusMethodInvocationRef invocation, \
+       void *pUserData \
+)
+
+#define INTERFACE_METHOD_CALL_HANDLER_LAMBDA [] \
+( \
+       const DBusInterface &self, \
+       const std::string &methodName, \
+       DBusMethodCallRef methodCall \
 )
 
 #define TRY_GET_INTERFACE_OF_TYPE(pInterface, type) \
@@ -72,7 +91,12 @@ struct DBusInterface
 	// Our interface type
 	static constexpr const char *kInterfaceType = "DBusInterface";
 
-	typedef void (*MethodCallback)(const DBusInterface &self, GDBusConnection *pConnection, const std::string &methodName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData);
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	using RawMethodCallback = bzp::RawMethodCallback<DBusInterface>;
+	using MethodCallback BZP_DEPRECATED("Use DBusInterface::MethodHandler and INTERFACE_METHOD_HANDLER_LAMBDA instead") = RawMethodCallback;
+#endif
+	using MethodHandler = DBusMethod::Handler;
+	using MethodCallHandler = DBusMethod::CallHandler;
 
 	// Standard constructor
 	DBusInterface(DBusObject &owner, const std::string &name);
@@ -100,11 +124,24 @@ struct DBusInterface
 	// D-Bus interface methods
 	//
 
-	DBusInterface &addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, DBusMethod::Callback callback);
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	BZP_DEPRECATED("Use DBusInterface::addMethod(..., MethodHandler) instead of raw GDBus callbacks")
+	DBusInterface &addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, RawMethodCallback callback);
+#endif
+	DBusInterface &addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, const MethodHandler &handler);
+	DBusInterface &addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, const MethodCallHandler &handler);
 
 	// NOTE: Subclasses are encouraged to override this method in order to support different callback types that are specific to
 	// their subclass type.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	BZP_DEPRECATED("Use DBusInterface::callMethod(..., DBusMethodCallRef)")
 	virtual bool callMethod(const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const;
+#endif
+	virtual bool callMethod(const std::string &methodName, DBusMethodCallRef methodCall) const;
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	BZP_DEPRECATED("Use DBusInterface::callMethod(..., DBusMethodCallRef)")
+	bool callMethod(const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const;
+#endif
 
 	// Internal method used to generate introspection XML used to describe our services on D-Bus
 	virtual std::string generateIntrospectionXML(int depth) const;

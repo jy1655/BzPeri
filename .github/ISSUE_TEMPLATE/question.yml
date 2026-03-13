@@ -1,0 +1,36 @@
+name: Question
+description: Ask a question about BzPeri usage
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question about using BzPeri? We're here to help!
+        
+        Before asking, please check:
+        - [README.md](https://github.com/jy1655/BzPeri/blob/main/README.md)
+        - [BUILD.md](https://github.com/jy1655/BzPeri/blob/main/BUILD.md)
+        - [STANDALONE_USAGE.md](https://github.com/jy1655/BzPeri/blob/main/STANDALONE_USAGE.md)
+        - [Existing issues](https://github.com/jy1655/BzPeri/issues?q=is%3Aissue)
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What would you like to know?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What are you trying to achieve? Any relevant code?
+      render: cpp
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What I've Tried
+      description: What have you already tried or researched?

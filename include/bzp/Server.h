@@ -11,7 +11,8 @@
 // >>>  INSIDE THIS FILE
 // >>
 //
-// This is the top-level interface for the server. There is only one of these stored in the global `TheServer`. Use this object
+// This is the top-level interface for the server. Internally, access is moving to `getActiveServer()` /
+// `getActiveServerPtr()` rather than reading the legacy global directly.
 // to configure your server's settings (there are surprisingly few of them.) It also contains the full server description and
 // implementation.
 //
@@ -25,7 +26,7 @@
 
 #pragma once
 
-#include <gio/gio.h>
+#include <bzp/GLibTypes.h>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -193,7 +194,15 @@ struct Server
 	// Find a D-Bus method within the given D-Bus object on the given D-Bus interface
 	//
 	// If the method was found, it is returned, otherwise nullptr is returned
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	BZP_DEPRECATED("Use Server::callMethod(..., DBusMethodCallRef)")
 	[[nodiscard]] bool callMethod(const DBusObjectPath& objectPath, std::string_view interfaceName, std::string_view methodName, GDBusConnection* pConnection, GVariant* pParameters, GDBusMethodInvocation* pInvocation, gpointer pUserData) const;
+#endif
+	[[nodiscard]] bool callMethod(const DBusObjectPath& objectPath, std::string_view interfaceName, std::string_view methodName, DBusMethodCallRef methodCall) const;
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+	BZP_DEPRECATED("Use Server::callMethod(..., DBusMethodCallRef)")
+	[[nodiscard]] bool callMethod(const DBusObjectPath& objectPath, std::string_view interfaceName, std::string_view methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const;
+#endif
 
 	// Find a GATT Property within the given D-Bus object on the given D-Bus interface
 	//
@@ -262,7 +271,18 @@ private:
 	std::string serviceName;
 };
 
-// Our one and only server. It's a global.
+std::shared_ptr<Server> getActiveServer();
+Server* getActiveServerPtr() noexcept;
+std::shared_ptr<Server> getRuntimeServer();
+Server* getRuntimeServerPtr() noexcept;
+void setActiveServer(std::shared_ptr<Server> server);
+
+#if BZP_ENABLE_LEGACY_SINGLETON_COMPAT
+// Legacy global server handle retained for compatibility. Prefer getActiveServer()/getActiveServerPtr().
+#if defined(__cplusplus)
+[[deprecated("Use getActiveServer() or getActiveServerPtr() instead of TheServer")]]
+#endif
 extern std::shared_ptr<Server> TheServer;
+#endif
 
 }; // namespace bzp

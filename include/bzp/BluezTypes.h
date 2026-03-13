@@ -23,7 +23,8 @@
 
 #pragma once
 
-#include <gio/gio.h>
+#include <glib.h>
+#include <cstdint>
 #include <string>
 #include <variant>
 #include <vector>
@@ -137,6 +138,9 @@ struct BluezCapabilities
 	bool hasAcquireWrite = false;
 	bool hasAcquireNotify = false;
 	bool hasExtendedAdvertising = false;
+	uint16_t maxAdvertisingDataLength = 31;
+	uint16_t maxScanResponseLength = 31;
+	std::vector<std::string> supportedSecondaryChannels;
 	std::string bluezVersion;
 };
 

@@ -66,29 +66,29 @@ static void addManagedObjectsNode(const DBusObject &object, const DBusObjectPath
 	if (!object.getInterfaces().empty())
 	{
 		DBusObjectPath path = basePath + object.getPathNode();
-		Logger::debug(SSTR << "  Object: " << path);
+		LOG_DEBUG_STREAM(SSTR << "  Object: " << path);
 
 		GVariantBuilder *pInterfaceArray = g_variant_builder_new(G_VARIANT_TYPE_ARRAY);
 		for (std::shared_ptr<const DBusInterface> pInterface : object.getInterfaces())
 		{
-			Logger::debug(SSTR << "  + Interface (type: " << pInterface->getInterfaceType() << ")");
+			LOG_DEBUG_STREAM(SSTR << "  + Interface (type: " << pInterface->getInterfaceType() << ")");
 
 			if (std::shared_ptr<const GattService> pService = TRY_GET_CONST_INTERFACE_OF_TYPE(pInterface, GattService))
 			{
 				if (!pService->getProperties().empty())
 				{
-					Logger::debug(SSTR << "    GATT Service interface: " << pService->getName());
+					LOG_DEBUG_STREAM(SSTR << "    GATT Service interface: " << pService->getName());
 
 					GVariantBuilder *pPropertyArray = g_variant_builder_new(G_VARIANT_TYPE_ARRAY);
 					for (const GattProperty &property : pService->getProperties())
 					{
-						Logger::debug(SSTR << "      Property " << property.getName());
+						LOG_DEBUG_STREAM(SSTR << "      Property " << property.getName());
 						g_variant_builder_add
 						(
 							pPropertyArray,
 							"{sv}",
 							property.getName().c_str(),
-							property.getValue()
+							property.getValueRef().get()
 						);
 					}
 
@@ -105,18 +105,18 @@ static void addManagedObjectsNode(const DBusObject &object, const DBusObjectPath
 			{
 				if (!pCharacteristic->getProperties().empty())
 				{
-					Logger::debug(SSTR << "    GATT Characteristic interface: " << pCharacteristic->getName());
+					LOG_DEBUG_STREAM(SSTR << "    GATT Characteristic interface: " << pCharacteristic->getName());
 
 					GVariantBuilder *pPropertyArray = g_variant_builder_new(G_VARIANT_TYPE_ARRAY);
 					for (const GattProperty &property : pCharacteristic->getProperties())
 					{
-						Logger::debug(SSTR << "      Property " << property.getName());
+						LOG_DEBUG_STREAM(SSTR << "      Property " << property.getName());
 						g_variant_builder_add
 						(
 							pPropertyArray,
 							"{sv}",
 							property.getName().c_str(),
-							property.getValue()
+							property.getValueRef().get()
 						);
 					}
 
@@ -133,18 +133,18 @@ static void addManagedObjectsNode(const DBusObject &object, const DBusObjectPath
 			{
 				if (!pDescriptor->getProperties().empty())
 				{
-					Logger::debug(SSTR << "    GATT Descriptor interface: " << pDescriptor->getName());
+					LOG_DEBUG_STREAM(SSTR << "    GATT Descriptor interface: " << pDescriptor->getName());
 
 					GVariantBuilder *pPropertyArray = g_variant_builder_new(G_VARIANT_TYPE_ARRAY);
 					for (const GattProperty &property : pDescriptor->getProperties())
 					{
-						Logger::debug(SSTR << "      Property " << property.getName());
+						LOG_DEBUG_STREAM(SSTR << "      Property " << property.getName());
 						g_variant_builder_add
 						(
 							pPropertyArray,
 							"{sv}",
 							property.getName().c_str(),
-							property.getValue()
+							property.getValueRef().get()
 						);
 					}
 
@@ -179,19 +179,24 @@ static void addManagedObjectsNode(const DBusObject &object, const DBusObjectPath
 	}
 }
 
-// Builds the response to the method call `GetManagedObjects` from the D-Bus interface `org.freedesktop.DBus.ObjectManager`
-void ServerUtils::getManagedObjects(GDBusMethodInvocation *pInvocation)
+DBusVariantRef ServerUtils::buildManagedObjectsPayload(const Server& server)
 {
-	Logger::debug(SSTR << "Reporting managed objects");
+	LOG_DEBUG_STREAM(SSTR << "Reporting managed objects");
 
 	GVariantBuilder *pObjectArray = g_variant_builder_new(G_VARIANT_TYPE_ARRAY);
-	for (const DBusObject &object : TheServer->getObjects())
+	for (const DBusObject &object : server.getObjects())
 	{
-		addManagedObjectsNode(object, DBusObjectPath(""), pObjectArray);
+		addManagedObjectsNode(object, DBusObjectPath(), pObjectArray);
 	}
 
 	GVariant *pParams = g_variant_new("(a{oa{sa{sv}}})", pObjectArray);
-	g_dbus_method_invocation_return_value(pInvocation, pParams);
+	return DBusVariantRef(pParams);
+}
+
+// Builds the response to the method call `GetManagedObjects` from the D-Bus interface `org.freedesktop.DBus.ObjectManager`
+void ServerUtils::getManagedObjects(const Server& server, DBusMethodCallRef methodCall)
+{
+	methodCall.returnValue(buildManagedObjectsPayload(server));
 }
 
 // WARNING: Hacky code - don't count on this working properly on all systems

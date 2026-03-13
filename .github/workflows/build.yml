@@ -1,0 +1,183 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }}, ${{ matrix.build_type }})
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Debian 12 (Bookworm) - Primary target
+          - os: ubuntu-latest
+            container: debian:bookworm
+            build_type: Release
+            name: Debian 12
+            run_tests: false
+          
+          # Ubuntu 24.04 - host runner keeps the system D-Bus environment for unit tests
+          - os: ubuntu-24.04
+            container: null
+            build_type: Release
+            name: Ubuntu 24.04
+            run_tests: true
+
+          # Debug build for development
+          - os: ubuntu-latest
+            container: debian:bookworm
+            build_type: Debug
+            name: Debian 12 Debug
+            run_tests: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.container }}" ]; then
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              build-essential cmake pkg-config git \
+              libglib2.0-dev libbluetooth-dev
+          else
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends \
+              build-essential cmake pkg-config \
+              libglib2.0-dev libbluetooth-dev
+          fi
+
+      - name: Configure CMake
+        run: |
+          TESTING_FLAG=OFF
+          if [ "${{ matrix.run_tests }}" = "true" ]; then
+            TESTING_FLAG=ON
+          fi
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DBUILD_STANDALONE=ON \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_TESTING=${TESTING_FLAG}
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Run unit tests
+        if: ${{ matrix.run_tests }}
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Check build artifacts
+        run: |
+          echo "=== Build Artifacts ==="
+          ls -la build/
+          
+          echo ""
+          echo "=== Library ==="
+          ls -la build/libbzp.so* || ls -la build/libbzp.a || echo "No library found"
+          
+          echo ""
+          echo "=== Executable ==="
+          ls -la build/bzp-standalone || echo "No executable found"
+          
+          echo ""
+          echo "=== Library Dependencies ==="
+          ldd build/libbzp.so 2>/dev/null || echo "Static build or ldd not available"
+
+      - name: Verify executable
+        run: |
+          # Verify the standalone binary exists, is executable, and prints its help text.
+          test -x build/bzp-standalone
+          echo "Executable exists"
+          if command -v file >/dev/null 2>&1; then
+            file build/bzp-standalone
+          else
+            echo "Skipping 'file' inspection: utility not installed in this environment"
+          fi
+          build/bzp-standalone --help > /tmp/bzp-standalone-help.txt 2>&1
+          grep -q "Usage: standalone" /tmp/bzp-standalone-help.txt
+
+  lint:
+    name: Code Style Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check clang-format
+        run: |
+          # Install clang-format
+          sudo apt-get update
+          sudo apt-get install -y clang-format
+          
+          echo "=== Checking code style ==="
+          
+          # Find all C++ files and check formatting
+          CHANGED=0
+          for file in $(find src include samples -name "*.cpp" -o -name "*.h" 2>/dev/null); do
+            if ! clang-format --dry-run --Werror "$file" 2>/dev/null; then
+              echo "Style issue in: $file"
+              CHANGED=1
+            fi
+          done
+          
+          if [ $CHANGED -eq 1 ]; then
+            echo ""
+            echo "::warning::Some files need formatting. Run 'clang-format -i' on the above files."
+          else
+            echo "All files pass style check"
+          fi
+          
+          # Don't fail the build for now (warning only)
+          exit 0
+
+  package:
+    name: Package Test
+    runs-on: ubuntu-latest
+    container: debian:bookworm
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config dpkg-dev \
+            libglib2.0-dev libbluetooth-dev
+
+      - name: Build and package
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_STANDALONE=ON \
+            -DBUILD_SHARED_LIBS=ON
+          
+          cmake --build build --parallel $(nproc)
+          
+          cd build
+          cpack -G DEB
+
+      - name: Verify packages
+        run: |
+          echo "=== Generated Packages ==="
+          ls -la build/*.deb
+          
+          echo ""
+          echo "=== Package Info ==="
+          for deb in build/*.deb; do
+            echo "--- $(basename $deb) ---"
+            dpkg-deb --info "$deb"
+            echo ""
+          done
