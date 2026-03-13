@@ -5,8 +5,6 @@ on:
   push:
     tags:
       - 'v*.*.*'
-  release:
-    types: [published]
 
 # Security: Only allow releases from authorized users
 # Note: Tag protection rules should be configured in repository settings
@@ -69,8 +67,14 @@ jobs:
             VERSION="${GITHUB_REF_NAME}"
           elif [ -n "${{ github.event.release.tag_name }}" ]; then
             VERSION="${{ github.event.release.tag_name }}"
+          else
+            VERSION="$(git describe --tags --abbrev=0 2>/dev/null || true)"
           fi
           VERSION="${VERSION#v}"
+          if [ -z "$VERSION" ]; then
+            echo "Unable to determine package version" >&2
+            exit 1
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build Debian packages
@@ -181,8 +185,14 @@ jobs:
             VERSION="${GITHUB_REF_NAME}"
           elif [ -n "${{ github.event.release.tag_name }}" ]; then
             VERSION="${{ github.event.release.tag_name }}"
+          else
+            VERSION="$(git describe --tags --abbrev=0 2>/dev/null || true)"
           fi
           VERSION="${VERSION#v}"
+          if [ -z "$VERSION" ]; then
+            echo "Unable to determine package version" >&2
+            exit 1
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Create Release file
@@ -277,6 +287,9 @@ jobs:
           fi
 
       - name: Add repo index page
+        env:
+          PKG_VERSION: ${{ steps.get_version.outputs.version }}
+          ARCHS: ${{ steps.merge.outputs.architectures }}
         run: |
           mkdir -p public/repo
           cat > public/repo/index.html << 'EOF'
@@ -285,127 +298,46 @@ jobs:
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>BzPeri APT Repository</title>
-          <style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;max-width:820px;margin:40px auto;padding:0 16px;line-height:1.5}code{background:#f5f5f5;padding:0 4px;border-radius:4px}</style>
+          <style>body{font-family:"Trebuchet MS","Gill Sans","Segoe UI",sans-serif;max-width:900px;margin:40px auto;padding:0 18px;line-height:1.6;color:#1c2530;background:#f6f1e4}main{background:#fffdf7;border:1px solid rgba(28,37,48,.12);border-radius:20px;padding:28px;box-shadow:0 18px 36px rgba(28,37,48,.08)}code{background:#f3efe6;padding:0 4px;border-radius:4px}pre{background:#18202b;color:#f5f7fa;padding:16px;border-radius:16px;overflow:auto}a{color:#0a6e56;text-decoration:none}a:hover{text-decoration:underline}.muted{color:#5d6874}.files{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;padding:0;list-style:none}.files li{padding:14px 16px;background:#f8f5ee;border-radius:14px;border:1px solid rgba(28,37,48,.08)}</style>
+          <main>
           <h1>BzPeri APT Repository</h1>
-          <p>Supported Architectures: <strong>${{ steps.merge.outputs.architectures }}</strong></p>
+          <p class="muted">Release line: <strong>ENV_PKG_VERSION</strong> | Supported architectures: <strong>ENV_ARCHS</strong></p>
           <h2>Setup</h2>
-          <ol>
-            <li>Install key:<br>
-              <code>curl -fsSL https://jy1655.github.io/BzPeri/repo/repo.key | sudo gpg --dearmor -o /usr/share/keyrings/bzperi-archive-keyring.gpg</code>
-            </li>
-            <li>Add source:<br>
-              <code>echo "deb [signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] https://jy1655.github.io/BzPeri/repo stable main" | sudo tee /etc/apt/sources.list.d/bzperi.list</code>
-            </li>
-            <li>Install:<br>
-              <code>sudo apt update && sudo apt install bzperi bzperi-dev bzperi-tools</code>
-            </li>
-            <li>Enable BlueZ experimental mode (required):<br>
-              <code>sudo /usr/share/bzperi/configure-bluez-experimental.sh enable</code><br>
-              <small>Tip: You can also auto-enable during install with <code>export BZPERI_AUTO_EXPERIMENTAL=1</code> then <code>sudo -E apt install bzperi</code>.</small>
-            </li>
-          </ol>
+          <pre><code>curl -fsSL https://jy1655.github.io/BzPeri/repo/repo.key | \
+            sudo gpg --dearmor -o /usr/share/keyrings/bzperi-archive-keyring.gpg
+
+          echo "deb [signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] \
+          https://jy1655.github.io/BzPeri/repo stable main" | \
+            sudo tee /etc/apt/sources.list.d/bzperi.list
+
+          sudo apt update
+          sudo apt install bzperi bzperi-dev bzperi-tools
+          sudo /usr/share/bzperi/configure-bluez-experimental.sh enable</code></pre>
+          <p class="muted">Tip: auto-enable BlueZ experimental mode during installation with <code>export BZPERI_AUTO_EXPERIMENTAL=1</code> then <code>sudo -E apt install bzperi</code>.</p>
           <h2>Files</h2>
-          <ul>
-            <li><a href="/BzPeri/repo/repo.key">repo.key</a> / <a href="/BzPeri/repo/public.gpg">public.gpg</a></li>
-            <li><a href="/BzPeri/repo/dists/stable/Release">Release</a> (<a href="/BzPeri/repo/dists/stable/InRelease">InRelease</a>, <a href="/BzPeri/repo/dists/stable/Release.gpg">Release.gpg</a>)</li>
-            <li><a href="/BzPeri/repo/dists/stable/main/binary-amd64/Packages.gz">Packages.gz</a></li>
+          <ul class="files">
+            <li><a href="./repo.key">repo.key</a> / <a href="./public.gpg">public.gpg</a></li>
+            <li><a href="./dists/stable/Release">Release</a> (<a href="./dists/stable/InRelease">InRelease</a>, <a href="./dists/stable/Release.gpg">Release.gpg</a>)</li>
+            <li><a href="./dists/stable/main/binary-amd64/Packages.gz">binary-amd64/Packages.gz</a></li>
+            <li><a href="./dists/stable/main/binary-arm64/Packages.gz">binary-arm64/Packages.gz</a></li>
           </ul>
+          <p><a href="../">Back to the landing page</a> | <a href="https://github.com/jy1655/BzPeri">GitHub repository</a></p>
+          </main>
           </html>
           EOF
+          ARCH_LABEL="${ARCHS// /, }"
+          sed -i "s/ENV_PKG_VERSION/${PKG_VERSION}/g" public/repo/index.html
+          sed -i "s/ENV_ARCHS/${ARCH_LABEL:-amd64}/g" public/repo/index.html
 
       - name: Create index.html for Pages
         env:
           PKG_VERSION: ${{ steps.get_version.outputs.version }}
           ARCHS: ${{ steps.merge.outputs.architectures }}
         run: |
-          cat > public/index.html << 'EOF'
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>BzPeri APT Repository</title>
-            <style>
-              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; line-height: 1.6; }
-              .header { text-align: center; margin-bottom: 40px; }
-              .version { color: #666; font-size: 0.9em; }
-              .code-block { background: #f5f5f5; padding: 15px; border-radius: 5px; overflow-x: auto; }
-              .architecture { background: #e3f2fd; padding: 2px 8px; border-radius: 3px; font-size: 0.85em; margin: 0 2px; }
-              .step { margin: 20px 0; padding: 15px; border-left: 4px solid #2196f3; background: #f8f9fa; }
-              .warning { border-left-color: #ff9800; background: #fff8e1; }
-              a { color: #1976d2; text-decoration: none; }
-              a:hover { text-decoration: underline; }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h1>🚀 BzPeri APT Repository</h1>
-              <p>Modern C++20 Bluetooth LE GATT Server Library</p>
-              <p class="version">Version: ENV_PKG_VERSION | Architecture: ENV_ARCHS</p>
-            </div>
-
-            <div class="step">
-              <h2>📦 Quick Installation</h2>
-              <div class="code-block">
-          # Add BzPeri repository<br>
-          curl -fsSL https://jy1655.github.io/BzPeri/repo/repo.key | sudo gpg --dearmor -o /usr/share/keyrings/bzperi-archive-keyring.gpg<br>
-          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] https://jy1655.github.io/BzPeri/repo stable main" | sudo tee /etc/apt/sources.list.d/bzperi.list<br><br>
-
-          # Install packages<br>
-          sudo apt update<br>
-          sudo apt install bzperi bzperi-dev bzperi-tools
-              </div>
-            </div>
-
-            <div class="step warning">
-              <h2>⚙️ BlueZ Configuration (Recommended)</h2>
-              <div class="code-block">
-          # Auto-configure during installation<br>
-          export BZPERI_AUTO_EXPERIMENTAL=1<br>
-          sudo -E apt install bzperi<br><br>
-
-          # Or configure manually after installation<br>
-          sudo /usr/share/bzperi/configure-bluez-experimental.sh enable
-              </div>
-            </div>
-
-            <div class="step">
-              <h2>🏃 Quick Start</h2>
-              <div class="code-block">
-          # Run example server (requires sudo for BlueZ access)<br>
-          sudo bzp-standalone -d<br><br>
-
-          # List available Bluetooth adapters<br>
-          sudo bzp-standalone --list-adapters
-              </div>
-            </div>
-
-            <div class="step">
-              <h2>📚 Available Packages</h2>
-              <ul>
-                <li><strong>bzperi</strong> - Runtime library for applications</li>
-                <li><strong>bzperi-dev</strong> - Development headers and pkg-config files</li>
-                <li><strong>bzperi-tools</strong> - Command-line tools (bzp-standalone)</li>
-              </ul>
-              <p><strong>Supported Architectures:</strong> amd64 (x86_64), arm64 (aarch64)</p>
-            </div>
-
-            <div class="step">
-              <h2>🔗 Links</h2>
-              <ul>
-                <li><a href="https://github.com/jy1655/BzPeri">GitHub Repository</a></li>
-                <li><a href="https://github.com/jy1655/BzPeri/blob/main/README.md">Documentation</a></li>
-                <li><a href="https://github.com/jy1655/BzPeri/issues">Issues & Support</a></li>
-                <li><a href="repo/">Browse Repository</a></li>
-              </ul>
-            </div>
-          </body>
-          </html>
-          EOF
-
-          # Replace environment variables
+          cp index.html public/index.html
+          ARCH_LABEL="${ARCHS// /, }"
           sed -i "s/ENV_PKG_VERSION/${PKG_VERSION:-latest}/g" public/index.html
-          sed -i "s/ENV_ARCHS/${ARCHS:-amd64}/g" public/index.html
+          sed -i "s/ENV_ARCHS/${ARCH_LABEL:-amd64}/g" public/index.html
 
       - name: Disable Jekyll for APT repo
         run: |

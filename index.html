@@ -3,68 +3,478 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BzPeri APT Repository</title>
-    <meta http-equiv="refresh" content="0; url=./repo/">
+    <title>BzPeri vENV_PKG_VERSION</title>
+    <meta name="description" content="BzPeri is a modern C++20 Bluetooth LE GATT server library for BlueZ over D-Bus.">
     <style>
+        :root {
+            --bg: #efe7d3;
+            --panel: rgba(255, 251, 240, 0.92);
+            --ink: #1c2530;
+            --muted: #5d6874;
+            --line: rgba(44, 58, 71, 0.16);
+            --accent: #0e7a5f;
+            --accent-strong: #0a5e4d;
+            --warm: #c65b35;
+            --shadow: 0 18px 40px rgba(30, 37, 48, 0.12);
+            --radius: 24px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            max-width: 600px;
-            margin: 100px auto;
-            padding: 20px;
+            margin: 0;
+            color: var(--ink);
+            font-family: "Trebuchet MS", "Gill Sans", "Segoe UI", sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(255, 248, 230, 0.95), transparent 34%),
+                radial-gradient(circle at top right, rgba(14, 122, 95, 0.14), transparent 28%),
+                linear-gradient(180deg, #efe7d3 0%, #f6f0e1 52%, #ece2ca 100%);
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.25;
+            background-image:
+                linear-gradient(rgba(28, 37, 48, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(28, 37, 48, 0.05) 1px, transparent 1px);
+            background-size: 28px 28px;
+            mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.25), transparent 72%);
+        }
+
+        a {
+            color: inherit;
+        }
+
+        code {
+            padding: 0.08em 0.36em;
+            border-radius: 0.45em;
+            background: rgba(28, 37, 48, 0.08);
+            font: 0.9em/1.4 "SFMono-Regular", "Menlo", "Consolas", monospace;
+        }
+
+        .page {
+            position: relative;
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 32px 20px 72px;
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.95fr);
+            gap: 24px;
+            align-items: stretch;
+        }
+
+        .hero-main,
+        .hero-side,
+        .section,
+        .note-bar {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(10px);
+        }
+
+        .hero-main {
+            padding: 32px;
+        }
+
+        .eyebrow {
+            margin: 0 0 12px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--accent);
+        }
+
+        h1 {
+            margin: 0;
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: clamp(2.8rem, 6vw, 5.2rem);
+            line-height: 0.94;
+            letter-spacing: -0.04em;
+        }
+
+        .hero-main p {
+            margin: 18px 0 0;
+            max-width: 62ch;
+            color: var(--muted);
+            font-size: 1.04rem;
+        }
+
+        .meta-row,
+        .link-grid,
+        .feature-grid,
+        .package-grid {
+            display: grid;
+            gap: 14px;
+        }
+
+        .meta-row {
+            margin-top: 24px;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        }
+
+        .meta-chip {
+            padding: 14px 16px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.72);
+            border: 1px solid rgba(14, 122, 95, 0.18);
+        }
+
+        .meta-chip strong,
+        .link-card strong,
+        .feature-card strong,
+        .package-card strong {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+        }
+
+        .meta-chip span,
+        .link-card span,
+        .feature-card span,
+        .package-card span {
+            color: var(--muted);
+            font-size: 0.94rem;
+        }
+
+        .cta-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 28px;
+        }
+
+        .button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 46px;
+            padding: 0 18px;
+            border-radius: 999px;
+            text-decoration: none;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+            border: 1px solid transparent;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+        }
+
+        .button:hover {
+            transform: translateY(-1px);
+        }
+
+        .button.primary {
+            color: #fff;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+            box-shadow: 0 14px 24px rgba(14, 122, 95, 0.22);
+        }
+
+        .button.secondary {
+            background: rgba(255, 255, 255, 0.78);
+            border-color: rgba(28, 37, 48, 0.14);
+        }
+
+        .hero-side {
+            padding: 24px;
+            display: grid;
+            align-content: start;
+            gap: 18px;
+        }
+
+        .hero-side h2,
+        .section h2 {
+            margin: 0;
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 1.65rem;
+            letter-spacing: -0.03em;
+        }
+
+        .hero-side p,
+        .section > p {
+            margin: 0;
+            color: var(--muted);
+        }
+
+        .terminal {
+            margin: 0;
+            padding: 18px;
+            border-radius: 18px;
+            overflow-x: auto;
+            background: #18202b;
+            color: #f2f5f8;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            font: 0.9rem/1.65 "SFMono-Regular", "Menlo", "Consolas", monospace;
+        }
+
+        .terminal code {
+            padding: 0;
+            background: transparent;
+            font: inherit;
+        }
+
+        .note-bar {
+            margin-top: 22px;
+            padding: 18px 22px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 18px;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .note-bar strong {
+            color: var(--warm);
+        }
+
+        .content {
+            display: grid;
+            gap: 22px;
+            margin-top: 22px;
+        }
+
+        .section {
+            padding: 26px;
+        }
+
+        .feature-grid,
+        .link-grid,
+        .package-grid {
+            margin-top: 18px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+
+        .feature-card,
+        .link-card,
+        .package-card {
+            padding: 18px;
+            border-radius: 18px;
+            border: 1px solid rgba(28, 37, 48, 0.08);
+            background: rgba(255, 255, 255, 0.72);
+        }
+
+        .link-card {
+            text-decoration: none;
+        }
+
+        .link-card:hover {
+            border-color: rgba(14, 122, 95, 0.28);
+            box-shadow: 0 10px 22px rgba(14, 122, 95, 0.12);
+        }
+
+        .two-column {
+            display: grid;
+            gap: 22px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .list {
+            margin: 18px 0 0;
+            padding-left: 18px;
+            color: var(--muted);
+        }
+
+        .list li + li {
+            margin-top: 10px;
+        }
+
+        .footer {
+            margin-top: 24px;
             text-align: center;
-            line-height: 1.6;
+            color: var(--muted);
+            font-size: 0.92rem;
         }
-        .redirect-message {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            padding: 30px;
-            margin: 20px 0;
+
+        @media (max-width: 900px) {
+            .hero,
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+
+            .hero-main,
+            .hero-side,
+            .section {
+                padding: 24px;
+            }
         }
-        .spinner {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #007bff;
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
-            display: inline-block;
-            margin-right: 10px;
+
+        @media (max-width: 640px) {
+            .page {
+                padding: 18px 14px 56px;
+            }
+
+            .cta-row {
+                flex-direction: column;
+            }
+
+            .button {
+                width: 100%;
+            }
         }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        a { color: #007bff; text-decoration: none; }
-        a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
-    <div class="redirect-message">
-        <h1>🚀 BzPeri APT Repository</h1>
-        <p>
-            <span class="spinner"></span>
-            Redirecting to APT repository...
-        </p>
-        <p>If you are not redirected automatically, <a href="./repo/">click here</a>.</p>
-    </div>
+    <div class="page">
+        <section class="hero">
+            <div class="hero-main">
+                <p class="eyebrow">BlueZ over D-Bus, refined for vENV_PKG_VERSION</p>
+                <h1>BzPeri</h1>
+                <p>
+                    A modern C++20 Bluetooth LE GATT server library for Linux. The current line focuses on
+                    runtime hardening, manual run-loop control, richer result APIs, GLib capture management,
+                    and clearer migration paths for existing integrations.
+                </p>
 
-    <div>
-        <h2>Quick Installation</h2>
-        <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; text-align: left; font-family: monospace;">
-# Add BzPeri repository<br>
-curl -fsSL https://jy1655.github.io/BzPeri/repo/repo.key | sudo gpg --dearmor -o /usr/share/keyrings/bzperi-archive-keyring.gpg<br>
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] https://jy1655.github.io/BzPeri/repo stable main" | sudo tee /etc/apt/sources.list.d/bzperi.list<br><br>
+                <div class="meta-row">
+                    <div class="meta-chip">
+                        <strong>Latest package line</strong>
+                        <span>vENV_PKG_VERSION on the stable APT repository</span>
+                    </div>
+                    <div class="meta-chip">
+                        <strong>Published architectures</strong>
+                        <span>ENV_ARCHS</span>
+                    </div>
+                    <div class="meta-chip">
+                        <strong>Primary target</strong>
+                        <span>Linux + BlueZ with D-Bus-backed BLE peripherals</span>
+                    </div>
+                </div>
 
-# Install packages<br>
-sudo apt update<br>
+                <div class="cta-row">
+                    <a class="button primary" href="https://github.com/jy1655/BzPeri/releases/tag/vENV_PKG_VERSION">Read the Release</a>
+                    <a class="button secondary" href="repo/">Browse the Repository</a>
+                    <a class="button secondary" href="https://github.com/jy1655/BzPeri/blob/main/README.md">Open the README</a>
+                </div>
+            </div>
+
+            <aside class="hero-side">
+                <h2>Install from the APT repo</h2>
+                <p>
+                    Use the signed repository for Debian or Ubuntu systems, then enable BlueZ experimental
+                    support if your host still needs it.
+                </p>
+                <pre class="terminal"><code>curl -fsSL https://jy1655.github.io/BzPeri/repo/repo.key | \
+  sudo gpg --dearmor -o /usr/share/keyrings/bzperi-archive-keyring.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/bzperi-archive-keyring.gpg] \
+https://jy1655.github.io/BzPeri/repo stable main" | \
+  sudo tee /etc/apt/sources.list.d/bzperi.list
+
+sudo apt update
 sudo apt install bzperi bzperi-dev bzperi-tools
-        </div>
-    </div>
+sudo /usr/share/bzperi/configure-bluez-experimental.sh enable</code></pre>
+            </aside>
+        </section>
 
-    <p style="margin-top: 30px; color: #666;">
-        <a href="https://github.com/jy1655/BzPeri">GitHub Repository</a> |
-        <a href="./repo/">Browse APT Repository</a>
-    </p>
+        <div class="note-bar">
+            <span><strong>Release focus:</strong> runtime reliability, host integration controls, and migration guidance.</span>
+            <span><a href="https://github.com/jy1655/BzPeri/blob/main/CHANGELOG.md">View the full changelog</a></span>
+        </div>
+
+        <main class="content">
+            <section class="section">
+                <h2>What changed in vENV_PKG_VERSION</h2>
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <strong>Manual run-loop control</strong>
+                        <span><code>bzpStartManual()</code>, owner handoff helpers, poll-cycle APIs, and bounded drive helpers for hosts that need tighter lifecycle control.</span>
+                    </div>
+                    <div class="feature-card">
+                        <strong>Detailed Ex result APIs</strong>
+                        <span>New result-rich C APIs across startup, shutdown, wait helpers, update queues, notifications, and GLib capture control.</span>
+                    </div>
+                    <div class="feature-card">
+                        <strong>GLib capture and power integration</strong>
+                        <span>Host-managed and startup/shutdown capture modes, domain filtering, pause/resume, PrepareForSleep, and optional sleep inhibitor control.</span>
+                    </div>
+                    <div class="feature-card">
+                        <strong>Migration and regression coverage</strong>
+                        <span>Expanded migration docs plus a Linux regression target covering wrappers, run-loop behavior, and runtime query surfaces.</span>
+                    </div>
+                </div>
+            </section>
+
+            <div class="two-column">
+                <section class="section">
+                    <h2>Available packages</h2>
+                    <div class="package-grid">
+                        <div class="package-card">
+                            <strong><code>bzperi</code></strong>
+                            <span>Runtime library and integration support for applications exposing BLE peripherals through BlueZ.</span>
+                        </div>
+                        <div class="package-card">
+                            <strong><code>bzperi-dev</code></strong>
+                            <span>Headers, CMake/pkg-config metadata, and the public API surface for downstream builds.</span>
+                        </div>
+                        <div class="package-card">
+                            <strong><code>bzperi-tools</code></strong>
+                            <span>Standalone tooling, including <code>bzp-standalone</code>, for bring-up, debugging, and validation.</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="section">
+                    <h2>Quick start after install</h2>
+                    <pre class="terminal"><code>sudo bzp-standalone -d
+
+# Inspect adapters on the host
+sudo bzp-standalone --list-adapters
+
+# Build from source with tests
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure</code></pre>
+                </section>
+            </div>
+
+            <section class="section">
+                <h2>Read before integrating</h2>
+                <div class="link-grid">
+                    <a class="link-card" href="https://github.com/jy1655/BzPeri/blob/main/README.md">
+                        <strong>README</strong>
+                        <span>Project overview, installation, runtime behavior, and updated <code>vENV_PKG_VERSION</code> guidance.</span>
+                    </a>
+                    <a class="link-card" href="https://github.com/jy1655/BzPeri/blob/main/BUILD.md">
+                        <strong>BUILD.md</strong>
+                        <span>Build prerequisites, configuration flags, and Linux packaging notes.</span>
+                    </a>
+                    <a class="link-card" href="https://github.com/jy1655/BzPeri/blob/main/COMPATIBILITY_MIGRATION.md">
+                        <strong>Compatibility migration</strong>
+                        <span>How to move away from the legacy singleton and raw GLib callback paths.</span>
+                    </a>
+                    <a class="link-card" href="https://github.com/jy1655/BzPeri/blob/main/BLUEZ_MIGRATION.md">
+                        <strong>BlueZ migration</strong>
+                        <span>Runtime and API notes for modern BlueZ behavior and adapter interaction.</span>
+                    </a>
+                    <a class="link-card" href="https://github.com/jy1655/BzPeri/blob/main/STANDALONE_USAGE.md">
+                        <strong>Standalone usage</strong>
+                        <span>Runtime flags, adapter listing, logging controls, and host-managed run-loop examples.</span>
+                    </a>
+                    <a class="link-card" href="https://github.com/jy1655/BzPeri/releases/tag/vENV_PKG_VERSION">
+                        <strong>GitHub release</strong>
+                        <span>Release notes, published tag, and the public <code>vENV_PKG_VERSION</code> checkpoint.</span>
+                    </a>
+                </div>
+                <ul class="list">
+                    <li>New integrations should prefer the <code>Ex</code> result-code APIs and wrapper request objects over legacy raw GLib signatures.</li>
+                    <li>For embedded hosts, the <code>HOST_MANAGED</code> GLib capture mode and the manual run-loop APIs are usually the cleanest path.</li>
+                    <li>To verify that your application no longer depends on legacy compatibility surfaces, build with <code>ENABLE_LEGACY_SINGLETON_COMPAT=OFF</code> and <code>ENABLE_LEGACY_RAW_GLIB_COMPAT=OFF</code>.</li>
+                </ul>
+            </section>
+        </main>
+
+        <p class="footer">
+            BzPeri source, docs, and issue tracker live on
+            <a href="https://github.com/jy1655/BzPeri">github.com/jy1655/BzPeri</a>.
+        </p>
+    </div>
 </body>
 </html>
