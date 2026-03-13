@@ -145,6 +145,47 @@ static std::string describeGLibCaptureTargets(unsigned int targets)
 	return stream.str();
 }
 
+static std::string describeGLibCaptureDomains(unsigned int domains)
+{
+	if (domains == BZP_GLIB_LOG_CAPTURE_DOMAIN_ALL)
+	{
+		return "all";
+	}
+
+	std::vector<std::string> parts;
+	if ((domains & BZP_GLIB_LOG_CAPTURE_DOMAIN_DEFAULT) != 0)
+	{
+		parts.emplace_back("default");
+	}
+	if ((domains & BZP_GLIB_LOG_CAPTURE_DOMAIN_GLIB) != 0)
+	{
+		parts.emplace_back("glib");
+	}
+	if ((domains & BZP_GLIB_LOG_CAPTURE_DOMAIN_GIO) != 0)
+	{
+		parts.emplace_back("gio");
+	}
+	if ((domains & BZP_GLIB_LOG_CAPTURE_DOMAIN_BLUEZ) != 0)
+	{
+		parts.emplace_back("bluez");
+	}
+	if ((domains & BZP_GLIB_LOG_CAPTURE_DOMAIN_OTHER) != 0)
+	{
+		parts.emplace_back("other");
+	}
+
+	std::ostringstream stream;
+	for (size_t i = 0; i < parts.size(); ++i)
+	{
+		if (i != 0)
+		{
+			stream << ',';
+		}
+		stream << parts[i];
+	}
+	return stream.str();
+}
+
 static bool parseGLibCaptureTargets(const std::string &value, unsigned int *targetsOut)
 {
 	if (!targetsOut)
@@ -189,6 +230,61 @@ static bool parseGLibCaptureTargets(const std::string &value, unsigned int *targ
 	}
 
 	*targetsOut = targets;
+	return true;
+}
+
+static bool parseGLibCaptureDomains(const std::string &value, unsigned int *domainsOut)
+{
+	if (!domainsOut)
+	{
+		return false;
+	}
+
+	std::string normalized = value;
+	std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+	if (normalized == "all")
+	{
+		*domainsOut = BZP_GLIB_LOG_CAPTURE_DOMAIN_ALL;
+		return true;
+	}
+
+	unsigned int domains = 0;
+	std::stringstream stream(normalized);
+	std::string part;
+	while (std::getline(stream, part, ','))
+	{
+		if (part == "default")
+		{
+			domains |= BZP_GLIB_LOG_CAPTURE_DOMAIN_DEFAULT;
+		}
+		else if (part == "glib")
+		{
+			domains |= BZP_GLIB_LOG_CAPTURE_DOMAIN_GLIB;
+		}
+		else if (part == "gio")
+		{
+			domains |= BZP_GLIB_LOG_CAPTURE_DOMAIN_GIO;
+		}
+		else if (part == "bluez")
+		{
+			domains |= BZP_GLIB_LOG_CAPTURE_DOMAIN_BLUEZ;
+		}
+		else if (part == "other")
+		{
+			domains |= BZP_GLIB_LOG_CAPTURE_DOMAIN_OTHER;
+		}
+		else if (!part.empty())
+		{
+			return false;
+		}
+	}
+
+	if (domains == 0)
+	{
+		return false;
+	}
+
+	*domainsOut = domains;
 	return true;
 }
 
@@ -340,6 +436,7 @@ int main(int argc, char **ppArgv)
 	bool manualLoopMode = false;
 	BZPGLibLogCaptureMode glibCaptureMode = bzpGetConfiguredGLibLogCaptureMode();
 	unsigned int glibCaptureTargets = bzpGetConfiguredGLibLogCaptureTargets();
+	unsigned int glibCaptureDomains = BZP_GLIB_LOG_CAPTURE_DOMAIN_ALL;
 	bool installHostManagedCapture = false;
 
 	// A basic command-line parser
@@ -434,6 +531,18 @@ int main(int argc, char **ppArgv)
 			}
 			glibCaptureTargets = parsedTargets;
 		}
+		else if (arg.rfind("--glib-log-domains=", 0) == 0)
+		{
+			unsigned int parsedDomains = 0;
+			const std::string domainSpec = arg.substr(19);
+			if (!parseGLibCaptureDomains(domainSpec, &parsedDomains))
+			{
+				LogFatal((std::string("Unknown GLib log capture domains: '") + domainSpec + "'").c_str());
+				LogFatal("Expected 'all' or a comma-separated subset of: default, glib, gio, bluez, other");
+				return -1;
+			}
+			glibCaptureDomains = parsedDomains;
+		}
 		else if (arg.rfind("--sample-namespace=", 0) == 0)
 		{
 			sampleNamespace = arg.substr(19);
@@ -459,6 +568,7 @@ int main(int argc, char **ppArgv)
 			LogAlways("  --manual-loop            Drive BzPeri via bzpRunLoopIteration() instead of the internal thread");
 			LogAlways("  --glib-log-capture=MODE Set GLib capture mode: auto, off, host, or startup-shutdown");
 			LogAlways("  --glib-log-targets=SET  Set GLib capture targets: all or comma-separated log,print,printerr");
+			LogAlways("  --glib-log-domains=SET  Set GLib log domains: all or comma-separated default,glib,gio,bluez,other");
 			LogAlways("  --no-sample-services      Disable bundled example GATT services");
 			LogAlways("  --with-sample-services    Re-enable bundled example services after disabling");
 			LogAlways("  --help, -h                Show this help message");
@@ -550,6 +660,7 @@ int main(int argc, char **ppArgv)
 
 	bzpSetGLibLogCaptureMode(glibCaptureMode);
 	bzpSetGLibLogCaptureTargets(glibCaptureTargets);
+	bzpSetGLibLogCaptureDomains(glibCaptureDomains);
 	if (glibCaptureMode == BZP_GLIB_LOG_CAPTURE_AUTOMATIC)
 	{
 		LogStatus("GLib log capture mode: automatic");
@@ -567,6 +678,7 @@ int main(int argc, char **ppArgv)
 		LogStatus("GLib log capture mode: host-managed");
 	}
 	LogStatus((std::string("GLib log capture targets: ") + describeGLibCaptureTargets(glibCaptureTargets)).c_str());
+	LogStatus((std::string("GLib log capture domains: ") + describeGLibCaptureDomains(glibCaptureDomains)).c_str());
 
 	bool hostManagedCaptureInstalled = false;
 	if (installHostManagedCapture)

@@ -101,6 +101,21 @@ extern "C"
 			| BZP_GLIB_LOG_CAPTURE_TARGET_LOG
 	};
 
+	enum BZPGLibLogCaptureDomain
+	{
+		BZP_GLIB_LOG_CAPTURE_DOMAIN_DEFAULT = 1 << 0,
+		BZP_GLIB_LOG_CAPTURE_DOMAIN_GLIB = 1 << 1,
+		BZP_GLIB_LOG_CAPTURE_DOMAIN_GIO = 1 << 2,
+		BZP_GLIB_LOG_CAPTURE_DOMAIN_BLUEZ = 1 << 3,
+		BZP_GLIB_LOG_CAPTURE_DOMAIN_OTHER = 1 << 4,
+		BZP_GLIB_LOG_CAPTURE_DOMAIN_ALL =
+			BZP_GLIB_LOG_CAPTURE_DOMAIN_DEFAULT
+			| BZP_GLIB_LOG_CAPTURE_DOMAIN_GLIB
+			| BZP_GLIB_LOG_CAPTURE_DOMAIN_GIO
+			| BZP_GLIB_LOG_CAPTURE_DOMAIN_BLUEZ
+			| BZP_GLIB_LOG_CAPTURE_DOMAIN_OTHER
+	};
+
 	enum BZPGLibLogCaptureResult
 	{
 		BZP_GLIB_LOG_CAPTURE_RESULT_OK = 0,
@@ -119,6 +134,12 @@ extern "C"
 	{
 		BZP_GLIB_LOG_CAPTURE_TARGETS_SET_OK = 0,
 		BZP_GLIB_LOG_CAPTURE_TARGETS_SET_INVALID_TARGETS = 1
+	};
+
+	enum BZPGLibLogCaptureDomainsSetResult
+	{
+		BZP_GLIB_LOG_CAPTURE_DOMAINS_SET_OK = 0,
+		BZP_GLIB_LOG_CAPTURE_DOMAINS_SET_INVALID_DOMAINS = 1
 	};
 
 	enum BZPQueryResult
@@ -166,6 +187,9 @@ extern "C"
 	enum BZPGLibLogCaptureTargetsSetResult bzpSetGLibLogCaptureTargetsEx(unsigned int targets);
 	unsigned int bzpGetGLibLogCaptureTargets();
 	unsigned int bzpGetConfiguredGLibLogCaptureTargets();
+	void bzpSetGLibLogCaptureDomains(unsigned int domains);
+	enum BZPGLibLogCaptureDomainsSetResult bzpSetGLibLogCaptureDomainsEx(unsigned int domains);
+	unsigned int bzpGetGLibLogCaptureDomains();
 
 	// Returns the build-time default GLib capture mode configured into this BzPeri build.
 	enum BZPGLibLogCaptureMode bzpGetConfiguredGLibLogCaptureMode();

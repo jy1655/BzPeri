@@ -169,6 +169,10 @@ std::vector<std::string> capturedWarnLogs;
 std::vector<std::string> capturedStatusLogs;
 std::vector<std::string> capturedTraceLogs;
 
+void ignoreGLog(const gchar *, GLogLevelFlags, const gchar *, gpointer)
+{
+}
+
 void captureInfoLog(const char *message)
 {
 	capturedInfoLogs.emplace_back(message != nullptr ? message : "");
@@ -821,6 +825,8 @@ void testWaitHelpers()
 	require(bzpGetServerRunState() == EUninitialized, "Unit tests should begin with the server in the uninitialized state");
 	require(bzpTriggerShutdownEx() == BZP_SHUTDOWN_TRIGGER_NOT_RUNNING,
 		"bzpTriggerShutdownEx should distinguish shutdown requests before startup");
+	require(bzpIsServerRunning() == 0,
+		"bzpIsServerRunning should report false before startup");
 	require(bzpWaitForState(EUninitialized, 0) != 0, "bzpWaitForState should succeed immediately for the current state");
 	require(bzpWaitForState(ERunning, 0) == 0, "bzpWaitForState should fail immediately for an unreached state");
 	require(bzpWaitForStateEx(EUninitialized, 0) == BZP_WAIT_OK,
@@ -832,6 +838,8 @@ void testWaitHelpers()
 		"bzpWaitForStateEx should distinguish invalid states");
 	require(bzpWaitEx() == BZP_WAIT_NOT_RUNNING,
 		"bzpWaitEx should distinguish pre-start indefinite waits from a successful shutdown wait");
+	require(bzpShutdownAndWaitEx() == BZP_WAIT_NOT_RUNNING,
+		"bzpShutdownAndWaitEx should distinguish pre-start shutdown waits from a completed shutdown");
 	require(bzpWaitForShutdown(0) == 0, "bzpWaitForShutdown should not report success before the server has started and stopped");
 	require(bzpWaitForShutdownEx(0) == BZP_WAIT_TIMEOUT,
 		"bzpWaitForShutdownEx should report timeout before the server has started and stopped");
@@ -1650,6 +1658,7 @@ void testGLibLogCaptureToggle()
 	const int original = bzpGetGLibLogCaptureEnabled();
 	const auto originalMode = bzpGetGLibLogCaptureMode();
 	const auto originalTargets = bzpGetGLibLogCaptureTargets();
+	const auto originalDomains = bzpGetGLibLogCaptureDomains();
 	const auto configuredMode = bzpGetConfiguredGLibLogCaptureMode();
 	const auto configuredTargets = bzpGetConfiguredGLibLogCaptureTargets();
 	require(configuredMode == static_cast<BZPGLibLogCaptureMode>(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE),
@@ -1661,6 +1670,7 @@ void testGLibLogCaptureToggle()
 	{
 		BZPGLibLogCaptureMode mode;
 		unsigned int targets;
+		unsigned int domains;
 
 		~RestoreState()
 		{
@@ -1673,9 +1683,10 @@ void testGLibLogCaptureToggle()
 			}
 
 			bzpSetGLibLogCaptureTargets(targets);
+			bzpSetGLibLogCaptureDomains(domains);
 			bzpSetGLibLogCaptureMode(mode);
 		}
-	} restore{originalMode, originalTargets};
+	} restore{originalMode, originalTargets, originalDomains};
 
 	bzpSetGLibLogCaptureMode(configuredMode);
 	require(bzpGetGLibLogCaptureMode() == configuredMode,
@@ -1689,10 +1700,18 @@ void testGLibLogCaptureToggle()
 		"GLib log capture targets Ex setter should reject an empty capture mask");
 	require(bzpSetGLibLogCaptureTargetsEx(0x80U) == BZP_GLIB_LOG_CAPTURE_TARGETS_SET_INVALID_TARGETS,
 		"GLib log capture targets Ex setter should reject unknown capture bits");
+	require(bzpSetGLibLogCaptureDomainsEx(0) == BZP_GLIB_LOG_CAPTURE_DOMAINS_SET_INVALID_DOMAINS,
+		"GLib log capture domains Ex setter should reject an empty domain mask");
+	require(bzpSetGLibLogCaptureDomainsEx(0x80U) == BZP_GLIB_LOG_CAPTURE_DOMAINS_SET_INVALID_DOMAINS,
+		"GLib log capture domains Ex setter should reject unknown domain bits");
 	require(bzpSetGLibLogCaptureTargetsEx(BZP_GLIB_LOG_CAPTURE_TARGET_LOG) == BZP_GLIB_LOG_CAPTURE_TARGETS_SET_OK,
 		"GLib log capture targets Ex setter should accept log-only capture");
 	require(bzpGetGLibLogCaptureTargets() == BZP_GLIB_LOG_CAPTURE_TARGET_LOG,
 		"GLib log capture target getter should expose the configured mask");
+	require(bzpSetGLibLogCaptureDomainsEx(BZP_GLIB_LOG_CAPTURE_DOMAIN_BLUEZ) == BZP_GLIB_LOG_CAPTURE_DOMAINS_SET_OK,
+		"GLib log capture domains Ex setter should accept a BlueZ-only filter");
+	require(bzpGetGLibLogCaptureDomains() == BZP_GLIB_LOG_CAPTURE_DOMAIN_BLUEZ,
+		"GLib log capture domain getter should expose the configured mask");
 
 	bzpSetGLibLogCaptureEnabled(0);
 	require(bzpGetGLibLogCaptureEnabled() == 0, "GLib log capture toggle should disable capture");
@@ -1711,12 +1730,39 @@ void testGLibLogCaptureToggle()
 		"Legacy enabled query should report false when host-managed mode disables automatic startup capture");
 	require(bzpRestoreGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_NOT_INSTALLED,
 		"Explicit GLib log capture restore should report not-installed before any host-managed install");
+	struct RestoreDefaultHandler
+	{
+		GLogFunc previousHandler = g_log_set_default_handler(&ignoreGLog, nullptr);
+
+		~RestoreDefaultHandler()
+		{
+			g_log_set_default_handler(previousHandler, nullptr);
+		}
+	} defaultHandlerRestore;
 	require(bzpInstallGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_OK,
 		"Host-managed GLib log capture Ex API should install explicitly");
 	require(bzpInstallGLibLogCapture() != 0,
 		"Legacy host-managed GLib log capture install wrapper should succeed");
 	require(bzpIsGLibLogCaptureInstalled() != 0,
 		"Host-managed GLib log capture should report installed after explicit install");
+
+	struct RestoreWarnReceiver
+	{
+		~RestoreWarnReceiver()
+		{
+			bzpLogRegisterWarn(nullptr);
+		}
+	} warnReceiverRestore;
+
+	capturedWarnLogs.clear();
+	bzpLogRegisterWarn(&captureWarnLog);
+	g_log("BlueZ", G_LOG_LEVEL_WARNING, "bluez-domain-match");
+	g_log("App.Other", G_LOG_LEVEL_WARNING, "other-domain-skip");
+	require(capturedWarnLogs.size() == 1,
+		"GLib log capture domain filtering should only route matching domains through BzPeri receivers");
+	require(capturedWarnLogs.front().find("BlueZ: bluez-domain-match") != std::string::npos,
+		"GLib log capture domain filtering should preserve the matching BlueZ domain payload");
+
 	require(bzpRestoreGLibLogCapture() != 0,
 		"Legacy host-managed GLib log capture restore wrapper should succeed");
 	require(bzpRestoreGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_OK,
@@ -1729,6 +1775,12 @@ void testGLibLogCaptureToggle()
 	require(bzpGetGLibLogCaptureTargets()
 		== (BZP_GLIB_LOG_CAPTURE_TARGET_LOG | BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR),
 		"GLib log capture target getter should preserve mixed target masks");
+	require(bzpSetGLibLogCaptureDomainsEx(BZP_GLIB_LOG_CAPTURE_DOMAIN_GLIB | BZP_GLIB_LOG_CAPTURE_DOMAIN_GIO)
+		== BZP_GLIB_LOG_CAPTURE_DOMAINS_SET_OK,
+		"GLib log capture domains Ex setter should allow mixed domain masks");
+	require(bzpGetGLibLogCaptureDomains()
+		== (BZP_GLIB_LOG_CAPTURE_DOMAIN_GLIB | BZP_GLIB_LOG_CAPTURE_DOMAIN_GIO),
+		"GLib log capture domain getter should preserve mixed domain masks");
 
 	bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_DISABLED);
 	require(bzpInstallGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_WRONG_MODE,
@@ -1751,6 +1803,9 @@ void testGLibLogCaptureToggle()
 	bzpSetGLibLogCaptureTargets(originalTargets);
 	require(bzpGetGLibLogCaptureTargets() == originalTargets,
 		"GLib log capture targets should restore the original mask");
+	bzpSetGLibLogCaptureDomains(originalDomains);
+	require(bzpGetGLibLogCaptureDomains() == originalDomains,
+		"GLib log capture domains should restore the original mask");
 	bzpSetGLibLogCaptureMode(originalMode);
 	require(bzpGetGLibLogCaptureMode() == originalMode, "GLib log capture mode should restore the original mode");
 }

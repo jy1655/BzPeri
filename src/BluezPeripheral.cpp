@@ -152,6 +152,8 @@ namespace bzp
 	static std::mutex stateChangedMutex;
 	static std::atomic<int> glibLogCaptureMode{kConfiguredGLibLogCaptureMode};
 	static std::atomic<unsigned int> glibLogCaptureTargets{kConfiguredGLibLogCaptureTargets};
+	static std::atomic<unsigned int> glibLogCaptureDomains{BZP_GLIB_LOG_CAPTURE_DOMAIN_ALL};
+	static std::atomic<GLogFunc> glibSavedLogHandler{nullptr};
 	static std::atomic<unsigned int> automaticGLibCaptureInstalls{0};
 
 	// RAII guard that saves and restores GLib global handlers
@@ -176,6 +178,46 @@ namespace bzp
 
 		static void logHandler(const gchar *d, GLogLevelFlags f, const gchar *m, gpointer)
 		{
+			const auto classifyDomain = [](const gchar *domain) {
+				if (!domain || *domain == '\0')
+				{
+					return static_cast<unsigned int>(BZP_GLIB_LOG_CAPTURE_DOMAIN_DEFAULT);
+				}
+
+				std::string normalized(domain);
+				std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) {
+					return static_cast<char>(std::tolower(ch));
+				});
+
+				if (normalized.rfind("glib-gio", 0) == 0 || normalized.rfind("gio", 0) == 0)
+				{
+					return static_cast<unsigned int>(BZP_GLIB_LOG_CAPTURE_DOMAIN_GIO);
+				}
+				if (normalized.rfind("glib", 0) == 0)
+				{
+					return static_cast<unsigned int>(BZP_GLIB_LOG_CAPTURE_DOMAIN_GLIB);
+				}
+				if (normalized.find("bluez") != std::string::npos)
+				{
+					return static_cast<unsigned int>(BZP_GLIB_LOG_CAPTURE_DOMAIN_BLUEZ);
+				}
+				return static_cast<unsigned int>(BZP_GLIB_LOG_CAPTURE_DOMAIN_OTHER);
+			};
+
+			if ((glibLogCaptureDomains.load(std::memory_order_acquire) & classifyDomain(d)) == 0)
+			{
+				if (auto savedHandler = glibSavedLogHandler.load(std::memory_order_acquire);
+					savedHandler != nullptr && savedHandler != &logHandler)
+				{
+					savedHandler(d, f, m, nullptr);
+				}
+				else
+				{
+					g_log_default_handler(d, f, m, nullptr);
+				}
+				return;
+			}
+
 			std::string str = std::string(d ? d : "") + ": " + (m ? m : "");
 			if ((f & (G_LOG_FLAG_RECURSION|G_LOG_FLAG_FATAL)) != 0) Logger::fatal(str);
 			else if ((f & (G_LOG_LEVEL_CRITICAL|G_LOG_LEVEL_ERROR)) != 0) Logger::error(str);
@@ -186,7 +228,8 @@ namespace bzp
 
 		void reconfigureLocked(unsigned int targets)
 		{
-			if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINT) != 0)
+			if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINT) != 0
+				&& (activeTargets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINT) == 0)
 			{
 				savedPrint = g_set_print_handler(&printHandler);
 			}
@@ -196,7 +239,8 @@ namespace bzp
 				savedPrint = nullptr;
 			}
 
-			if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR) != 0)
+			if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR) != 0
+				&& (activeTargets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR) == 0)
 			{
 				savedPrinterr = g_set_printerr_handler(&printerrHandler);
 			}
@@ -206,13 +250,16 @@ namespace bzp
 				savedPrinterr = nullptr;
 			}
 
-			if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_LOG) != 0)
+			if ((targets & BZP_GLIB_LOG_CAPTURE_TARGET_LOG) != 0
+				&& (activeTargets & BZP_GLIB_LOG_CAPTURE_TARGET_LOG) == 0)
 			{
 				savedLog = g_log_set_default_handler(&logHandler, nullptr);
+				glibSavedLogHandler.store(savedLog, std::memory_order_release);
 			}
 			else if ((activeTargets & BZP_GLIB_LOG_CAPTURE_TARGET_LOG) != 0)
 			{
 				g_log_set_default_handler(savedLog, nullptr);
+				glibSavedLogHandler.store(nullptr, std::memory_order_release);
 				savedLog = nullptr;
 			}
 
@@ -257,6 +304,7 @@ namespace bzp
 			if ((activeTargets & BZP_GLIB_LOG_CAPTURE_TARGET_LOG) != 0)
 			{
 				g_log_set_default_handler(savedLog, nullptr);
+				glibSavedLogHandler.store(nullptr, std::memory_order_release);
 				savedLog = nullptr;
 			}
 			active = false;
@@ -290,6 +338,11 @@ namespace bzp
 	bool isValidGLibLogCaptureTargets(unsigned int targets) noexcept
 	{
 		return targets != 0 && (targets & ~static_cast<unsigned int>(BZP_GLIB_LOG_CAPTURE_TARGET_ALL)) == 0;
+	}
+
+	bool isValidGLibLogCaptureDomains(unsigned int domains) noexcept
+	{
+		return domains != 0 && (domains & ~static_cast<unsigned int>(BZP_GLIB_LOG_CAPTURE_DOMAIN_ALL)) == 0;
 	}
 
 	bool shouldReleaseAutomaticGLibLogsAtRunning()
@@ -593,6 +646,28 @@ BZPGLibLogCaptureTargetsSetResult bzpSetGLibLogCaptureTargetsEx(unsigned int tar
 unsigned int bzpGetGLibLogCaptureTargets()
 {
 	return glibLogCaptureTargets.load(std::memory_order_acquire);
+}
+
+void bzpSetGLibLogCaptureDomains(unsigned int domains)
+{
+	(void)bzpSetGLibLogCaptureDomainsEx(domains);
+}
+
+BZPGLibLogCaptureDomainsSetResult bzpSetGLibLogCaptureDomainsEx(unsigned int domains)
+{
+	if (!isValidGLibLogCaptureDomains(domains))
+	{
+		Logger::warn(SSTR << "Ignoring invalid GLib log capture domains mask (" << domains << ")");
+		return BZP_GLIB_LOG_CAPTURE_DOMAINS_SET_INVALID_DOMAINS;
+	}
+
+	glibLogCaptureDomains.store(domains, std::memory_order_release);
+	return BZP_GLIB_LOG_CAPTURE_DOMAINS_SET_OK;
+}
+
+unsigned int bzpGetGLibLogCaptureDomains()
+{
+	return glibLogCaptureDomains.load(std::memory_order_acquire);
 }
 
 unsigned int bzpGetConfiguredGLibLogCaptureTargets()
@@ -958,7 +1033,8 @@ BZPQueryResult bzpIsServerRunningEx(int *pIsRunning)
 {
 	BZP_C_API_GUARD_BEGIN()
 	return queryIntValue(pIsRunning, []() {
-		return serverRunState <= ERunning ? 1 : 0;
+		const auto state = serverRunState.load(std::memory_order_acquire);
+		return (state == EInitializing || state == ERunning || state == EStopping) ? 1 : 0;
 	});
 	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
 }
@@ -1033,6 +1109,11 @@ int bzpShutdownAndWait()
 
 BZPWaitResult bzpShutdownAndWaitEx()
 {
+	if (bzpGetServerRunState() == EUninitialized)
+	{
+		return BZP_WAIT_NOT_RUNNING;
+	}
+
 	if (bzpIsServerRunning() != 0)
 	{
 		// Tell the server to shut down
