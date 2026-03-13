@@ -121,6 +121,7 @@ struct DBusObject
 	std::shared_ptr<const DBusInterface> findInterface(const DBusObjectPath &path, const std::string &interfaceName, const DBusObjectPath &basePath = DBusObjectPath()) const;
 
 	// Finds a BlueZ method by name within the specified D-Bus interface
+	BZP_DEPRECATED("Use DBusObject::callMethod() wrapper overloads with DBusConnectionRef/DBusVariantRef/DBusMethodInvocationRef")
 	bool callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData, const DBusObjectPath &basePath = DBusObjectPath()) const;
 	bool callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData, const DBusObjectPath &basePath = DBusObjectPath()) const;
 
@@ -129,10 +130,14 @@ struct DBusObject
 	// -----------------------------------------------------------------------------------------------------------------------------
 
 	// Emits a signal and returns whether GLib accepted it for delivery.
+	BZP_DEPRECATED("Use DBusObject::emitSignalChecked() wrapper overload with DBusConnectionRef/DBusVariantRef")
 	bool emitSignalChecked(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters);
+	bool emitSignalChecked(DBusConnectionRef busConnection, const std::string &interfaceName, const std::string &signalName, DBusVariantRef parameters);
 
 	// Emits a signal on the bus from the given path, interface name and signal name, containing a GVariant set of parameters
+	BZP_DEPRECATED("Use DBusObject::emitSignal() wrapper overload with DBusConnectionRef/DBusVariantRef")
 	void emitSignal(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters);
+	void emitSignal(DBusConnectionRef busConnection, const std::string &interfaceName, const std::string &signalName, DBusVariantRef parameters);
 
 private:
 	Server *server_;

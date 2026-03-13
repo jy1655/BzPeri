@@ -43,17 +43,20 @@ namespace bzp {
 
 // Forward declarations
 class BluezAdvertisement;
+struct Server;
 
 class BluezAdapter
 {
 public:
-	// Singleton access
+	// Legacy singleton access retained for compatibility.
+	[[deprecated("Use getActiveBluezAdapter() or getActiveBluezAdapterPtr() instead of BluezAdapter::getInstance()")]]
 	static BluezAdapter& getInstance();
 
 	// Initialization and cleanup with adapter discovery
 	BluezResult<void> initialize(const std::string& preferredAdapter = "");
 	void shutdown();
 	void setServiceNameContext(std::string serviceName);
+	void setServerContext(const Server* server) noexcept { serverContext_ = server; }
 
 	// Adapter discovery and selection
 	BluezResult<std::vector<AdapterInfo>> discoverAdapters();
@@ -102,10 +105,14 @@ public:
 private:
 	BluezAdapter() = default;
 	~BluezAdapter();
+	static BluezAdapter& activeAdapterStorage() noexcept;
+
+	friend BluezAdapter& getActiveBluezAdapter() noexcept;
+	friend BluezAdapter* getActiveBluezAdapterPtr() noexcept;
 
 	// D-Bus property operations with error handling
-	BluezResult<void> setAdapterProperty(const std::string& property, GVariant* value);
-	BluezResult<GVariant*> getAdapterProperty(const std::string& property);
+	BluezResult<void> setAdapterProperty(const std::string& property, DBusVariantRef value);
+	BluezResult<DBusVariantRef> getAdapterProperty(const std::string& property);
 
 	// Object Manager operations
 	BluezResult<void> setupObjectManager();
@@ -114,51 +121,22 @@ private:
 	// Non-blocking retry operations with GLib timeouts
 	BluezResult<void> retryOperationWithTimeout(std::function<BluezResult<void>()> operation, const RetryPolicy& policy);
 
-	// D-Bus signal handlers
-	static void onPropertiesChanged(GDBusConnection* connection,
-									const gchar* sender_name,
-									const gchar* object_path,
-									const gchar* interface_name,
-									const gchar* signal_name,
-									GVariant* parameters,
-									gpointer user_data);
-
-	static void onInterfacesAdded(GDBusConnection* connection,
-								  const gchar* sender_name,
-								  const gchar* object_path,
-								  const gchar* interface_name,
-								  const gchar* signal_name,
-								  GVariant* parameters,
-								  gpointer user_data);
-
-	static void onInterfacesRemoved(GDBusConnection* connection,
-									const gchar* sender_name,
-									const gchar* object_path,
-									const gchar* interface_name,
-									const gchar* signal_name,
-									GVariant* parameters,
-									gpointer user_data);
-
-	static void onNameOwnerChanged(GDBusConnection* connection,
-								   const gchar* sender_name,
-								   const gchar* object_path,
-								   const gchar* interface_name,
-								   const gchar* signal_name,
-								   GVariant* parameters,
-								   gpointer user_data);
+	// D-Bus signal handling
+	void handlePropertiesChanged(std::string_view objectPath, DBusVariantRef parameters);
+	void handleInterfacesAdded(DBusVariantRef parameters);
+	void handleInterfacesRemoved(DBusVariantRef parameters);
+	void handleNameOwnerChanged(DBusVariantRef parameters);
 
 	// Internal connection tracking
 	void handleDeviceConnected(const std::string& devicePath);
 	void handleDeviceDisconnected(const std::string& devicePath);
 
-	// Error handling
-	bool isRetryableError(const GError* error) const;
-
 	// Member variables
 	std::string adapterPath;
 	std::string serviceNameContext_ = "bzperi";
-	GDBusConnection* dbusConnection = nullptr;
-	GDBusObjectManager* objectManager = nullptr;
+	const Server* serverContext_ = nullptr;
+	DBusConnectionRef dbusConnection;
+	DBusObjectManagerRef objectManager;
 	bool initialized = false;
 	std::atomic<int> activeConnections{0};
 
@@ -196,6 +174,7 @@ private:
 
 	// Async retry state
 	struct RetryState {
+		BluezAdapter* owner = nullptr;
 		std::function<BluezResult<void>()> operation;
 		RetryPolicy policy;
 		int currentAttempt;
@@ -224,5 +203,8 @@ private:
 	guint reconnectTimerId_ = 0;
 	guint delayedReconnectTimerId_ = 0;
 };
+
+[[nodiscard]] BluezAdapter& getActiveBluezAdapter() noexcept;
+[[nodiscard]] BluezAdapter* getActiveBluezAdapterPtr() noexcept;
 
 } // namespace bzp

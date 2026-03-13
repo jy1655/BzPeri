@@ -30,7 +30,7 @@
 
 #pragma once
 
-#include <glib.h>
+#include <bzp/GLibTypes.h>
 #include <vector>
 #include <string>
 #include <string_view>
@@ -95,10 +95,35 @@ struct Utils
 	// or feel free to do away with them and use GLib directly.
 	// -----------------------------------------------------------------------------------------------------------------------------
 
+	// Wrapper-returning helpers for public APIs that should not need to traffic raw GVariant pointers.
+	static DBusVariantRef dbusVariantFromString(const char *pStr);
+	static DBusVariantRef dbusVariantFromString(const std::string &str);
+	static DBusVariantRef dbusVariantFromStringArray(const std::vector<std::string> &arr);
+	static DBusVariantRef dbusVariantFromStringArray(const std::vector<const char *> &arr);
+	static DBusVariantRef dbusVariantFromObject(const DBusObjectPath &path);
+	static DBusVariantRef dbusVariantFromBoolean(bool b);
+	static DBusVariantRef dbusVariantFromInt(gint16 value);
+	static DBusVariantRef dbusVariantFromInt(gint32 value);
+	static DBusVariantRef dbusVariantFromByteArray(const char *pStr);
+	static DBusVariantRef dbusVariantFromByteArray(const std::string &str);
+	static DBusVariantRef dbusVariantFromByteArray(const guint8 *pBytes, int count);
+	static DBusVariantRef dbusVariantFromByteArray(const std::vector<guint8>& bytes);
+	static DBusVariantRef dbusVariantFromByteArray(std::span<const guint8> bytes);
+	static DBusVariantRef dbusVariantFromByteArray(guint8 data);
+	static DBusVariantRef dbusVariantFromByteArray(gint8 data);
+	static DBusVariantRef dbusVariantFromByteArray(guint16 data);
+	static DBusVariantRef dbusVariantFromByteArray(gint16 data);
+	static DBusVariantRef dbusVariantFromByteArray(guint32 data);
+	static DBusVariantRef dbusVariantFromByteArray(gint32 data);
+	static DBusVariantRef dbusVariantFromByteArray(guint64 data);
+	static DBusVariantRef dbusVariantFromByteArray(gint64 data);
+
 	// Returns a GVariant containing a floating reference to a utf8 string
+	BZP_DEPRECATED("Use Utils::dbusVariantFromString() instead of raw GVariant helpers")
 	static GVariant *gvariantFromString(const char *pStr);
 
 	// Returns a GVariant containing a floating reference to a utf8 string
+	BZP_DEPRECATED("Use Utils::dbusVariantFromString() instead of raw GVariant helpers")
 	static GVariant *gvariantFromString(const std::string &str);
 
 	// Returns an array of strings ("as") with one string per variable argument.
@@ -106,66 +131,87 @@ struct Utils
 	// The array must be terminated with a nullptr.
 	//
 	// This is an extension method to the vararg version, which accepts pass-through variable arguments from other mthods.
+	BZP_DEPRECATED("Use Utils::dbusVariantFromStringArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromStringArray(const char *pStr, va_list args);
 
 	// Returns an array of strings ("as") with one string per variable argument.
 	//
 	// The array must be terminated with a nullptr.
+	BZP_DEPRECATED("Use Utils::dbusVariantFromStringArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromStringArray(const char *pStr, ...);
 
 	// Returns an array of strings ("as") from an array of strings
+	BZP_DEPRECATED("Use Utils::dbusVariantFromStringArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromStringArray(const std::vector<std::string> &arr);
 
 	// Returns an array of strings ("as") from an array of C strings
+	BZP_DEPRECATED("Use Utils::dbusVariantFromStringArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromStringArray(const std::vector<const char *> &arr);
 
 	// Returns an GVariant* containing an object path ("o") from an DBusObjectPath
+	BZP_DEPRECATED("Use Utils::dbusVariantFromObject() instead of raw GVariant helpers")
 	static GVariant *gvariantFromObject(const DBusObjectPath &path);
 
 	// Returns an GVariant* containing a boolean
+	BZP_DEPRECATED("Use Utils::dbusVariantFromBoolean() instead of raw GVariant helpers")
 	static GVariant *gvariantFromBoolean(bool b);
 
 	// Returns an GVariant* containing a 16-bit integer
+	BZP_DEPRECATED("Use Utils::dbusVariantFromInt() instead of raw GVariant helpers")
 	static GVariant *gvariantFromInt(gint16 value);
 
 	// Returns an GVariant* containing a 32-bit integer
+	BZP_DEPRECATED("Use Utils::dbusVariantFromInt() instead of raw GVariant helpers")
 	static GVariant *gvariantFromInt(gint32 value);
 
 	// Returns an array of bytes ("ay") with the contents of the input C string
+	BZP_DEPRECATED("Use Utils::dbusVariantFromByteArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromByteArray(const char *pStr);
 
 	// Returns an array of bytes ("ay") with the contents of the input string
+	BZP_DEPRECATED("Use Utils::dbusVariantFromByteArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromByteArray(const std::string &str);
 
 	// Returns an array of bytes ("ay") with the contents of the input array of unsigned 8-bit values
+	BZP_DEPRECATED("Use Utils::dbusVariantFromByteArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromByteArray(const guint8 *pBytes, int count);
 
 	// Returns an array of bytes ("ay") with the contents of the input array of unsigned 8-bit values
+	BZP_DEPRECATED("Use Utils::dbusVariantFromByteArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromByteArray(const std::vector<guint8>& bytes);
+	BZP_DEPRECATED("Use Utils::dbusVariantFromByteArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromByteArray(std::span<const guint8> bytes);
 
 	// Returns an array of bytes ("ay") containing a single unsigned 8-bit value
+	BZP_DEPRECATED("Use Utils::dbusVariantFromByteArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromByteArray(const guint8 data);
 
 	// Returns an array of bytes ("ay") containing a single signed 8-bit value
+	BZP_DEPRECATED("Use Utils::dbusVariantFromByteArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromByteArray(const gint8 data);
 
 	// Returns an array of bytes ("ay") containing a single unsigned 16-bit value
+	BZP_DEPRECATED("Use Utils::dbusVariantFromByteArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromByteArray(const guint16 data);
 
 	// Returns an array of bytes ("ay") containing a single signed 16-bit value
+	BZP_DEPRECATED("Use Utils::dbusVariantFromByteArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromByteArray(const gint16 data);
 
 	// Returns an array of bytes ("ay") containing a single unsigned 32-bit value
+	BZP_DEPRECATED("Use Utils::dbusVariantFromByteArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromByteArray(const guint32 data);
 
 	// Returns an array of bytes ("ay") containing a single signed 32-bit value
+	BZP_DEPRECATED("Use Utils::dbusVariantFromByteArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromByteArray(const gint32 data);
 
 	// Returns an array of bytes ("ay") containing a single unsigned 64-bit value
+	BZP_DEPRECATED("Use Utils::dbusVariantFromByteArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromByteArray(const guint64 data);
 
 	// Returns an array of bytes ("ay") containing a single signed 64-bit value
+	BZP_DEPRECATED("Use Utils::dbusVariantFromByteArray() instead of raw GVariant helpers")
 	static GVariant *gvariantFromByteArray(const gint64 data);
 
 	// Extracts a string from an array of bytes ("ay")

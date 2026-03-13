@@ -104,7 +104,7 @@ if (caps.isSuccess()) {
 ### Automatic Discovery
 ```cpp
 // Discovers all available adapters
-auto adapters = BluezAdapter::getInstance().discoverAdapters();
+auto adapters = getActiveBluezAdapter().discoverAdapters();
 for (const auto& adapter : adapters.value()) {
     Logger::info(SSTR << "Found: " << adapter.path << " (" << adapter.address << ")");
 }

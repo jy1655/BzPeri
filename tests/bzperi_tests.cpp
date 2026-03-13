@@ -1,5 +1,8 @@
 #include <gio/gio.h>
 
+#include <BzPeri.h>
+#include <bzp/BluezAdapter.h>
+#include <bzp/DBusMethod.h>
 #include <bzp/DBusInterface.h>
 #include <bzp/GattCharacteristic.h>
 #include <bzp/GattProperty.h>
@@ -7,7 +10,12 @@
 #include <bzp/GattUuid.h>
 #include <bzp/Server.h>
 
+#include "../src/BluezAdvertisingSupport.h"
+#include "../src/ServerUtils.h"
+#include "../src/StructuredLogger.h"
+
 #include <cstdlib>
+#include <chrono>
 #include <exception>
 #include <functional>
 #include <iostream>
@@ -16,23 +24,47 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
+
+namespace bzp {
+void setServerRunState(BZPServerRunState newState);
+void setServerHealth(BZPServerHealth newHealth);
+}
 
 namespace {
 
 using bzp::DBusConnectionRef;
 using bzp::DBusErrorRef;
 using bzp::DBusInterface;
+using bzp::DBusMethod;
+using bzp::DBusMethodCallRef;
 using bzp::DBusMethodInvocationRef;
+using bzp::DBusNotificationRef;
 using bzp::DBusObject;
 using bzp::DBusObjectPath;
+using bzp::DBusPropertyCallRef;
+using bzp::DBusReplyRef;
+using bzp::DBusSignalRef;
+using bzp::DBusUpdateRef;
 using bzp::DBusVariantRef;
+using bzp::getActiveBluezAdapter;
+using bzp::getActiveBluezAdapterPtr;
+using bzp::getActiveServer;
+using bzp::getActiveServerPtr;
 using bzp::GattCharacteristic;
 using bzp::GattProperty;
 using bzp::GattService;
 using bzp::GattUuid;
 using bzp::Server;
+using bzp::StructuredLogger;
+using bzp::Utils;
+using bzp::setActiveServer;
+using bzp::detail::canUseExtendedAdvertising;
+using bzp::detail::collectGattServiceUUIDs;
+using bzp::detail::selectAdvertisementServiceUUIDs;
+using bzp::BluezCapabilities;
 
 class TestFailure : public std::runtime_error
 {
@@ -98,6 +130,7 @@ struct CharacteristicState
 {
 	bool readCalled = false;
 	bool updateCalled = false;
+	bool updateUserDataMatched = false;
 	bool hadParameters = false;
 	std::string objectPath;
 	std::string methodName;
@@ -110,44 +143,110 @@ struct PropertyState
 	std::string lastSetValue;
 };
 
+struct RunLoopInvokeState
+{
+	bool called = false;
+	void *receivedUserData = nullptr;
+	std::thread::id callbackThread;
+};
+
+struct LegacyRawCallbackState
+{
+	bool methodCalled = false;
+	bool characteristicReadCalled = false;
+	bool characteristicUpdatedCalled = false;
+};
+
+std::vector<std::string> capturedInfoLogs;
+std::vector<std::string> capturedWarnLogs;
+std::vector<std::string> capturedStatusLogs;
+std::vector<std::string> capturedTraceLogs;
+
+void captureInfoLog(const char *message)
+{
+	capturedInfoLogs.emplace_back(message != nullptr ? message : "");
+}
+
+void captureWarnLog(const char *message)
+{
+	capturedWarnLogs.emplace_back(message != nullptr ? message : "");
+}
+
+void captureStatusLog(const char *message)
+{
+	capturedStatusLogs.emplace_back(message != nullptr ? message : "");
+}
+
+void captureTraceLog(const char *message)
+{
+	capturedTraceLogs.emplace_back(message != nullptr ? message : "");
+}
+
+void legacyRawMethodHandler(const DBusInterface &, GDBusConnection *, const std::string &, GVariant *, GDBusMethodInvocation *, void *userData)
+{
+	auto &state = *static_cast<LegacyRawCallbackState *>(userData);
+	state.methodCalled = true;
+}
+
+void legacyRawCharacteristicReadHandler(const GattCharacteristic &, GDBusConnection *, const std::string &, GVariant *, GDBusMethodInvocation *, void *userData)
+{
+	auto &state = *static_cast<LegacyRawCallbackState *>(userData);
+	state.characteristicReadCalled = true;
+}
+
+bool legacyRawCharacteristicUpdateHandler(const GattCharacteristic &, GDBusConnection *, void *userData)
+{
+	auto &state = *static_cast<LegacyRawCallbackState *>(userData);
+	state.characteristicUpdatedCalled = true;
+	return true;
+}
+
+void runLoopInvokeHandler(void *userData)
+{
+	auto &state = *static_cast<RunLoopInvokeState *>(userData);
+	state.called = true;
+	state.receivedUserData = userData;
+	state.callbackThread = std::this_thread::get_id();
+}
+
 void testGattPropertyRuleOfFive()
 {
 	GVariant *external = g_variant_ref_sink(g_variant_new_string("alpha"));
 	require(!g_variant_is_floating(external), "external variant should be sinked before test");
 
 	{
-		GattProperty original("Name", external);
-		expectVariantString(original.getValue(), "alpha", "original property value");
-		require(!g_variant_is_floating(const_cast<GVariant *>(original.getValue())), "property should keep a strong variant reference");
+		GattProperty original("Name", DBusVariantRef(external));
+		expectVariantString(original.getValueRef().get(), "alpha", "original property value");
+		require(!g_variant_is_floating(original.getValueRef().get()), "property should keep a strong variant reference");
 
 		GattProperty copied(original);
-		expectVariantString(copied.getValue(), "alpha", "copied property value");
+		expectVariantString(copied.getValueRef().get(), "alpha", "copied property value");
 
 		GattProperty moved(std::move(copied));
-		expectVariantString(moved.getValue(), "alpha", "moved property value");
+		expectVariantString(moved.getValueRef().get(), "alpha", "moved property value");
 
-		GattProperty assigned("Assigned", g_variant_new_string("temp"));
+		GattProperty assigned("Assigned", DBusVariantRef(g_variant_new_string("temp")));
 		assigned = original;
-		expectVariantString(assigned.getValue(), "alpha", "copy-assigned property value");
+		expectVariantString(assigned.getValueRef().get(), "alpha", "copy-assigned property value");
 
-		GattProperty moveAssigned("MoveAssigned", g_variant_new_string("temp2"));
+		GattProperty moveAssigned("MoveAssigned", DBusVariantRef(g_variant_new_string("temp2")));
 		moveAssigned = std::move(moved);
-		expectVariantString(moveAssigned.getValue(), "alpha", "move-assigned property value");
+		expectVariantString(moveAssigned.getValueRef().get(), "alpha", "move-assigned property value");
 
-		GVariant *preserved = g_variant_ref(const_cast<GVariant *>(moveAssigned.getValue()));
-		moveAssigned.setValue(g_variant_new_string("beta"));
-		expectVariantString(moveAssigned.getValue(), "beta", "replaced property value");
+		GVariant *preserved = g_variant_ref(moveAssigned.getValueRef().get());
+		moveAssigned.setValue(DBusVariantRef(g_variant_new_string("beta")));
+		expectVariantString(moveAssigned.getValueRef().get(), "beta", "replaced property value");
 		expectVariantString(preserved, "alpha", "preserved external reference after setValue");
 		g_variant_unref(preserved);
 
 		std::list<GattProperty> properties;
 		properties.push_back(original);
-		properties.emplace_back("Dynamic", g_variant_new_string("gamma"));
+		properties.emplace_back("Dynamic", DBusVariantRef(g_variant_new_string("gamma")));
 
 		auto iterator = properties.begin();
-		expectVariantString(iterator->getValue(), "alpha", "list copy property value");
+		expectVariantString(iterator->getValueRef().get(), "alpha", "list copy property value");
 		++iterator;
-		expectVariantString(iterator->getValue(), "gamma", "list emplace property value");
+		expectVariantString(iterator->getValueRef().get(), "gamma", "list emplace property value");
 	}
 
 	expectVariantString(external, "alpha", "external reference after property destruction");
@@ -159,13 +258,24 @@ void testServerWrapperMethodDispatch()
 	Server server("bzperi.tests.method", "", "", &nullGetter, &acceptingSetter);
 	DBusObjectPath rootPath;
 	GenericMethodState state;
+	std::shared_ptr<DBusInterface> interface;
 
 	server.configure([&](DBusObject &root) {
 		rootPath = root.getPath();
 
-		auto interface = root.addInterface(std::make_shared<DBusInterface>(root, "com.example.Test"));
+		interface = root.addInterface(std::make_shared<DBusInterface>(root, "com.example.Test"));
 		static const char *inArgs[] = {"s", nullptr};
 		interface->addMethod("Ping", inArgs, "s",
+			[](const DBusInterface &self, const std::string &methodName, DBusMethodCallRef methodCall) {
+				auto &state = *static_cast<GenericMethodState *>(methodCall.userData());
+				state.called = true;
+				state.hadConnection = static_cast<bool>(methodCall.connection());
+				state.hadInvocation = static_cast<bool>(methodCall.invocation());
+				state.objectPath = self.getPath().toString();
+				state.methodName = methodName;
+				state.payload = variantString(methodCall.parameters().get());
+			});
+		interface->addMethod("PingWrapper", inArgs, "s",
 			[](const DBusInterface &self, DBusConnectionRef connection, const std::string &methodName, DBusVariantRef parameters, DBusMethodInvocationRef invocation, void *userData) {
 				auto &state = *static_cast<GenericMethodState *>(userData);
 				state.called = true;
@@ -178,19 +288,118 @@ void testServerWrapperMethodDispatch()
 	});
 
 	GVariant *parameters = g_variant_ref_sink(g_variant_new_string("hello"));
-	require(server.callMethod(rootPath, "com.example.Test", "Ping", DBusConnectionRef(), DBusVariantRef(parameters), DBusMethodInvocationRef(), &state),
-		"Server::callMethod should dispatch wrapper-based interface methods");
+	require(server.callMethod(rootPath, "com.example.Test", "Ping", DBusMethodCallRef(DBusConnectionRef(), DBusVariantRef(parameters), DBusMethodInvocationRef(), &state)),
+		"Server::callMethod should dispatch DBusMethodCallRef-based interface methods");
 	g_variant_unref(parameters);
 
-	require(state.called, "wrapper method handler should be called");
+	require(state.called, "DBusMethodCallRef method handler should be called");
 	require(!state.hadConnection, "test dispatch should not provide a bus connection");
 	require(!state.hadInvocation, "test dispatch should not provide a method invocation");
 	require(state.objectPath == rootPath.toString(), "handler should see the root object path");
 	require(state.methodName == "Ping", "handler should receive the dispatched method name");
 	require(state.payload == "hello", "handler should receive the dispatched GVariant payload");
 
-	require(!server.callMethod(rootPath, "com.example.Test", "Missing", DBusConnectionRef(), DBusVariantRef(), DBusMethodInvocationRef(), &state),
+	GVariant *contextParameters = g_variant_ref_sink(g_variant_new_string("context-dispatch"));
+	state.called = false;
+	state.payload.clear();
+	require(server.callMethod(rootPath, "com.example.Test", "Ping", DBusMethodCallRef(DBusConnectionRef(), DBusVariantRef(contextParameters), DBusMethodInvocationRef(), &state)),
+		"Server::callMethod should dispatch through DBusMethodCallRef");
+	g_variant_unref(contextParameters);
+	require(state.called, "DBusMethodCallRef dispatch should invoke the method handler");
+	require(state.payload == "context-dispatch", "DBusMethodCallRef dispatch should preserve payload");
+
+	require(!server.callMethod(rootPath, "com.example.Test", "Missing", DBusMethodCallRef(DBusConnectionRef(), DBusVariantRef(), DBusMethodInvocationRef(), &state)),
 		"Unknown methods should not dispatch");
+
+	require(interface != nullptr, "Expected a typed DBusInterface for direct wrapper/raw callMethod tests");
+
+	GVariant *directWrapperParameters = g_variant_ref_sink(g_variant_new_string("wrapper-direct"));
+	state.called = false;
+	state.payload.clear();
+	require(interface->callMethod("Ping", DBusMethodCallRef(DBusConnectionRef(), DBusVariantRef(directWrapperParameters), DBusMethodInvocationRef(), &state)),
+		"DBusInterface DBusMethodCallRef callMethod should dispatch directly");
+	g_variant_unref(directWrapperParameters);
+	require(state.called, "DBusInterface DBusMethodCallRef callMethod should invoke the method handler");
+	require(state.payload == "wrapper-direct", "DBusInterface DBusMethodCallRef callMethod should preserve payload");
+
+	GVariant *wrapperShimParameters = g_variant_ref_sink(g_variant_new_string("wrapper-shim"));
+	state.called = false;
+	state.payload.clear();
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+	require(server.callMethod(rootPath, "com.example.Test", "PingWrapper", DBusConnectionRef(), DBusVariantRef(wrapperShimParameters), DBusMethodInvocationRef(), &state),
+		"Server wrapper callMethod shim should still dispatch");
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+	g_variant_unref(wrapperShimParameters);
+	require(state.called, "Server wrapper callMethod shim should invoke the method handler");
+	require(state.payload == "wrapper-shim", "Server wrapper callMethod shim should preserve payload");
+
+	GVariant *directRawParameters = g_variant_ref_sink(g_variant_new_string("raw-direct"));
+	state.called = false;
+	state.payload.clear();
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+	require(interface->callMethod("Ping", nullptr, directRawParameters, nullptr, &state),
+		"DBusInterface raw callMethod shim should still dispatch");
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+	g_variant_unref(directRawParameters);
+	require(state.called, "DBusInterface raw callMethod shim should invoke the method handler");
+	require(state.payload == "raw-direct", "DBusInterface raw callMethod shim should preserve payload");
+}
+
+void testLegacyRawCallbacksRemainCompatible()
+{
+	Server server("bzperi.tests.legacy-raw", "", "", &nullGetter, &acceptingSetter);
+	DBusObjectPath rootPath;
+	DBusObjectPath characteristicPath;
+	LegacyRawCallbackState state;
+
+	server.configure([&](DBusObject &root) {
+		rootPath = root.getPath();
+		auto interface = root.addInterface(std::make_shared<DBusInterface>(root, "com.example.Legacy"));
+		static const char *inArgs[] = {"s", nullptr};
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+		interface->addMethod("Ping", inArgs, "s", &legacyRawMethodHandler);
+
+		GattService &service = root.gattServiceBegin("svc", GattUuid("9910"));
+		GattCharacteristic &characteristic = service.gattCharacteristicBegin("value", GattUuid("9911"), {"read", "notify"});
+		characteristicPath = characteristic.getPath();
+		characteristic.onReadValue(&legacyRawCharacteristicReadHandler);
+		characteristic.onUpdatedValue(&legacyRawCharacteristicUpdateHandler);
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+	});
+
+	GVariant *parameters = g_variant_ref_sink(g_variant_new_string("legacy"));
+	require(server.callMethod(rootPath, "com.example.Legacy", "Ping", DBusMethodCallRef(DBusConnectionRef(), DBusVariantRef(parameters), DBusMethodInvocationRef(), &state)),
+		"Legacy raw DBusInterface method handler should still dispatch");
+	g_variant_unref(parameters);
+	require(state.methodCalled, "Legacy raw DBusInterface method handler should run");
+
+	GVariant *readParameters = g_variant_ref_sink(g_variant_new("()"));
+	require(server.callMethod(characteristicPath, "org.bluez.GattCharacteristic1", "ReadValue", DBusMethodCallRef(DBusConnectionRef(), DBusVariantRef(readParameters), DBusMethodInvocationRef(), &state)),
+		"Legacy raw GattCharacteristic read handler should still dispatch");
+	g_variant_unref(readParameters);
+	require(state.characteristicReadCalled, "Legacy raw GattCharacteristic read handler should run");
+
+	auto characteristicInterface = std::dynamic_pointer_cast<const GattCharacteristic>(
+		server.findInterface(characteristicPath, "org.bluez.GattCharacteristic1"));
+	require(characteristicInterface != nullptr, "Expected to resolve characteristic interface for legacy update test");
+	require(characteristicInterface->callOnUpdatedValue(DBusUpdateRef(DBusConnectionRef(), &state)),
+		"Legacy raw GattCharacteristic updated handler should still dispatch");
+	require(state.characteristicUpdatedCalled, "Legacy raw GattCharacteristic updated handler should run");
 }
 
 void testCharacteristicAndPropertyWrappers()
@@ -209,25 +418,26 @@ void testCharacteristicAndPropertyWrappers()
 		characteristicPath = characteristic.getPath();
 
 		characteristic.onReadValue(
-			[](const GattCharacteristic &self, DBusConnectionRef, const std::string &methodName, DBusVariantRef parameters, DBusMethodInvocationRef, void *userData) {
-				auto &state = *static_cast<CharacteristicState *>(userData);
+			[](const GattCharacteristic &self, const std::string &methodName, DBusMethodCallRef methodCall) {
+				auto &state = *static_cast<CharacteristicState *>(methodCall.userData());
 				state.readCalled = true;
-				state.hadParameters = static_cast<bool>(parameters);
+				state.hadParameters = static_cast<bool>(methodCall.parameters());
 				state.objectPath = self.getPath().toString();
 				state.methodName = methodName;
 			});
 
 		characteristic.onUpdatedValue(
-			[](const GattCharacteristic &self, DBusConnectionRef, void *userData) -> bool {
-				auto &state = *static_cast<CharacteristicState *>(userData);
+			[](const GattCharacteristic &self, DBusUpdateRef update) -> bool {
+				auto &state = *static_cast<CharacteristicState *>(update.userData());
 				state.updateCalled = true;
+				state.updateUserDataMatched = update.userData() == &state;
 				state.objectPath = self.getPath().toString();
 				return true;
 			});
 
 		characteristic.addProperty<GattCharacteristic>(
 			"DynamicValue",
-			g_variant_new_string("seed"),
+			DBusVariantRef(g_variant_new_string("seed")),
 			[](DBusConnectionRef, std::string_view, std::string_view, std::string_view, std::string_view, DBusErrorRef, void *userData) -> DBusVariantRef {
 				auto &state = *static_cast<PropertyState *>(userData);
 				state.getterCalls += 1;
@@ -240,28 +450,45 @@ void testCharacteristicAndPropertyWrappers()
 				state.lastSetValue = variantString(value.get());
 				return true;
 			});
+
+		characteristic.addProperty<GattCharacteristic>(
+			"DynamicValueCallRef",
+			DBusVariantRef(g_variant_new_string("seed-call")),
+			[](DBusPropertyCallRef call) -> DBusVariantRef {
+				auto &state = *static_cast<PropertyState *>(call.userData());
+				state.getterCalls += 1;
+				GVariant *value = g_variant_ref_sink(g_variant_new_string("computed-call"));
+				return DBusVariantRef(value);
+			},
+			[](DBusPropertyCallRef call) -> bool {
+				auto &state = *static_cast<PropertyState *>(call.userData());
+				state.setterCalls += 1;
+				state.lastSetValue = variantString(call.value().get());
+				return true;
+			});
 	});
 
 	const GattProperty *serviceUuid = server.findProperty(servicePath, "org.bluez.GattService1", "UUID");
 	require(serviceUuid != nullptr, "GattService UUID property should be discoverable");
-	expectVariantString(serviceUuid->getValue(), GattUuid("1234").toString128(), "service UUID property value");
+	expectVariantString(serviceUuid->getValueRef().get(), GattUuid("1234").toString128(), "service UUID property value");
 
 	GVariant *readParameters = g_variant_ref_sink(g_variant_new("()"));
-	require(server.callMethod(characteristicPath, "org.bluez.GattCharacteristic1", "ReadValue", DBusConnectionRef(), DBusVariantRef(readParameters), DBusMethodInvocationRef(), &characteristicState),
-		"Characteristic ReadValue should dispatch via wrapper path");
+	require(server.callMethod(characteristicPath, "org.bluez.GattCharacteristic1", "ReadValue", DBusMethodCallRef(DBusConnectionRef(), DBusVariantRef(readParameters), DBusMethodInvocationRef(), &characteristicState)),
+		"Characteristic ReadValue should dispatch via DBusMethodCallRef path");
 	g_variant_unref(readParameters);
 
-	require(characteristicState.readCalled, "Characteristic wrapper read handler should run");
-	require(characteristicState.hadParameters, "Characteristic wrapper read handler should receive parameters");
+	require(characteristicState.readCalled, "Characteristic method-call read handler should run");
+	require(characteristicState.hadParameters, "Characteristic method-call read handler should receive parameters");
 	require(characteristicState.objectPath == characteristicPath.toString(), "Characteristic read handler should see its object path");
 	require(characteristicState.methodName == "ReadValue", "Characteristic read handler should see method name");
 
 	auto characteristicInterface = std::dynamic_pointer_cast<const GattCharacteristic>(
 		server.findInterface(characteristicPath, "org.bluez.GattCharacteristic1"));
 	require(characteristicInterface != nullptr, "Characteristic interface lookup should return a typed interface");
-	require(characteristicInterface->callOnUpdatedValue(DBusConnectionRef(), &characteristicState),
+	require(characteristicInterface->callOnUpdatedValue(DBusUpdateRef(DBusConnectionRef(), &characteristicState)),
 		"Characteristic update handler should be callable through wrapper path");
 	require(characteristicState.updateCalled, "Characteristic update handler should run");
+	require(characteristicState.updateUserDataMatched, "Characteristic update handler should preserve user data through DBusUpdateRef");
 
 	const GattProperty *dynamicProperty = server.findProperty(characteristicPath, "org.bluez.GattCharacteristic1", "DynamicValue");
 	require(dynamicProperty != nullptr, "Dynamic characteristic property should be discoverable");
@@ -297,6 +524,831 @@ void testCharacteristicAndPropertyWrappers()
 	require(propertyState.setterCalls == 1, "Dynamic property setter should update test state");
 	require(propertyState.lastSetValue == "written", "Dynamic property setter should see the provided value");
 	g_variant_unref(setterValue);
+
+	const GattProperty *dynamicCallProperty = server.findProperty(characteristicPath, "org.bluez.GattCharacteristic1", "DynamicValueCallRef");
+	require(dynamicCallProperty != nullptr, "Dynamic characteristic property with call-ref handlers should be discoverable");
+	require(static_cast<bool>(dynamicCallProperty->getGetterCallHandler()), "Dynamic call-ref property should retain getter call handler");
+	require(static_cast<bool>(dynamicCallProperty->getSetterCallHandler()), "Dynamic call-ref property should retain setter call handler");
+
+	GVariant *getterCallValue = dynamicCallProperty->getGetterCallHandler()(DBusPropertyCallRef(
+		DBusConnectionRef(),
+		std::string_view(),
+		characteristicPath.toString(),
+		"org.bluez.GattCharacteristic1",
+		"DynamicValueCallRef",
+		DBusVariantRef(),
+		DBusErrorRef(&error),
+		&propertyState)).get();
+	require(error == nullptr, "Dynamic call-ref property getter should not set GError");
+	expectVariantString(getterCallValue, "computed-call", "Dynamic call-ref property getter return value");
+	require(propertyState.getterCalls == 2, "Dynamic call-ref property getter should update test state");
+	g_variant_unref(getterCallValue);
+
+	GVariant *setterCallValue = g_variant_ref_sink(g_variant_new_string("written-call"));
+	require(dynamicCallProperty->getSetterCallHandler()(DBusPropertyCallRef(
+		DBusConnectionRef(),
+		std::string_view(),
+		characteristicPath.toString(),
+		"org.bluez.GattCharacteristic1",
+		"DynamicValueCallRef",
+		DBusVariantRef(setterCallValue),
+		DBusErrorRef(&error),
+		&propertyState)),
+		"Dynamic call-ref property setter should report success");
+	require(error == nullptr, "Dynamic call-ref property setter should not set GError");
+	require(propertyState.setterCalls == 2, "Dynamic call-ref property setter should update test state");
+	require(propertyState.lastSetValue == "written-call", "Dynamic call-ref property setter should see the provided value");
+	g_variant_unref(setterCallValue);
+}
+
+void testBluezAdapterAccessors()
+{
+	decltype(auto) adapter = getActiveBluezAdapter();
+	auto *adapterPtr = getActiveBluezAdapterPtr();
+
+	require(adapterPtr != nullptr, "Active BlueZ adapter pointer accessor should never return null");
+	require(adapterPtr == &adapter, "BlueZ adapter reference and pointer accessors should resolve to the same instance");
+	require(adapterPtr == getActiveBluezAdapterPtr(), "BlueZ adapter pointer accessor should remain stable across calls");
+	require(&getActiveBluezAdapter() == &adapter, "BlueZ adapter reference accessor should remain stable across calls");
+
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+	require(&bzp::BluezAdapter::getInstance() == &adapter,
+		"Legacy BlueZ adapter singleton accessor should still resolve to the active adapter instance");
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+}
+
+void testServerAccessorCompatibilityStorage()
+{
+	auto originalServer = getActiveServer();
+	setActiveServer(nullptr);
+
+	auto legacyAssignedServer = std::make_shared<Server>("bzperi.tests.legacy-server", "", "", &nullGetter, &acceptingSetter);
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+	bzp::TheServer = legacyAssignedServer;
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+
+	require(getActiveServerPtr() == legacyAssignedServer.get(),
+		"Legacy TheServer assignment should synchronize into active server accessors");
+	require(getActiveServer().get() == legacyAssignedServer.get(),
+		"getActiveServer() should reflect legacy global assignments");
+
+	auto accessorAssignedServer = std::make_shared<Server>("bzperi.tests.accessor-server", "", "", &nullGetter, &acceptingSetter);
+	setActiveServer(accessorAssignedServer);
+	require(getActiveServerPtr() == accessorAssignedServer.get(),
+		"Accessor-assigned server should become the active server");
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+	require(bzp::TheServer.get() == accessorAssignedServer.get(),
+		"Accessor-assigned server should mirror back into the legacy global");
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+
+	setActiveServer(originalServer);
+}
+
+void testUtilsVariantWrappers()
+{
+	GVariant *stringValue = g_variant_ref_sink(Utils::dbusVariantFromString("wrapper").get());
+	expectVariantString(stringValue, "wrapper", "Utils::dbusVariantFromString");
+	g_variant_unref(stringValue);
+
+	GVariant *boolValue = g_variant_ref_sink(Utils::dbusVariantFromBoolean(true).get());
+	require(g_variant_is_of_type(boolValue, G_VARIANT_TYPE_BOOLEAN), "Utils::dbusVariantFromBoolean should create a boolean variant");
+	require(g_variant_get_boolean(boolValue), "Utils::dbusVariantFromBoolean should preserve the boolean payload");
+	g_variant_unref(boolValue);
+
+	GVariant *bytesValue = g_variant_ref_sink(Utils::dbusVariantFromByteArray(std::string("payload")).get());
+	require(g_variant_is_of_type(bytesValue, G_VARIANT_TYPE_BYTESTRING), "Utils::dbusVariantFromByteArray should create a byte-string variant");
+	require(Utils::stringFromGVariantByteArray(bytesValue) == "payload", "Utils::dbusVariantFromByteArray should preserve byte payloads");
+	g_variant_unref(bytesValue);
+
+	GVariant *signalPayload = g_variant_ref_sink(g_variant_new_string("signal"));
+	DBusSignalRef signal(DBusConnectionRef(), "com.example.Test", "Changed", DBusVariantRef(signalPayload));
+	require(!signal.connection(), "DBusSignalRef should preserve the wrapped connection state");
+	require(signal.interfaceName() == "com.example.Test", "DBusSignalRef should preserve interface name");
+	require(signal.signalName() == "Changed", "DBusSignalRef should preserve signal name");
+	require(signal.parameters().get() == signalPayload, "DBusSignalRef should preserve the wrapped parameters");
+	g_variant_unref(signalPayload);
+
+	int updateSentinel = 0;
+	void *updateUserData = &updateSentinel;
+	DBusUpdateRef update(DBusConnectionRef(), updateUserData);
+	require(!update.connection(), "DBusUpdateRef should preserve the wrapped connection state");
+	require(update.userData() == updateUserData, "DBusUpdateRef should preserve user data");
+
+	GVariant *notificationValue = g_variant_ref_sink(g_variant_new_string("notification"));
+	DBusNotificationRef notification{DBusConnectionRef(), DBusVariantRef(notificationValue)};
+	require(!notification.connection(), "DBusNotificationRef should preserve the wrapped connection state");
+	require(notification.value().get() == notificationValue, "DBusNotificationRef should preserve the wrapped value");
+	g_variant_unref(notificationValue);
+
+	DBusReplyRef reply{DBusMethodInvocationRef()};
+	require(!reply.invocation(), "DBusReplyRef should preserve the wrapped invocation state");
+
+	DBusMethodCallRef methodCall(DBusConnectionRef(), DBusVariantRef(), DBusMethodInvocationRef(), nullptr);
+	DBusReplyRef replyFromCall(methodCall);
+	require(!replyFromCall.invocation(), "DBusReplyRef constructed from DBusMethodCallRef should preserve invocation state");
+}
+
+void testAdvertisingServiceUuidSelection()
+{
+	Server server("bzperi.tests.advertising", "", "", &nullGetter, &acceptingSetter);
+	server.configure([](DBusObject &root) {
+		root.gattServiceBegin("battery", GattUuid("180F")).gattServiceEnd();
+		root.gattServiceBegin("vendor32", GattUuid("12345678")).gattServiceEnd();
+		root.gattServiceBegin("custom", GattUuid("00000001-1E3C-FAD4-74E2-97A033F1BFAA")).gattServiceEnd();
+	});
+
+	const auto collected = collectGattServiceUUIDs(server);
+	require(collected.size() == 3, "Expected three service UUIDs to be collected from the server tree");
+	require(collected[0] == GattUuid("180F").toString128(), "Standard 16-bit service UUID should be normalized to 128-bit form");
+	require(collected[1] == GattUuid("12345678").toString128(), "Standard 32-bit service UUID should be normalized to 128-bit form");
+	require(collected[2] == GattUuid("00000001-1E3C-FAD4-74E2-97A033F1BFAA").toString128(),
+		"Custom 128-bit service UUID should be preserved");
+
+	BluezCapabilities legacyCaps;
+	legacyCaps.maxAdvertisingDataLength = 31;
+	require(!canUseExtendedAdvertising(legacyCaps), "31-byte advertising budget should remain on the legacy path");
+
+	const auto legacySelected = selectAdvertisementServiceUUIDs(collected, legacyCaps);
+	require(legacySelected.size() == 2, "Legacy advertising should only keep standard short UUIDs");
+	require(legacySelected[0] == "180f", "Legacy advertising should shorten standard 16-bit UUIDs");
+	require(legacySelected[1] == "12345678", "Legacy advertising should shorten standard 32-bit UUIDs");
+
+	BluezCapabilities extendedCaps;
+	extendedCaps.maxAdvertisingDataLength = 251;
+	require(canUseExtendedAdvertising(extendedCaps), "Extended advertising should activate when MaxAdvLen exceeds 31 bytes");
+
+	const auto extendedSelected = selectAdvertisementServiceUUIDs(collected, extendedCaps);
+	require(extendedSelected == collected, "Extended advertising should keep the full 128-bit service UUID set");
+}
+
+void testManagedObjectsPayloadBuilder()
+{
+	Server server("bzperi.tests.managed-objects", "", "", &nullGetter, &acceptingSetter);
+	server.configure([](DBusObject &root) {
+		root.gattServiceBegin("battery", GattUuid("180F")).gattServiceEnd();
+	});
+
+	const auto payload = bzp::ServerUtils::buildManagedObjectsPayload(server);
+	require(static_cast<bool>(payload), "Managed objects payload builder should return a variant");
+	require(g_variant_is_of_type(payload.get(), G_VARIANT_TYPE_TUPLE),
+		"Managed objects payload should be returned as a tuple");
+
+	const std::string printed = describeVariant(payload.get());
+	require(printed.find("org.bluez.GattService1") != std::string::npos,
+		"Managed objects payload should include the configured GATT service interface");
+	require(printed.find("/com/bzperi/tests/managed_objects/battery") != std::string::npos,
+		"Managed objects payload should include sanitized object paths for configured services");
+}
+
+void testWaitHelpers()
+{
+	require(bzpGetServerRunState() == EUninitialized, "Unit tests should begin with the server in the uninitialized state");
+	require(bzpWaitForState(EUninitialized, 0) != 0, "bzpWaitForState should succeed immediately for the current state");
+	require(bzpWaitForState(ERunning, 0) == 0, "bzpWaitForState should fail immediately for an unreached state");
+	require(bzpWaitForState(static_cast<BZPServerRunState>(999), 0) == 0, "bzpWaitForState should reject invalid states");
+	require(bzpWaitForShutdown(0) == 0, "bzpWaitForShutdown should not report success before the server has started and stopped");
+
+	struct StateRestore
+	{
+		BZPServerRunState state;
+		BZPServerHealth health;
+
+		~StateRestore()
+		{
+			bzp::setServerHealth(health);
+			bzp::setServerRunState(state);
+		}
+	} restore{bzpGetServerRunState(), bzpGetServerHealth()};
+
+	bzp::setServerHealth(EOk);
+	bzp::setServerRunState(EInitializing);
+	require(bzpWaitForState(EInitializing, 0) != 0,
+		"bzpWaitForState should observe the initializing state immediately");
+	require(bzpWaitForState(ERunning, 0) == 0,
+		"bzpWaitForState should still fail immediately while initialization is in progress");
+
+	std::thread transitionThread([] {
+		std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		bzp::setServerRunState(ERunning);
+	});
+
+	require(bzpWaitForState(ERunning, 250) != 0,
+		"bzpWaitForState should detect a later transition to the running state");
+	transitionThread.join();
+
+	require(bzpStartNoWait(nullptr, "", "", &nullGetter, &acceptingSetter) == 0,
+		"bzpStartNoWait should preserve bzpStart argument validation");
+	require(bzpStartWithBondableNoWait(nullptr, "", "", &nullGetter, &acceptingSetter, 1) == 0,
+		"bzpStartWithBondableNoWait should preserve bzpStartWithBondable argument validation");
+}
+
+void testManualRunLoopLifecycle()
+{
+	struct RestoreState
+	{
+		std::shared_ptr<Server> activeServer = getActiveServer();
+		BZPServerRunState runState = bzpGetServerRunState();
+		BZPServerHealth health = bzpGetServerHealth();
+		int glibCaptureEnabled = bzpGetGLibLogCaptureEnabled();
+
+		~RestoreState()
+		{
+			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
+			{
+				bzpTriggerShutdown();
+				bzpRunLoopIteration(0);
+			}
+
+			setActiveServer(activeServer);
+			bzpSetGLibLogCaptureEnabled(glibCaptureEnabled);
+			bzp::setServerHealth(health);
+			bzp::setServerRunState(runState);
+		}
+	} restore;
+
+	bzp::setServerHealth(EOk);
+	bzp::setServerRunState(EUninitialized);
+
+	require(bzpRunLoopIteration(0) == 0,
+		"bzpRunLoopIteration should report no work before manual startup");
+	require(bzpStartManual("bzperi.tests.manual-loop", "", "", &nullGetter, &acceptingSetter) != 0,
+		"bzpStartManual should initialize the dedicated manual run loop");
+	require(bzpGetServerRunState() == EInitializing,
+		"bzpStartManual should leave the server in EInitializing until the host drives iterations");
+
+	bzpTriggerShutdown();
+	require(bzpGetServerRunState() == EStopping,
+		"Manual run loop shutdown should transition through EStopping");
+	require(bzpRunLoopDriveUntilShutdown(100) != 0,
+		"bzpRunLoopDriveUntilShutdown should pump manual shutdown to completion");
+	require(bzpGetServerRunState() == EStopped,
+		"Manual run loop cleanup should transition the server to EStopped");
+	require(bzpWaitForShutdown(0) != 0,
+		"bzpWaitForShutdown should succeed immediately once manual cleanup completed");
+	require(bzpRunLoopIteration(0) == 0,
+		"bzpRunLoopIteration should report no work after the manual run loop has been cleaned up");
+}
+
+void testRunLoopInvoke()
+{
+	struct RestoreState
+	{
+		std::shared_ptr<Server> activeServer = getActiveServer();
+		BZPServerRunState runState = bzpGetServerRunState();
+		BZPServerHealth health = bzpGetServerHealth();
+
+		~RestoreState()
+		{
+			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
+			{
+				bzpTriggerShutdown();
+				bzpRunLoopIteration(0);
+			}
+
+			setActiveServer(activeServer);
+			bzp::setServerHealth(health);
+			bzp::setServerRunState(runState);
+		}
+	} restore;
+
+	RunLoopInvokeState state;
+	require(bzpRunLoopInvoke(&runLoopInvokeHandler, &state) == 0,
+		"bzpRunLoopInvoke should fail before the run loop is started");
+	require(bzpStartManual("bzperi.tests.manual-invoke", "", "", &nullGetter, &acceptingSetter) != 0,
+		"bzpStartManual should initialize the run loop before invoke testing");
+	require(bzpRunLoopInvoke(&runLoopInvokeHandler, &state) != 0,
+		"bzpRunLoopInvoke should queue work on the manual run loop");
+	require(!state.called, "Run-loop invoke callback should not run until the host pumps the run loop");
+	require(bzpRunLoopIteration(0) != 0,
+		"bzpRunLoopIteration should dispatch queued run-loop invoke callbacks");
+	require(state.called, "Queued run-loop invoke callback should run");
+	require(state.receivedUserData == &state, "Run-loop invoke callback should preserve user data");
+	require(state.callbackThread == std::this_thread::get_id(),
+		"Manual run-loop invoke callback should execute on the pumping thread");
+
+	bzpTriggerShutdown();
+	while (bzpGetServerRunState() != EStopped)
+	{
+		if (!bzpRunLoopIterationFor(0))
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+	}
+}
+
+void testManualRunLoopThreadHandoff()
+{
+	struct RestoreState
+	{
+		std::shared_ptr<Server> activeServer = getActiveServer();
+		BZPServerRunState runState = bzpGetServerRunState();
+		BZPServerHealth health = bzpGetServerHealth();
+
+		~RestoreState()
+		{
+			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
+			{
+				bzpTriggerShutdown();
+				while (bzpGetServerRunState() != EStopped)
+				{
+					if (!bzpRunLoopIteration(0))
+					{
+						std::this_thread::sleep_for(std::chrono::milliseconds(1));
+					}
+				}
+			}
+
+			setActiveServer(activeServer);
+			bzp::setServerHealth(health);
+			bzp::setServerRunState(runState);
+		}
+	} restore;
+
+	bool started = false;
+	std::thread starter([&started] {
+		started = bzpStartManual("bzperi.tests.manual-handoff", "", "", &nullGetter, &acceptingSetter) != 0;
+	});
+	starter.join();
+	require(started, "bzpStartManual should succeed on the starter thread");
+
+	RunLoopInvokeState state;
+	require(bzpGetServerRunState() == EInitializing,
+		"Manual run-loop startup should still publish EInitializing before any iteration");
+	require(bzpRunLoopInvoke(&runLoopInvokeHandler, &state) != 0,
+		"bzpRunLoopInvoke should be queueable before the first manual iteration");
+	require(!state.called,
+		"Run-loop invoke callback should still be pending before the pumping thread iterates");
+	require(bzpRunLoopIterationFor(25) != 0,
+		"First bounded manual iteration should activate the run loop and dispatch queued work");
+	require(state.called, "Queued callback should run after manual run-loop handoff");
+	require(state.callbackThread == std::this_thread::get_id(),
+		"Manual run-loop ownership should transfer to the thread performing the first iteration");
+
+	bzpTriggerShutdown();
+	while (bzpGetServerRunState() != EStopped)
+	{
+		if (!bzpRunLoopIterationFor(0))
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+	}
+}
+
+void testRunLoopIterationTimeout()
+{
+	struct RestoreState
+	{
+		std::shared_ptr<Server> activeServer = getActiveServer();
+		BZPServerRunState runState = bzpGetServerRunState();
+		BZPServerHealth health = bzpGetServerHealth();
+
+		~RestoreState()
+		{
+			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
+			{
+				bzpTriggerShutdown();
+				while (bzpGetServerRunState() != EStopped)
+				{
+					if (!bzpRunLoopIterationFor(0))
+					{
+						std::this_thread::sleep_for(std::chrono::milliseconds(1));
+					}
+				}
+			}
+
+			setActiveServer(activeServer);
+			bzp::setServerHealth(health);
+			bzp::setServerRunState(runState);
+		}
+	} restore;
+
+	require(bzpRunLoopIterationFor(0) == 0,
+		"bzpRunLoopIterationFor should fail before manual startup");
+	require(bzpStartManual("bzperi.tests.manual-timeout", "", "", &nullGetter, &acceptingSetter) != 0,
+		"bzpStartManual should succeed before timeout iteration testing");
+
+	RunLoopInvokeState state;
+	require(bzpRunLoopInvoke(&runLoopInvokeHandler, &state) != 0,
+		"bzpRunLoopInvoke should queue work before bounded iteration");
+	require(bzpRunLoopIterationFor(25) != 0,
+		"bzpRunLoopIterationFor should dispatch queued work before timing out");
+	require(state.called, "Queued invoke callback should run through bounded iteration");
+
+	bzpTriggerShutdown();
+	while (bzpGetServerRunState() != EStopped)
+	{
+		if (!bzpRunLoopIterationFor(0))
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+	}
+}
+
+void testRunLoopAttachDetach()
+{
+	struct RestoreState
+	{
+		std::shared_ptr<Server> activeServer = getActiveServer();
+		BZPServerRunState runState = bzpGetServerRunState();
+		BZPServerHealth health = bzpGetServerHealth();
+
+		~RestoreState()
+		{
+			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
+			{
+				bzpTriggerShutdown();
+				while (bzpGetServerRunState() != EStopped)
+				{
+					if (!bzpRunLoopIterationFor(0))
+					{
+						std::this_thread::sleep_for(std::chrono::milliseconds(1));
+					}
+				}
+			}
+
+			setActiveServer(activeServer);
+			bzp::setServerHealth(health);
+			bzp::setServerRunState(runState);
+		}
+	} restore;
+
+	require(bzpRunLoopAttach() == 0, "bzpRunLoopAttach should fail before manual startup");
+	require(bzpRunLoopDetach() == 0, "bzpRunLoopDetach should fail before manual startup");
+	require(bzpRunLoopIsManualMode() == 0, "bzpRunLoopIsManualMode should report false before manual startup");
+	require(bzpRunLoopHasOwner() == 0, "bzpRunLoopHasOwner should report false before manual startup");
+	require(bzpRunLoopIsCurrentThreadOwner() == 0, "bzpRunLoopIsCurrentThreadOwner should report false before manual startup");
+	require(bzpStartManual("bzperi.tests.manual-attach", "", "", &nullGetter, &acceptingSetter) != 0,
+		"bzpStartManual should succeed before attach/detach testing");
+	require(bzpRunLoopIsManualMode() != 0, "bzpRunLoopIsManualMode should report true after manual startup");
+	require(bzpRunLoopHasOwner() == 0, "Manual startup should not assign an owner thread before attach/iterate");
+	require(bzpRunLoopAttach() != 0,
+		"bzpRunLoopAttach should explicitly bind the manual run loop to the current thread");
+	require(bzpRunLoopHasOwner() != 0, "bzpRunLoopHasOwner should report true after explicit attach");
+	require(bzpRunLoopIsCurrentThreadOwner() != 0, "bzpRunLoopIsCurrentThreadOwner should report true for the attached thread");
+	require(bzpRunLoopDetach() != 0,
+		"bzpRunLoopDetach should release the manual run loop from the current thread");
+	require(bzpRunLoopHasOwner() == 0, "bzpRunLoopHasOwner should report false after detach");
+	require(bzpRunLoopIsCurrentThreadOwner() == 0, "bzpRunLoopIsCurrentThreadOwner should report false after detach");
+	require(bzpRunLoopDetach() == 0,
+		"bzpRunLoopDetach should fail when no thread currently owns the manual run loop");
+
+	RunLoopInvokeState state;
+	require(bzpRunLoopInvoke(&runLoopInvokeHandler, &state) != 0,
+		"bzpRunLoopInvoke should still queue work while the manual run loop is detached");
+
+	bool workerAttach = false;
+	bool workerDetach = false;
+	bool workerIterated = false;
+	bool workerSawOwner = false;
+	bool workerSawCurrentOwner = false;
+	std::thread::id workerId;
+	std::thread worker([&] {
+		workerId = std::this_thread::get_id();
+		workerAttach = bzpRunLoopAttach() != 0;
+		if (workerAttach)
+		{
+			workerSawOwner = bzpRunLoopHasOwner() != 0;
+			workerSawCurrentOwner = bzpRunLoopIsCurrentThreadOwner() != 0;
+			workerIterated = bzpRunLoopIterationFor(50) != 0;
+			workerDetach = bzpRunLoopDetach() != 0;
+		}
+	});
+	worker.join();
+
+	require(workerAttach, "A second thread should be able to attach the detached manual run loop");
+	require(workerSawOwner, "Attached worker thread should observe that the manual run loop has an owner");
+	require(workerSawCurrentOwner, "Attached worker thread should observe itself as the current owner");
+	require(workerIterated, "The attached worker thread should be able to drive one bounded run-loop iteration");
+	require(workerDetach, "The worker thread should be able to detach the manual run loop after use");
+	require(state.called, "Queued callback should execute after another thread attaches and pumps the run loop");
+	require(state.callbackThread == workerId, "Queued callback should run on the thread that attached and pumped the manual run loop");
+	require(bzpRunLoopHasOwner() == 0, "Main thread should observe no owner after worker detach");
+	require(bzpRunLoopIsCurrentThreadOwner() == 0, "Main thread should not report ownership after worker detach");
+
+	require(bzpRunLoopAttach() != 0,
+		"Original thread should be able to re-attach the manual run loop after worker detach");
+	require(bzpRunLoopIsCurrentThreadOwner() != 0,
+		"Original thread should report ownership after re-attaching");
+	require(bzpRunLoopDetach() != 0,
+		"Original thread should be able to detach again after re-attaching");
+
+	bzpTriggerShutdown();
+	while (bzpGetServerRunState() != EStopped)
+	{
+		if (!bzpRunLoopIterationFor(0))
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+	}
+}
+
+void testRunLoopDriveHelpers()
+{
+	struct RestoreState
+	{
+		std::shared_ptr<Server> activeServer = getActiveServer();
+		BZPServerRunState runState = bzpGetServerRunState();
+		BZPServerHealth health = bzpGetServerHealth();
+
+		~RestoreState()
+		{
+			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
+			{
+				bzpTriggerShutdown();
+				bzpRunLoopDriveUntilShutdown(100);
+			}
+
+			setActiveServer(activeServer);
+			bzp::setServerHealth(health);
+			bzp::setServerRunState(runState);
+		}
+	} restore;
+
+	require(bzpRunLoopDriveUntilState(static_cast<BZPServerRunState>(999), 0) == 0,
+		"bzpRunLoopDriveUntilState should reject invalid states");
+	require(bzpRunLoopDriveUntilShutdown(0) == 0,
+		"bzpRunLoopDriveUntilShutdown should fail before manual startup");
+
+	require(bzpStartManual("bzperi.tests.manual-drive", "", "", &nullGetter, &acceptingSetter) != 0,
+		"bzpStartManual should succeed before drive-helper testing");
+	require(bzpRunLoopDriveUntilState(EInitializing, 0) != 0,
+		"bzpRunLoopDriveUntilState should succeed immediately for the current initializing state");
+
+	bzpTriggerShutdown();
+	require(bzpRunLoopDriveUntilShutdown(100) != 0,
+		"bzpRunLoopDriveUntilShutdown should drive the manual loop until shutdown completes");
+	require(bzpGetServerRunState() == EStopped,
+		"Drive-until-shutdown helper should leave the server in EStopped");
+}
+
+void testRunLoopPollApi()
+{
+	struct RestoreState
+	{
+		std::shared_ptr<Server> activeServer = getActiveServer();
+		BZPServerRunState runState = bzpGetServerRunState();
+		BZPServerHealth health = bzpGetServerHealth();
+
+		~RestoreState()
+		{
+			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
+			{
+				bzpTriggerShutdown();
+				bzpRunLoopDriveUntilShutdown(100);
+			}
+
+			setActiveServer(activeServer);
+			bzp::setServerHealth(health);
+			bzp::setServerRunState(runState);
+		}
+	} restore;
+
+	auto drainHiddenPollUntil = [](RunLoopInvokeState &state, const char *failureMessage) {
+		for (int attempt = 0; attempt < 16 && !state.called; ++attempt)
+		{
+			int timeoutMS = -1;
+			int requiredFDCount = -1;
+			int dispatchReady = 0;
+			require(bzpRunLoopPollPrepare(&timeoutMS, &requiredFDCount, &dispatchReady) != 0,
+				"bzpRunLoopPollPrepare should keep succeeding while hidden-poll work is pending");
+
+			if (!dispatchReady)
+			{
+				require(bzpRunLoopPollCheck(nullptr, 0) == 0,
+					"bzpRunLoopPollCheck should remain false when no poll descriptors were supplied");
+				require(bzpRunLoopPollCancel() != 0,
+					"bzpRunLoopPollCancel should release a non-ready hidden poll cycle");
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+				continue;
+			}
+
+			require(bzpRunLoopPollDispatch() != 0,
+				"bzpRunLoopPollDispatch should dispatch a ready hidden poll cycle");
+		}
+
+		require(state.called, failureMessage);
+	};
+
+	require(bzpRunLoopPollPrepare(nullptr, nullptr, nullptr) == 0,
+		"bzpRunLoopPollPrepare should fail before manual startup");
+	require(bzpRunLoopPollQuery(nullptr, 0, nullptr) == 0,
+		"bzpRunLoopPollQuery should fail without an active poll cycle");
+	require(bzpRunLoopPollCheck(nullptr, 0) == 0,
+		"bzpRunLoopPollCheck should fail without an active poll cycle");
+	require(bzpRunLoopPollDispatch() == 0,
+		"bzpRunLoopPollDispatch should fail without an active poll cycle");
+	require(bzpRunLoopPollCancel() == 0,
+		"bzpRunLoopPollCancel should fail without an active poll cycle");
+
+	require(bzpStartManual("bzperi.tests.manual-poll", "", "", &nullGetter, &acceptingSetter) != 0,
+		"bzpStartManual should succeed before hidden poll API testing");
+
+	RunLoopInvokeState firstDispatch;
+	require(bzpRunLoopInvoke(&runLoopInvokeHandler, &firstDispatch) != 0,
+		"bzpRunLoopInvoke should queue work before a hidden poll cycle");
+
+	int timeoutMS = -2;
+	int requiredFDCount = -1;
+	int dispatchReady = 0;
+	require(bzpRunLoopPollPrepare(&timeoutMS, &requiredFDCount, &dispatchReady) != 0,
+		"bzpRunLoopPollPrepare should succeed after manual startup");
+	require(bzpRunLoopHasOwner() != 0,
+		"bzpRunLoopPollPrepare should implicitly bind the manual run loop to the current thread");
+	require(bzpRunLoopIsCurrentThreadOwner() != 0,
+		"bzpRunLoopPollPrepare should report the current thread as the owner");
+	require(dispatchReady != 0,
+		"Queued idle work should make the hidden poll cycle immediately dispatch-ready");
+
+	int queriedFDCount = -1;
+	require(bzpRunLoopPollQuery(nullptr, 0, &queriedFDCount) != 0,
+		"bzpRunLoopPollQuery should support descriptor-count discovery");
+	require(queriedFDCount >= 0,
+		"Hidden poll descriptor discovery should report a non-negative descriptor count");
+	std::vector<BZPPollFD> firstPollFDs(static_cast<size_t>(queriedFDCount));
+	if (queriedFDCount > 0)
+	{
+		require(bzpRunLoopPollQuery(firstPollFDs.data(), queriedFDCount, &queriedFDCount) != 0,
+			"bzpRunLoopPollQuery should populate the descriptor buffer when enough storage is provided");
+	}
+	require(bzpRunLoopPollCheck(queriedFDCount > 0 ? firstPollFDs.data() : nullptr, queriedFDCount) != 0,
+		"bzpRunLoopPollCheck should report ready after a prepared hidden poll cycle");
+	require(bzpRunLoopPollDispatch() != 0,
+		"bzpRunLoopPollDispatch should dispatch queued hidden poll work");
+	drainHiddenPollUntil(firstDispatch,
+		"Hidden poll dispatch should eventually execute the queued run-loop callback");
+
+	RunLoopInvokeState canceledDispatch;
+	require(bzpRunLoopInvoke(&runLoopInvokeHandler, &canceledDispatch) != 0,
+		"bzpRunLoopInvoke should queue work before cancel testing");
+	require(bzpRunLoopPollPrepare(&timeoutMS, &requiredFDCount, &dispatchReady) != 0,
+		"bzpRunLoopPollPrepare should allow a second hidden poll cycle");
+	require(bzpRunLoopIteration(0) == 0,
+		"bzpRunLoopIteration should reject mixed use while a hidden poll cycle is active");
+	require(bzpRunLoopPollCancel() != 0,
+		"bzpRunLoopPollCancel should release the active hidden poll cycle");
+	require(!canceledDispatch.called,
+		"Canceling a hidden poll cycle should not dispatch the queued callback");
+	require(bzpRunLoopPollDispatch() == 0,
+		"bzpRunLoopPollDispatch should fail after the active hidden poll cycle has been canceled");
+
+	require(bzpRunLoopPollPrepare(&timeoutMS, &requiredFDCount, &dispatchReady) != 0,
+		"bzpRunLoopPollPrepare should succeed again after canceling the previous cycle");
+	int resumedFDCount = -1;
+	require(bzpRunLoopPollQuery(nullptr, 0, &resumedFDCount) != 0,
+		"bzpRunLoopPollQuery should support discovery after a canceled cycle");
+	std::vector<BZPPollFD> resumedPollFDs(static_cast<size_t>(resumedFDCount));
+	if (resumedFDCount > 0)
+	{
+		require(bzpRunLoopPollQuery(resumedPollFDs.data(), resumedFDCount, &resumedFDCount) != 0,
+			"bzpRunLoopPollQuery should refill descriptors after a canceled cycle");
+	}
+	require(bzpRunLoopPollCheck(resumedFDCount > 0 ? resumedPollFDs.data() : nullptr, resumedFDCount) != 0,
+		"bzpRunLoopPollCheck should report ready after re-preparing a canceled cycle");
+	require(bzpRunLoopPollDispatch() != 0,
+		"bzpRunLoopPollDispatch should still work after a canceled cycle");
+	drainHiddenPollUntil(canceledDispatch,
+		"Queued callback should remain pending until a later hidden poll dispatch");
+
+	bzpTriggerShutdown();
+	require(bzpRunLoopDriveUntilShutdown(100) != 0,
+		"bzpRunLoopDriveUntilShutdown should still clean up after hidden poll API use");
+}
+
+void testDBusMethodTypeMismatchIsSafe()
+{
+	Server server("bzperi.tests.method-mismatch", "", "", &nullGetter, &acceptingSetter);
+	std::shared_ptr<DBusInterface> interface;
+	bool called = false;
+
+	server.configure([&](DBusObject &root) {
+		interface = root.addInterface(std::make_shared<DBusInterface>(root, "com.example.Mismatch"));
+	});
+
+	require(interface != nullptr, "Expected a test DBusInterface");
+
+	static const char *inArgs[] = {"s", nullptr};
+	DBusMethod method(
+		interface.get(),
+		"Ping",
+		inArgs,
+		"s",
+		[&called](const DBusInterface &, DBusConnectionRef, const std::string &, DBusVariantRef, DBusMethodInvocationRef, void *) {
+			called = true;
+		});
+
+	GVariant *parameters = g_variant_ref_sink(g_variant_new_string("payload"));
+	method.call<GattCharacteristic>(
+		DBusMethodCallRef(DBusConnectionRef(), DBusVariantRef(parameters), DBusMethodInvocationRef(), nullptr),
+		interface->getPath(),
+		interface->getName(),
+		"Ping",
+		"com.example.Mismatch.NotImplemented");
+	g_variant_unref(parameters);
+
+	require(!called, "Type-mismatched DBusMethod dispatch should not invoke the handler");
+}
+
+void testGLibLogCaptureToggle()
+{
+	const int original = bzpGetGLibLogCaptureEnabled();
+
+	bzpSetGLibLogCaptureEnabled(0);
+	require(bzpGetGLibLogCaptureEnabled() == 0, "GLib log capture toggle should disable capture");
+
+	bzpSetGLibLogCaptureEnabled(1);
+	require(bzpGetGLibLogCaptureEnabled() == 1, "GLib log capture toggle should enable capture");
+
+	bzpSetGLibLogCaptureEnabled(original);
+	require(bzpGetGLibLogCaptureEnabled() == original, "GLib log capture toggle should restore the original state");
+}
+
+void testStructuredLoggerLevelRouting()
+{
+	struct RestoreReceivers
+	{
+		~RestoreReceivers()
+		{
+			bzpLogRegisterInfo(nullptr);
+			bzpLogRegisterWarn(nullptr);
+			bzpLogRegisterStatus(nullptr);
+			bzpLogRegisterTrace(nullptr);
+		}
+	} restore;
+
+	capturedInfoLogs.clear();
+	capturedWarnLogs.clear();
+	capturedStatusLogs.clear();
+	capturedTraceLogs.clear();
+
+	bzpLogRegisterInfo(&captureInfoLog);
+	bzpLogRegisterWarn(&captureWarnLog);
+	bzpLogRegisterStatus(&captureStatusLog);
+	bzpLogRegisterTrace(&captureTraceLog);
+
+	StructuredLogger logger("LoggerTest");
+	logger.logConnectionEvent("/org/bluez/hci0/dev_DE_AD_BE_EF", true, 1);
+	logger.log().op("Reconnect").result("Retry").status();
+	logger.log().op("PollCycle").extra("prepared").trace();
+	logger.log().op("Reconnect").result("Failed").error("boom").warn();
+
+	require(capturedInfoLogs.size() == 1, "StructuredLogger info routing should capture one info message");
+	require(capturedInfoLogs.front().find("[LoggerTest] op=Connection path=/org/bluez/hci0/dev_DE_AD_BE_EF result=Connected active=1") != std::string::npos,
+		"StructuredLogger connection logs should use the consistent structured format");
+
+	require(capturedStatusLogs.size() == 1, "StructuredLogger status routing should capture one status message");
+	require(capturedStatusLogs.front().find("[LoggerTest] op=Reconnect result=Retry") != std::string::npos,
+		"StructuredLogger status logs should preserve structured fields");
+
+	require(capturedTraceLogs.size() == 1, "StructuredLogger trace routing should capture one trace message");
+	require(capturedTraceLogs.front().find("[LoggerTest] op=PollCycle prepared") != std::string::npos,
+		"StructuredLogger trace logs should preserve the structured payload");
+
+	require(capturedWarnLogs.size() == 1, "StructuredLogger warn routing should capture one warn message");
+	require(capturedWarnLogs.front().find("[LoggerTest] op=Reconnect result=Failed err=boom") != std::string::npos,
+		"StructuredLogger warn logs should preserve the error payload");
+}
+
+void testUpdateEnqueueExHelpers()
+{
+	bzpUpdateQueueClear();
+
+	require(bzpNotifyUpdatedCharacteristicEx(nullptr) == BZP_UPDATE_ENQUEUE_INVALID_ARGUMENT,
+		"Characteristic enqueue Ex should reject null paths");
+	require(bzpNotifyUpdatedDescriptorEx(nullptr) == BZP_UPDATE_ENQUEUE_INVALID_ARGUMENT,
+		"Descriptor enqueue Ex should reject null paths");
+	require(bzpPushUpdateQueueEx("/com/example/test", nullptr) == BZP_UPDATE_ENQUEUE_INVALID_ARGUMENT,
+		"Push enqueue Ex should reject null interface names");
+
+	require(bzpNotifyUpdatedCharacteristicEx("/com/example/test") == BZP_UPDATE_ENQUEUE_NOT_RUNNING,
+		"Characteristic enqueue Ex should report not-running before startup");
+	require(bzpPushUpdateQueueEx("/com/example/test", "org.bluez.GattCharacteristic1") == BZP_UPDATE_ENQUEUE_NOT_RUNNING,
+		"Push enqueue Ex should report not-running before startup");
+
+	require(bzpNotifyUpdatedCharacteristic("/com/example/legacy") != 0,
+		"Legacy enqueue API should preserve its pre-start behavior");
+	require(bzpUpdateQueueSize() == 1, "Legacy enqueue API should still push into the update queue");
+
+	char element[256] = {};
+	require(bzpPopUpdateQueueEx(element, sizeof(element), 0) == BZP_UPDATE_QUEUE_OK,
+		"Legacy enqueue should be observable through the detailed pop API");
+	require(std::string(element) == "/com/example/legacy|org.bluez.GattCharacteristic1",
+		"Detailed pop API should preserve the queued object path and interface");
+	require(bzpUpdateQueueIsEmpty() != 0, "Update queue should be empty after popping the test element");
 }
 
 struct TestCase
@@ -332,7 +1384,25 @@ int main()
 	const std::vector<TestCase> tests = {
 		{"GattProperty rule-of-five", testGattPropertyRuleOfFive},
 		{"Server wrapper method dispatch", testServerWrapperMethodDispatch},
+		{"Legacy raw callback compatibility", testLegacyRawCallbacksRemainCompatible},
 		{"Characteristic/property wrapper dispatch", testCharacteristicAndPropertyWrappers},
+		{"BlueZ adapter accessors", testBluezAdapterAccessors},
+		{"Server accessor compatibility storage", testServerAccessorCompatibilityStorage},
+		{"Utils wrapper variants", testUtilsVariantWrappers},
+		{"Advertising service UUID selection", testAdvertisingServiceUuidSelection},
+		{"Managed objects payload builder", testManagedObjectsPayloadBuilder},
+		{"Wait helper APIs", testWaitHelpers},
+		{"Manual run-loop lifecycle", testManualRunLoopLifecycle},
+		{"Run-loop invoke", testRunLoopInvoke},
+		{"Manual run-loop thread handoff", testManualRunLoopThreadHandoff},
+		{"Run-loop iteration timeout", testRunLoopIterationTimeout},
+		{"Run-loop attach/detach", testRunLoopAttachDetach},
+		{"Run-loop drive helpers", testRunLoopDriveHelpers},
+		{"Run-loop hidden poll API", testRunLoopPollApi},
+		{"DBusMethod type mismatch safety", testDBusMethodTypeMismatchIsSafe},
+		{"GLib log capture toggle", testGLibLogCaptureToggle},
+		{"Structured logger level routing", testStructuredLoggerLevelRouting},
+		{"Update enqueue Ex helpers", testUpdateEnqueueExHelpers},
 	};
 
 	int failures = 0;

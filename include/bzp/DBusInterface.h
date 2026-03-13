@@ -63,6 +63,13 @@ struct DBusObjectPath;
        void *pUserData \
 )
 
+#define INTERFACE_METHOD_CALL_HANDLER_LAMBDA [] \
+( \
+       const DBusInterface &self, \
+       const std::string &methodName, \
+       DBusMethodCallRef methodCall \
+)
+
 #define TRY_GET_INTERFACE_OF_TYPE(pInterface, type) \
 	(pInterface->getInterfaceType() == type::kInterfaceType ? \
 		std::static_pointer_cast<type>(pInterface) : \
@@ -82,9 +89,10 @@ struct DBusInterface
 	// Our interface type
 	static constexpr const char *kInterfaceType = "DBusInterface";
 
-	using RawMethodCallback = void (*)(const DBusInterface &self, GDBusConnection *pConnection, const std::string &methodName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData);
+	using RawMethodCallback = bzp::RawMethodCallback<DBusInterface>;
 	using MethodCallback BZP_DEPRECATED("Use DBusInterface::MethodHandler and INTERFACE_METHOD_HANDLER_LAMBDA instead") = RawMethodCallback;
 	using MethodHandler = DBusMethod::Handler;
+	using MethodCallHandler = DBusMethod::CallHandler;
 
 	// Standard constructor
 	DBusInterface(DBusObject &owner, const std::string &name);
@@ -112,12 +120,17 @@ struct DBusInterface
 	// D-Bus interface methods
 	//
 
+	BZP_DEPRECATED("Use DBusInterface::addMethod(..., MethodHandler) instead of raw GDBus callbacks")
 	DBusInterface &addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, RawMethodCallback callback);
 	DBusInterface &addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, const MethodHandler &handler);
+	DBusInterface &addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, const MethodCallHandler &handler);
 
 	// NOTE: Subclasses are encouraged to override this method in order to support different callback types that are specific to
 	// their subclass type.
+	BZP_DEPRECATED("Use DBusInterface::callMethod(..., DBusMethodCallRef)")
 	virtual bool callMethod(const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const;
+	virtual bool callMethod(const std::string &methodName, DBusMethodCallRef methodCall) const;
+	BZP_DEPRECATED("Use DBusInterface::callMethod(..., DBusMethodCallRef)")
 	bool callMethod(const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const;
 
 	// Internal method used to generate introspection XML used to describe our services on D-Bus

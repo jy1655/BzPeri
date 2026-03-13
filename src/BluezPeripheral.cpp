@@ -39,6 +39,7 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #include <string.h>
+#include <algorithm>
 #include <cstddef>
 #include <string>
 #include <thread>
@@ -51,6 +52,7 @@
 #include <exception>
 
 #include "Init.h"
+#include <bzp/BluezAdapter.h>
 #include <bzp/Logger.h>
 #include <bzp/Server.h>
 #include "ServiceRegistry.h"
@@ -90,6 +92,7 @@ namespace bzp
 	// Condition variable for state transitions
 	static std::condition_variable stateChangedCV;
 	static std::mutex stateChangedMutex;
+	static std::atomic<bool> captureGLibLogs{true};
 
 	// RAII guard that saves and restores GLib global handlers
 	struct GLibHandlerGuard {
@@ -97,8 +100,19 @@ namespace bzp
 		GPrintFunc savedPrinterr = nullptr;
 		GLogFunc savedLog = nullptr;
 		bool active = false;
+		unsigned int installDepth = 0;
+		std::mutex mutex;
 
 		void install() {
+			std::lock_guard<std::mutex> lock(mutex);
+			if (!captureGLibLogs.load(std::memory_order_acquire))
+			{
+				return;
+			}
+			if (installDepth++ > 0)
+			{
+				return;
+			}
 			savedPrint = g_set_print_handler([](const gchar* s) { Logger::info(s); });
 			savedPrinterr = g_set_printerr_handler([](const gchar* s) { Logger::error(s); });
 			savedLog = g_log_set_default_handler(
@@ -114,11 +128,23 @@ namespace bzp
 		}
 
 		void restore() {
+			std::lock_guard<std::mutex> lock(mutex);
+			if (installDepth == 0)
+			{
+				return;
+			}
+			if (--installDepth > 0)
+			{
+				return;
+			}
 			if (active) {
 				g_set_print_handler(savedPrint);
 				g_set_printerr_handler(savedPrinterr);
 				g_log_set_default_handler(savedLog, nullptr);
 				active = false;
+				savedPrint = nullptr;
+				savedPrinterr = nullptr;
+				savedLog = nullptr;
 			}
 		}
 
@@ -127,6 +153,25 @@ namespace bzp
 
 	// GLib handler guard (replaces the three separate static handler variables)
 	static GLibHandlerGuard glibHandlerGuard;
+
+	struct ScopedAction
+	{
+		std::function<void()> action;
+		bool active = true;
+
+		~ScopedAction()
+		{
+			if (active && action)
+			{
+				action();
+			}
+		}
+
+		void release() noexcept
+		{
+			active = false;
+		}
+	};
 
 	// Our update queue
 	typedef std::tuple<std::string, std::string> QueueEntry;
@@ -155,9 +200,134 @@ namespace bzp
 		// Store with release ordering
 		serverHealth.store(newHealth, std::memory_order_release);
 	}
+
+	void restoreGLibHandlers()
+	{
+		glibHandlerGuard.restore();
+	}
+
+	bool isValidRunState(BZPServerRunState state) noexcept
+	{
+		switch (state)
+		{
+			case EUninitialized:
+			case EInitializing:
+			case ERunning:
+			case EStopping:
+			case EStopped:
+				return true;
+			default:
+				return false;
+		}
+	}
+
+	bool isServerThreadCurrent() noexcept
+	{
+		return serverThread.joinable() && serverThread.get_id() == std::this_thread::get_id();
+	}
+
+	bool waitForRunState(BZPServerRunState targetState, int timeoutMS)
+	{
+		if (serverRunState.load(std::memory_order_acquire) == targetState)
+		{
+			return true;
+		}
+
+		std::unique_lock<std::mutex> lock(stateChangedMutex);
+		auto reachedTarget = [targetState]() {
+			return serverRunState.load(std::memory_order_acquire) == targetState;
+		};
+
+		if (timeoutMS < 0)
+		{
+			stateChangedCV.wait(lock, reachedTarget);
+			return true;
+		}
+
+		return stateChangedCV.wait_for(lock, std::chrono::milliseconds(timeoutMS), reachedTarget);
+	}
+
+	int joinServerThread(const char *context)
+	{
+		try
+		{
+			if (serverThread.joinable())
+			{
+				serverThread.join();
+			}
+			return 1;
+		}
+		catch (std::system_error &ex)
+		{
+			switch (ex.code().value())
+			{
+				case static_cast<int>(std::errc::invalid_argument):
+					Logger::warn(SSTR << "Server thread was not joinable during " << context << "(): " << ex.what());
+					break;
+				case static_cast<int>(std::errc::no_such_process):
+					Logger::warn(SSTR << "Server thread was not valid during " << context << "(): " << ex.what());
+					break;
+				case static_cast<int>(std::errc::resource_deadlock_would_occur):
+					Logger::warn(SSTR << "Deadlock avoided in call to " << context << "() (did the server thread try to stop itself?): " << ex.what());
+					break;
+				default:
+					Logger::warn(SSTR << "Unknown system_error code (" << ex.code() << ") during " << context << "(): " << ex.what());
+					break;
+			}
+		}
+
+		return 0;
+	}
 }; // namespace bzp
 
 using namespace bzp;
+
+namespace {
+
+BZPUpdateEnqueueResult enqueueUpdate(const char *pObjectPath, const char *pInterfaceName, bool requireRunning)
+{
+	if (!pObjectPath || !pInterfaceName)
+	{
+		return BZP_UPDATE_ENQUEUE_INVALID_ARGUMENT;
+	}
+
+	if (requireRunning)
+	{
+		const BZPServerRunState state = bzpGetServerRunState();
+		if (state == EUninitialized || state > ERunning)
+		{
+			return BZP_UPDATE_ENQUEUE_NOT_RUNNING;
+		}
+	}
+
+	static constexpr size_t kMaxUpdateQueueSize = 1024;
+	QueueEntry entry(pObjectPath, pInterfaceName);
+
+	std::lock_guard<std::mutex> guard(updateQueueMutex);
+	if (updateQueue.size() >= kMaxUpdateQueueSize)
+	{
+		Logger::warn("Update queue full — dropping oldest entry");
+		updateQueue.pop_back();
+	}
+	updateQueue.push_front(std::move(entry));
+	return BZP_UPDATE_ENQUEUE_OK;
+}
+
+} // namespace
+
+void bzpSetGLibLogCaptureEnabled(int enabled)
+{
+	captureGLibLogs.store(enabled != 0, std::memory_order_release);
+	if (enabled == 0)
+	{
+		glibHandlerGuard.restore();
+	}
+}
+
+int bzpGetGLibLogCaptureEnabled()
+{
+	return captureGLibLogs.load(std::memory_order_acquire) ? 1 : 0;
+}
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 //  _                                  _     _             _   _
@@ -229,7 +399,7 @@ int bzpNofifyUpdatedCharacteristic(const char *pObjectPath)
 {
 	BZP_C_API_GUARD_BEGIN()
 	if (!pObjectPath) return 0;
-	return bzpPushUpdateQueue(pObjectPath, "org.bluez.GattCharacteristic1") != 0;
+	return enqueueUpdate(pObjectPath, "org.bluez.GattCharacteristic1", false) == BZP_UPDATE_ENQUEUE_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
 }
 
@@ -240,7 +410,7 @@ int bzpNofifyUpdatedDescriptor(const char *pObjectPath)
 {
 	BZP_C_API_GUARD_BEGIN()
 	if (!pObjectPath) return 0;
-	return bzpPushUpdateQueue(pObjectPath, "org.bluez.GattDescriptor1") != 0;
+	return enqueueUpdate(pObjectPath, "org.bluez.GattDescriptor1", false) == BZP_UPDATE_ENQUEUE_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
 }
 
@@ -249,7 +419,7 @@ int bzpNotifyUpdatedCharacteristic(const char *pObjectPath)
 {
 	BZP_C_API_GUARD_BEGIN()
 	if (!pObjectPath) return 0;
-	return bzpPushUpdateQueue(pObjectPath, "org.bluez.GattCharacteristic1") != 0;
+	return enqueueUpdate(pObjectPath, "org.bluez.GattCharacteristic1", false) == BZP_UPDATE_ENQUEUE_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
 }
 
@@ -257,8 +427,22 @@ int bzpNotifyUpdatedDescriptor(const char *pObjectPath)
 {
 	BZP_C_API_GUARD_BEGIN()
 	if (!pObjectPath) return 0;
-	return bzpPushUpdateQueue(pObjectPath, "org.bluez.GattDescriptor1") != 0;
+	return enqueueUpdate(pObjectPath, "org.bluez.GattDescriptor1", false) == BZP_UPDATE_ENQUEUE_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+BZPUpdateEnqueueResult bzpNotifyUpdatedCharacteristicEx(const char *pObjectPath)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return enqueueUpdate(pObjectPath, "org.bluez.GattCharacteristic1", true);
+	BZP_C_API_GUARD_END_RETURN_INT(BZP_UPDATE_ENQUEUE_INVALID_ARGUMENT)
+}
+
+BZPUpdateEnqueueResult bzpNotifyUpdatedDescriptorEx(const char *pObjectPath)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return enqueueUpdate(pObjectPath, "org.bluez.GattDescriptor1", true);
+	BZP_C_API_GUARD_END_RETURN_INT(BZP_UPDATE_ENQUEUE_INVALID_ARGUMENT)
 }
 
 // Adds a named update to the front of the queue. Generally, this routine should not be used directly. Instead, use the
@@ -268,19 +452,15 @@ int bzpNotifyUpdatedDescriptor(const char *pObjectPath)
 int bzpPushUpdateQueue(const char *pObjectPath, const char *pInterfaceName)
 {
 	BZP_C_API_GUARD_BEGIN()
-	if (!pObjectPath || !pInterfaceName) return 0;
-
-	static constexpr size_t kMaxUpdateQueueSize = 1024;
-	QueueEntry t(pObjectPath, pInterfaceName);
-
-	std::lock_guard<std::mutex> guard(updateQueueMutex);
-	if (updateQueue.size() >= kMaxUpdateQueueSize) {
-		Logger::warn("Update queue full — dropping oldest entry");
-		updateQueue.pop_back();
-	}
-	updateQueue.push_front(t);
-	return 1;
+	return enqueueUpdate(pObjectPath, pInterfaceName, false) == BZP_UPDATE_ENQUEUE_OK;
 	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+BZPUpdateEnqueueResult bzpPushUpdateQueueEx(const char *pObjectPath, const char *pInterfaceName)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return enqueueUpdate(pObjectPath, pInterfaceName, true);
+	BZP_C_API_GUARD_END_RETURN_INT(BZP_UPDATE_ENQUEUE_INVALID_ARGUMENT)
 }
 
 // Get the next update from the back of the queue and returns the element in `element` as a string in the format:
@@ -501,45 +681,233 @@ int bzpShutdownAndWait()
 // Typically, a call to this method would follow `bzpTriggerShutdown()`.
 int bzpWait()
 {
-	int result = 0;
+	if (bzpGetServerRunState() <= ERunning)
+	{
+		Logger::info("Waiting for BzPeri server to stop");
+	}
+
+	return bzpWaitForShutdown(-1);
+}
+
+int bzpWaitForState(BZPServerRunState state, int timeoutMS)
+{
+	BZP_C_API_GUARD_BEGIN()
+	if (!isValidRunState(state))
+	{
+		Logger::warn(SSTR << "bzpWaitForState: invalid target state (" << static_cast<int>(state) << ")");
+		return 0;
+	}
+
+	if (timeoutMS < -1)
+	{
+		Logger::warn(SSTR << "bzpWaitForState: invalid timeout (" << timeoutMS << ")");
+		return 0;
+	}
+
+	if (isServerThreadCurrent() && bzpGetServerRunState() != state)
+	{
+		Logger::warn("bzpWaitForState() called from the server thread before the requested state was reached");
+		return 0;
+	}
+
+	return waitForRunState(state, timeoutMS) ? 1 : 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpWaitForShutdown(int timeoutMS)
+{
+	BZP_C_API_GUARD_BEGIN()
+	if (timeoutMS < -1)
+	{
+		Logger::warn(SSTR << "bzpWaitForShutdown: invalid timeout (" << timeoutMS << ")");
+		return 0;
+	}
+
+	if (isServerThreadCurrent() && bzpGetServerRunState() != EStopped)
+	{
+		Logger::warn("bzpWaitForShutdown() called from the server thread before shutdown completed");
+		return 0;
+	}
+
+	if (!waitForRunState(EStopped, timeoutMS))
+	{
+		return 0;
+	}
+
+	const int joined = joinServerThread("bzpWaitForShutdown");
+	glibHandlerGuard.restore();
+	return joined;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+namespace {
+
+enum class StartupMode
+{
+	Threaded,
+	ManualIteration
+};
+
+int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS, int enableBondable, StartupMode startupMode)
+{
 	try
 	{
-		if (bzpGetServerRunState() <= ERunning)
+		if (!pServiceName || strlen(pServiceName) == 0)
 		{
-			Logger::info("Waiting for BzPeri server to stop");
+			Logger::error("bzpStart: pServiceName cannot be null or empty");
+			return 0;
+		}
+		if (!pAdvertisingName)
+		{
+			Logger::error("bzpStart: pAdvertisingName cannot be null");
+			return 0;
+		}
+		if (!pAdvertisingShortName)
+		{
+			Logger::error("bzpStart: pAdvertisingShortName cannot be null");
+			return 0;
+		}
+		if (!getter)
+		{
+			Logger::error("bzpStart: getter delegate cannot be null");
+			return 0;
+		}
+		if (!setter)
+		{
+			Logger::error("bzpStart: setter delegate cannot be null");
+			return 0;
+		}
+		if (startupMode == StartupMode::Threaded && maxAsyncInitTimeoutMS != 0 && (maxAsyncInitTimeoutMS < 100 || maxAsyncInitTimeoutMS > 60000))
+		{
+			Logger::error(SSTR << "bzpStart: maxAsyncInitTimeoutMS (" << maxAsyncInitTimeoutMS
+				<< ") must be 0 or between 100 and 60000 milliseconds");
+			return 0;
+		}
+		if (startupMode == StartupMode::ManualIteration && maxAsyncInitTimeoutMS != 0)
+		{
+			Logger::error("bzpStartManual: maxAsyncInitTimeoutMS must be 0 in manual-iteration mode");
+			return 0;
+		}
+		if (strlen(pServiceName) > 255)
+		{
+			Logger::error(SSTR << "bzpStart: pServiceName too long (" << strlen(pServiceName) << " > 255)");
+			return 0;
 		}
 
-		if (serverThread.joinable())
+		glibHandlerGuard.install();
+		ScopedAction restoreGLibHandlersOnFailure{[] {
+			glibHandlerGuard.restore();
+		}};
+
+		Logger::info(SSTR << "Starting BzPeri server '" << pAdvertisingName << "'");
+
+		auto server = std::make_shared<Server>(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, enableBondable != 0);
+		setActiveServer(server);
+
+		const std::size_t configuratorCount = serviceConfiguratorCount();
+		if (configuratorCount == 0)
 		{
-			serverThread.join();
+			Logger::info("No service configurators registered; starting with an empty GATT database");
+		}
+		else
+		{
+			applyRegisteredServiceConfigurators(*server);
+			Logger::trace(SSTR << "Applied " << configuratorCount << " service configurator(s)");
 		}
 
-		result = 1;
+		setServerHealth(EOk);
+		setServerRunState(EInitializing);
+		auto *adapter = getActiveBluezAdapterPtr();
+
+		if (startupMode == StartupMode::ManualIteration)
+		{
+			if (!startServerLoopManually(server.get(), adapter))
+			{
+				Logger::error("Unable to initialize the manual BzPeri run loop");
+				setServerHealth(EFailedInit);
+				setServerRunState(EStopped);
+				return 0;
+			}
+
+			Logger::trace("BzPeri manual run loop started; host must drive it with bzpRunLoopIteration()");
+			restoreGLibHandlersOnFailure.release();
+			return 1;
+		}
+
+		try
+		{
+			serverThread = std::thread([server, adapter] {
+				try
+				{
+					runServerThread(server.get(), adapter);
+				}
+				catch (const std::exception& ex)
+				{
+					Logger::error(SSTR << "Unhandled exception in server thread: " << ex.what());
+					setServerHealth(EFailedInit);
+					setServerRunState(EStopped);
+				}
+				catch (...)
+				{
+					Logger::error("Unhandled non-standard exception in server thread");
+					setServerHealth(EFailedInit);
+					setServerRunState(EStopped);
+				}
+
+				glibHandlerGuard.restore();
+			});
+		}
+		catch(std::system_error &ex)
+		{
+			Logger::error(SSTR << "Server thread was unable to start (code " << ex.code() << ") during bzpStart(): " << ex.what());
+
+			setServerHealth(EFailedInit);
+			setServerRunState(EStopped);
+			return 0;
+		}
+
+		if (maxAsyncInitTimeoutMS == 0)
+		{
+			Logger::trace("BzPeri server thread started; initialization continues asynchronously");
+			restoreGLibHandlersOnFailure.release();
+			return 1;
+		}
+
+		std::unique_lock<std::mutex> lock(stateChangedMutex);
+		bool initCompleted = stateChangedCV.wait_for(lock, std::chrono::milliseconds(maxAsyncInitTimeoutMS),
+			[]() { return serverRunState.load(std::memory_order_acquire) > EInitializing; });
+		lock.unlock();
+
+		if (!initCompleted)
+		{
+			Logger::error("BzPeri server initialization timed out");
+			setServerHealth(EFailedInit);
+			shutdown();
+		}
+
+		if (bzpGetServerRunState() != ERunning)
+		{
+			if (!bzpWait())
+			{
+				Logger::warn(SSTR << "Unable to stop the server after an error in bzpStart()");
+			}
+
+			return 0;
+		}
+
+		Logger::trace("BzPeri server has started");
+		restoreGLibHandlersOnFailure.release();
+		return 1;
 	}
-	catch(std::system_error &ex)
+	catch(...)
 	{
-		switch (ex.code().value())
-		{
-			case static_cast<int>(std::errc::invalid_argument):
-				Logger::warn(SSTR << "Server thread was not joinable during bzpWait(): " << ex.what());
-				break;
-			case static_cast<int>(std::errc::no_such_process):
-				Logger::warn(SSTR << "Server thread was not valid during bzpWait(): " << ex.what());
-				break;
-			case static_cast<int>(std::errc::resource_deadlock_would_occur):
-				Logger::warn(SSTR << "Deadlock avoided in call to bzpWait() (did the server thread try to stop itself?): " << ex.what());
-				break;
-			default:
-				Logger::warn(SSTR << "Unknown system_error code (" << ex.code() << ") during bzpWait(): " << ex.what());
-				break;
-		}
+		Logger::error(SSTR << "Unknown exception during server startup");
+		return 0;
 	}
-
-	// Restore the GLib output functions via RAII guard
-	glibHandlerGuard.restore();
-
-	return result;
 }
+
+} // namespace
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 //  ____  _             _      _   _
@@ -604,121 +972,15 @@ int bzpWait()
 int bzpStartWithBondable(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 	BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS, int enableBondable)
 {
-	try
-	{
-		// Input validation
-		if (!pServiceName || strlen(pServiceName) == 0)
-		{
-			Logger::error("bzpStart: pServiceName cannot be null or empty");
-			return 0;
-		}
-		if (!pAdvertisingName)
-		{
-			Logger::error("bzpStart: pAdvertisingName cannot be null");
-			return 0;
-		}
-		if (!pAdvertisingShortName)
-		{
-			Logger::error("bzpStart: pAdvertisingShortName cannot be null");
-			return 0;
-		}
-		if (!getter)
-		{
-			Logger::error("bzpStart: getter delegate cannot be null");
-			return 0;
-		}
-		if (!setter)
-		{
-			Logger::error("bzpStart: setter delegate cannot be null");
-			return 0;
-		}
-		if (maxAsyncInitTimeoutMS < 100 || maxAsyncInitTimeoutMS > 60000)
-		{
-			Logger::error(SSTR << "bzpStart: maxAsyncInitTimeoutMS (" << maxAsyncInitTimeoutMS << ") must be between 100 and 60000 milliseconds");
-			return 0;
-		}
-
-		// Validate service name length (reasonable limits)
-		if (strlen(pServiceName) > 255)
-		{
-			Logger::error(SSTR << "bzpStart: pServiceName too long (" << strlen(pServiceName) << " > 255)");
-			return 0;
-		}
-
-		//
-		// Start by capturing the GLib output
-		//
-
-		// Install GLib handler guard (RAII — restores handlers on destruction)
-		glibHandlerGuard.install();
-
-		Logger::info(SSTR << "Starting BzPeri server '" << pAdvertisingName << "'");
-
-		// Allocate our server
-		auto server = std::make_shared<Server>(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, enableBondable != 0);
-		setActiveServer(server);
-
-		const std::size_t configuratorCount = serviceConfiguratorCount();
-		if (configuratorCount == 0)
-		{
-			Logger::info("No service configurators registered; starting with an empty GATT database");
-		}
-		else
-		{
-			applyRegisteredServiceConfigurators(*server);
-			Logger::trace(SSTR << "Applied " << configuratorCount << " service configurator(s)");
-		}
-
-		// Start our server thread
-		try
-		{
-			serverThread = std::thread(runServerThread);
-		}
-		catch(std::system_error &ex)
-		{
-			Logger::error(SSTR << "Server thread was unable to start (code " << ex.code() << ") during bzpStart(): " << ex.what());
-
-			setServerRunState(EStopped);
-			return 0;
-		}
-
-		// Wait for the server to complete initialization using condition variable
-		// Create local lock to avoid lock lifetime issues
-		std::unique_lock<std::mutex> lock(stateChangedMutex);
-		bool initCompleted = stateChangedCV.wait_for(lock, std::chrono::milliseconds(maxAsyncInitTimeoutMS),
-			[]() { return serverRunState.load(std::memory_order_acquire) > EInitializing; });
-		lock.unlock();
-
-		// If something went wrong, shut down
-		if (!initCompleted)
-		{
-			Logger::error("BzPeri server initialization timed out");
-
-			setServerHealth(EFailedInit);
-
-			shutdown();
-		}
-
-		// If something went wrong, shut down if we've not already done so
-		if (bzpGetServerRunState() != ERunning)
-		{
-			if (!bzpWait())
-			{
-				Logger::warn(SSTR << "Unable to stop the server after an error in bzpStart()");
-			}
-
-			return 0;
-		}
-
-		// Everything looks good
-		Logger::trace("BzPeri server has started");
-		return 1;
-	}
-	catch(...)
-	{
-		Logger::error(SSTR << "Unknown exception during bzpStartWithBondable()");
-		return 0;
-	}
+	return startServerWithMode(
+		pServiceName,
+		pAdvertisingName,
+		pAdvertisingShortName,
+		getter,
+		setter,
+		maxAsyncInitTimeoutMS,
+		enableBondable,
+		StartupMode::Threaded);
 }
 
 // Backward compatibility wrapper - calls bzpStartWithBondable with enableBondable=1 (true)
@@ -726,4 +988,188 @@ int bzpStart(const char *pServiceName, const char *pAdvertisingName, const char 
 	BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS)
 {
 	return bzpStartWithBondable(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, maxAsyncInitTimeoutMS, 1);
+}
+
+int bzpStartNoWait(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	BZPServerDataGetter getter, BZPServerDataSetter setter)
+{
+	return bzpStart(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, 0);
+}
+
+int bzpStartWithBondableNoWait(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	BZPServerDataGetter getter, BZPServerDataSetter setter, int enableBondable)
+{
+	return bzpStartWithBondable(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, 0, enableBondable);
+}
+
+int bzpStartManual(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	BZPServerDataGetter getter, BZPServerDataSetter setter)
+{
+	return bzpStartWithBondableManual(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, 1);
+}
+
+int bzpStartWithBondableManual(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	BZPServerDataGetter getter, BZPServerDataSetter setter, int enableBondable)
+{
+	return startServerWithMode(
+		pServiceName,
+		pAdvertisingName,
+		pAdvertisingShortName,
+		getter,
+		setter,
+		0,
+		enableBondable,
+		StartupMode::ManualIteration);
+}
+
+int bzpRunLoopIteration(int mayBlock)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return runServerLoopIteration(mayBlock);
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpRunLoopIterationFor(int timeoutMS)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return runServerLoopIterationFor(timeoutMS);
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpRunLoopAttach()
+{
+	BZP_C_API_GUARD_BEGIN()
+	return attachServerLoopToCurrentThread() ? 1 : 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpRunLoopDetach()
+{
+	BZP_C_API_GUARD_BEGIN()
+	return detachServerLoopFromCurrentThread() ? 1 : 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpRunLoopIsManualMode()
+{
+	BZP_C_API_GUARD_BEGIN()
+	return isManualServerLoopMode() ? 1 : 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpRunLoopHasOwner()
+{
+	BZP_C_API_GUARD_BEGIN()
+	return hasServerLoopOwner() ? 1 : 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpRunLoopIsCurrentThreadOwner()
+{
+	BZP_C_API_GUARD_BEGIN()
+	return isCurrentThreadServerLoopOwner() ? 1 : 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpRunLoopInvoke(BZPRunLoopCallback callback, void *pUserData)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return invokeOnServerLoop(callback, pUserData) ? 1 : 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpRunLoopPollPrepare(int *pTimeoutMS, int *pRequiredFDCount, int *pDispatchReady)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return prepareServerLoopPoll(pTimeoutMS, pRequiredFDCount, pDispatchReady) ? 1 : 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpRunLoopPollQuery(BZPPollFD *pPollFDs, int pollFDCount, int *pRequiredFDCount)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return queryServerLoopPoll(pPollFDs, pollFDCount, pRequiredFDCount) ? 1 : 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpRunLoopPollCheck(const BZPPollFD *pPollFDs, int pollFDCount)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return checkServerLoopPoll(pPollFDs, pollFDCount) ? 1 : 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpRunLoopPollDispatch()
+{
+	BZP_C_API_GUARD_BEGIN()
+	return dispatchServerLoopPoll();
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpRunLoopPollCancel()
+{
+	BZP_C_API_GUARD_BEGIN()
+	return cancelServerLoopPoll() ? 1 : 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpRunLoopDriveUntilState(BZPServerRunState state, int timeoutMS)
+{
+	BZP_C_API_GUARD_BEGIN()
+	if (!isValidRunState(state))
+	{
+		Logger::warn(SSTR << "bzpRunLoopDriveUntilState: invalid target state (" << static_cast<int>(state) << ")");
+		return 0;
+	}
+
+	if (timeoutMS < -1)
+	{
+		Logger::warn(SSTR << "bzpRunLoopDriveUntilState: invalid timeout (" << timeoutMS << ")");
+		return 0;
+	}
+
+	if (bzpGetServerRunState() == state)
+	{
+		return 1;
+	}
+
+	const auto deadline = timeoutMS < 0
+		? std::chrono::steady_clock::time_point::max()
+		: std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMS);
+
+	while (bzpGetServerRunState() != state)
+	{
+		int sliceMS = 0;
+		if (timeoutMS < 0)
+		{
+			sliceMS = 50;
+		}
+		else
+		{
+			const auto now = std::chrono::steady_clock::now();
+			if (now >= deadline)
+			{
+				break;
+			}
+
+			sliceMS = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count());
+			sliceMS = std::min(sliceMS, 50);
+		}
+
+		runServerLoopIterationFor(sliceMS);
+		if (timeoutMS == 0)
+		{
+			break;
+		}
+	}
+
+	return bzpGetServerRunState() == state ? 1 : 0;
+	BZP_C_API_GUARD_END_RETURN_INT(0)
+}
+
+int bzpRunLoopDriveUntilShutdown(int timeoutMS)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return bzpRunLoopDriveUntilState(EStopped, timeoutMS);
+	BZP_C_API_GUARD_END_RETURN_INT(0)
 }

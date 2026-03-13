@@ -129,6 +129,7 @@ set(BZPERI_SOURCES
     src/Init.cpp
     src/Logger.cpp
     src/FormatCompat.cpp
+    src/ServerCompat.cpp
     src/ServerTypes.cpp
     src/Server.cpp
     src/ServiceRegistry.cpp
@@ -141,6 +142,8 @@ set(BZPERI_SOURCES
 if(LINUX)
     list(APPEND BZPERI_SOURCES
         src/BluezAdapter.cpp
+        src/BluezAdapterCompat.cpp
+        src/BluezAdvertisingSupport.cpp
         src/BluezTypes.cpp
         src/BluezAdvertisement.cpp
     )

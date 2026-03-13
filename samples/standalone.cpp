@@ -44,12 +44,12 @@
 //         that begins the asynchronous shutdown process.
 //
 //         Before your application terminates, it should wait for the server to be completely stopped. This is done via a call to
-//         `bzpWait()`. If the server has not yet reached the `EStopped` state when `bzpWait()` is called, it will block until the
-//         server has done so.
+//         `bzpWait()` or the bounded form `bzpWaitForShutdown(timeoutMS)`. If the server has not yet reached the `EStopped` state
+//         when `bzpWait()` is called, it will block until the server has done so.
 //
-//         To avoid the blocking behavior of `bzpWait()`, ensure that the server has stopped before calling it. This can be done
-//         by ensuring `bzpGetServerRunState() == EStopped`. Even if the server has stopped, it is recommended to call `bzpWait()`
-//         to ensure the server has cleaned up all threads and other internals.
+//         To avoid the blocking behavior of `bzpWait()`, use `bzpWaitForShutdown(timeoutMS)` or wait for
+//         `bzpGetServerRunState() == EStopped` first. Even if the server has stopped, it is recommended to call `bzpWait()` (or
+//         `bzpWaitForShutdown(0)`) to ensure the server has cleaned up all threads and other internals.
 //
 //         If you want to keep things simple, there is a method `bzpShutdownAndWait()` which will trigger the shutdown and then
 //         block until the server has stopped.
@@ -124,6 +124,9 @@ static std::string serverDataTextString = "Hello, world!";
 // Cached D-Bus path for the sample battery characteristic
 static std::string batteryLevelObjectPath;
 
+// Signal state is shared with the sample's main loop and must stay async-signal-safe.
+static volatile sig_atomic_t pendingShutdownSignal = 0;
+
 //
 // Logging
 //
@@ -155,20 +158,19 @@ void LogTrace(const char *pText) { std::cout << "-Trace-: " << pText << std::end
 // Signal handling
 //
 
-// We setup a couple Unix signals to perform graceful shutdown in the case of SIGTERM or get an SIGING (CTRL-C)
+// We setup a couple Unix signals to request graceful shutdown in the case of SIGTERM or SIGINT (CTRL-C).
 void signalHandler(int signum)
 {
-	switch (signum)
-	{
-		case SIGINT:
-			LogStatus("SIGINT recieved, shutting down");
-			bzpTriggerShutdown();
-			break;
-		case SIGTERM:
-			LogStatus("SIGTERM recieved, shutting down");
-			bzpTriggerShutdown();
-			break;
-	}
+	pendingShutdownSignal = signum;
+}
+
+void installSignalHandler(int signum)
+{
+	struct sigaction action = {};
+	action.sa_handler = signalHandler;
+	sigemptyset(&action.sa_mask);
+	action.sa_flags = 0;
+	sigaction(signum, &action, nullptr);
 }
 
 //
@@ -254,6 +256,7 @@ int main(int argc, char **ppArgv)
 	std::string advertisingShortName = "BzPeri";
 	std::string sampleNamespace = "samples";
 	bool includeSampleServices = true;
+	bool manualLoopMode = false;
 
 	// A basic command-line parser
 	for (int i = 1; i < argc; ++i)
@@ -303,6 +306,10 @@ int main(int argc, char **ppArgv)
 		{
 			includeSampleServices = true;
 		}
+		else if (arg == "--manual-loop")
+		{
+			manualLoopMode = true;
+		}
 		else if (arg.rfind("--sample-namespace=", 0) == 0)
 		{
 			sampleNamespace = arg.substr(19);
@@ -325,6 +332,7 @@ int main(int argc, char **ppArgv)
 			LogAlways("  --advertise-name=NAME    Set LE advertising name (default BzPeri)");
 			LogAlways("  --advertise-short=NAME   Set LE advertising short name (default BzPeri)");
 			LogAlways("  --sample-namespace=NODE  Namespace node for example services (default samples)");
+			LogAlways("  --manual-loop            Drive BzPeri via bzpRunLoopIteration() instead of the internal thread");
 			LogAlways("  --no-sample-services      Disable bundled example GATT services");
 			LogAlways("  --with-sample-services    Re-enable bundled example services after disabling");
 			LogAlways("  --help, -h                Show this help message");
@@ -401,8 +409,8 @@ int main(int argc, char **ppArgv)
 	}
 
 	// Setup our signal handlers
-	signal(SIGINT, signalHandler);
-	signal(SIGTERM, signalHandler);
+	installSignalHandler(SIGINT);
+	installSignalHandler(SIGTERM);
 
 	// Register our loggers
 	bzpLogRegisterDebug(LogDebug);
@@ -413,6 +421,11 @@ int main(int argc, char **ppArgv)
 	bzpLogRegisterFatal(LogFatal);
 	bzpLogRegisterAlways(LogAlways);
 	bzpLogRegisterTrace(LogTrace);
+
+	if (manualLoopMode)
+	{
+		LogStatus("Using manual BzPeri run-loop mode");
+	}
 
 	// Start the server's ascync processing
 	//
@@ -426,7 +439,10 @@ int main(int argc, char **ppArgv)
 	//     The last parameter (enableBondable=1) allows client devices to pair/bond with this server. This is typically
 	//     required for modern BLE applications. Set to 0 to disable pairing if you need an open, non-authenticated connection.
 	//
-	if (!bzpStartWithBondable(serviceName.c_str(), advertisingName.c_str(), advertisingShortName.c_str(), dataGetter, dataSetter, kMaxAsyncInitTimeoutMS, 1))
+	const int started = manualLoopMode
+		? bzpStartWithBondableManual(serviceName.c_str(), advertisingName.c_str(), advertisingShortName.c_str(), dataGetter, dataSetter, 1)
+		: bzpStartWithBondable(serviceName.c_str(), advertisingName.c_str(), advertisingShortName.c_str(), dataGetter, dataSetter, kMaxAsyncInitTimeoutMS, 1);
+	if (!started)
 	{
 		return -1;
 	}
@@ -434,15 +450,76 @@ int main(int argc, char **ppArgv)
 	// Wait for the server to start the shutdown process
 	//
 	// While we wait, every 15 ticks, drop the battery level by one percent until we reach 0
+	bool shutdownTriggered = false;
+	int batteryTickSeconds = 0;
+	constexpr auto kLoopTick = std::chrono::milliseconds(100);
+	auto lastTick = std::chrono::steady_clock::now();
 	while (bzpGetServerRunState() < EStopping)
 	{
-		std::this_thread::sleep_for(std::chrono::seconds(15));
+		if (manualLoopMode)
+		{
+			bzpRunLoopIterationFor(static_cast<int>(kLoopTick.count()));
+		}
+		else
+		{
+			std::this_thread::sleep_for(kLoopTick);
+		}
 
+		if (pendingShutdownSignal != 0 && !shutdownTriggered)
+		{
+			switch (pendingShutdownSignal)
+			{
+				case SIGINT:
+					LogStatus("SIGINT received, shutting down");
+					break;
+				case SIGTERM:
+					LogStatus("SIGTERM received, shutting down");
+					break;
+				default:
+					LogStatus("Termination signal received, shutting down");
+					break;
+			}
+			bzpTriggerShutdown();
+			shutdownTriggered = true;
+		}
+
+		const auto now = std::chrono::steady_clock::now();
+		if (now - lastTick < std::chrono::seconds(1))
+		{
+			continue;
+		}
+
+		lastTick = now;
+		batteryTickSeconds += 1;
+		if (batteryTickSeconds < 15)
+		{
+			continue;
+		}
+
+		batteryTickSeconds = 0;
 		serverDataBatteryLevel = std::max(serverDataBatteryLevel - 1, 0);
 		if (!batteryLevelObjectPath.empty())
 		{
-			bzpNofifyUpdatedCharacteristic(batteryLevelObjectPath.c_str());
+			bzpNotifyUpdatedCharacteristic(batteryLevelObjectPath.c_str());
 		}
+	}
+
+	if (manualLoopMode)
+	{
+		while (bzpGetServerRunState() != EStopped)
+		{
+			if (!bzpRunLoopIterationFor(static_cast<int>(kLoopTick.count())))
+			{
+				std::this_thread::sleep_for(kLoopTick);
+			}
+		}
+
+		if (!bzpWaitForShutdown(0))
+		{
+			return -1;
+		}
+
+		return bzpGetServerHealth() == EOk ? 0 : 1;
 	}
 
 	// Wait for the server to come to a complete stop (CTRL-C from the command line)

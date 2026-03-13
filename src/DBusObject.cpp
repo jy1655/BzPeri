@@ -198,13 +198,18 @@ std::shared_ptr<const DBusInterface> DBusObject::findInterface(const DBusObjectP
 // Finds a BlueZ method by name within the specified D-Bus interface
 bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData, const DBusObjectPath &basePath) const
 {
+	return callMethod(path, interfaceName, methodName, DBusMethodCallRef(pConnection, pParameters, pInvocation, pUserData), basePath);
+}
+
+bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, DBusMethodCallRef methodCall, const DBusObjectPath &basePath) const
+{
 	if ((basePath + getPathNode()) == path)
 	{
 		for (std::shared_ptr<const DBusInterface> interface : interfaces)
 		{
 			if (interfaceName == interface->getName())
 			{
-				if (interface->callMethod(methodName, pConnection, pParameters, pInvocation, pUserData))
+				if (interface->callMethod(methodName, methodCall))
 				{
 					return true;
 				}
@@ -214,7 +219,7 @@ bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &inter
 
 	for (const DBusObject &child : getChildren())
 	{
-		if (child.callMethod(path, interfaceName, methodName, pConnection, pParameters, pInvocation, pUserData, basePath + getPathNode()))
+		if (child.callMethod(path, interfaceName, methodName, methodCall, basePath + getPathNode()))
 		{
 			return true;
 		}
@@ -225,7 +230,7 @@ bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &inter
 
 bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData, const DBusObjectPath &basePath) const
 {
-	return callMethod(path, interfaceName, methodName, connection.get(), parameters.get(), invocation.get(), pUserData, basePath);
+	return callMethod(path, interfaceName, methodName, DBusMethodCallRef(connection, parameters, invocation, pUserData), basePath);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -276,15 +281,27 @@ std::string DBusObject::generateIntrospectionXML(int depth) const
 
 bool DBusObject::emitSignalChecked(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters)
 {
+	return emitSignalChecked(DBusSignalRef(DBusConnectionRef(pBusConnection), interfaceName, signalName, DBusVariantRef(pParameters)));
+}
+
+bool DBusObject::emitSignalChecked(DBusConnectionRef busConnection, const std::string &interfaceName, const std::string &signalName, DBusVariantRef parameters)
+{
+	return emitSignalChecked(DBusSignalRef(busConnection, interfaceName, signalName, parameters));
+}
+
+bool DBusObject::emitSignalChecked(DBusSignalRef signal)
+{
 	GError *pError = nullptr;
+	const std::string interfaceName(signal.interfaceName());
+	const std::string signalName(signal.signalName());
 	gboolean result = g_dbus_connection_emit_signal
 	(
-		pBusConnection,          // GDBusConnection *connection
+		signal.connection().get(), // GDBusConnection *connection
 		NULL,                    // const gchar *destination_bus_name
 		getPath().c_str(),       // const gchar *object_path
 		interfaceName.c_str(),   // const gchar *interface_name
 		signalName.c_str(),      // const gchar *signal_name
-		pParameters,             // GVariant *parameters
+		signal.parameters().get(), // GVariant *parameters
 		&pError                  // GError **error
 	);
 
@@ -309,7 +326,17 @@ bool DBusObject::emitSignalChecked(GDBusConnection *pBusConnection, const std::s
 // Emits a signal on the bus from the given path, interface name and signal name, containing a GVariant set of parameters
 void DBusObject::emitSignal(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters)
 {
-	(void)emitSignalChecked(pBusConnection, interfaceName, signalName, pParameters);
+	(void)emitSignalChecked(DBusSignalRef(DBusConnectionRef(pBusConnection), interfaceName, signalName, DBusVariantRef(pParameters)));
+}
+
+void DBusObject::emitSignal(DBusConnectionRef busConnection, const std::string &interfaceName, const std::string &signalName, DBusVariantRef parameters)
+{
+	(void)emitSignalChecked(DBusSignalRef(busConnection, interfaceName, signalName, parameters));
+}
+
+void DBusObject::emitSignal(DBusSignalRef signal)
+{
+	(void)emitSignalChecked(signal);
 }
 
 

@@ -194,7 +194,10 @@ struct Server
 	// Find a D-Bus method within the given D-Bus object on the given D-Bus interface
 	//
 	// If the method was found, it is returned, otherwise nullptr is returned
+	BZP_DEPRECATED("Use Server::callMethod(..., DBusMethodCallRef)")
 	[[nodiscard]] bool callMethod(const DBusObjectPath& objectPath, std::string_view interfaceName, std::string_view methodName, GDBusConnection* pConnection, GVariant* pParameters, GDBusMethodInvocation* pInvocation, gpointer pUserData) const;
+	[[nodiscard]] bool callMethod(const DBusObjectPath& objectPath, std::string_view interfaceName, std::string_view methodName, DBusMethodCallRef methodCall) const;
+	BZP_DEPRECATED("Use Server::callMethod(..., DBusMethodCallRef)")
 	[[nodiscard]] bool callMethod(const DBusObjectPath& objectPath, std::string_view interfaceName, std::string_view methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const;
 
 	// Find a GATT Property within the given D-Bus object on the given D-Bus interface

@@ -61,16 +61,22 @@ const std::list<GattProperty> &GattInterface::getProperties() const
 // common types.
 void GattInterface::methodReturnVariant(GDBusMethodInvocation *pInvocation, GVariant *pVariant, bool wrapInTuple) const
 {
-	if (wrapInTuple)
-	{
-		pVariant = g_variant_new_tuple(&pVariant, 1);
-	}
-	g_dbus_method_invocation_return_value(pInvocation, pVariant);
+	methodReturnVariant(DBusReplyRef(pInvocation), DBusVariantRef(pVariant), wrapInTuple);
+}
+
+void GattInterface::methodReturnVariant(DBusMethodCallRef methodCall, DBusVariantRef variant, bool wrapInTuple) const
+{
+	methodReturnVariant(DBusReplyRef(methodCall), variant, wrapInTuple);
 }
 
 void GattInterface::methodReturnVariant(DBusMethodInvocationRef invocation, DBusVariantRef variant, bool wrapInTuple) const
 {
-	methodReturnVariant(invocation.get(), variant.get(), wrapInTuple);
+	methodReturnVariant(DBusReplyRef(invocation), variant, wrapInTuple);
+}
+
+void GattInterface::methodReturnVariant(DBusReplyRef reply, DBusVariantRef variant, bool wrapInTuple) const
+{
+	reply.returnValue(variant, wrapInTuple);
 }
 
 // Locates a `GattProperty` within the interface

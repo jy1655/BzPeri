@@ -34,6 +34,34 @@
 
 namespace bzp {
 
+namespace {
+
+callbacks::CharacteristicMethodCallHandler makeMethodCallHandler(const callbacks::CharacteristicMethodHandler &callback)
+{
+	if (!callback)
+	{
+		return {};
+	}
+
+	return [callback](const GattCharacteristic &self, const std::string &methodName, DBusMethodCallRef methodCall) {
+		callback(self, methodCall.connection(), methodName, methodCall.parameters(), methodCall.invocation(), methodCall.userData());
+	};
+}
+
+callbacks::CharacteristicUpdateCallHandler makeUpdateCallHandler(const callbacks::CharacteristicUpdateHandler &callback)
+{
+	if (!callback)
+	{
+		return {};
+	}
+
+	return [callback](const GattCharacteristic &self, DBusUpdateRef update) {
+		return callback(self, update.connection(), update.userData());
+	};
+}
+
+} // namespace
+
 //
 // Standard constructor
 //
@@ -43,7 +71,7 @@ namespace bzp {
 // Genreally speaking, these objects should not be constructed directly. Rather, use the `gattCharacteristicBegin()` method
 // in `GattService`.
 GattCharacteristic::GattCharacteristic(DBusObject &owner, GattService &service, const std::string &name)
-: GattInterface(owner, name), service(service), pOnUpdatedValueFunc(nullptr)
+: GattInterface(owner, name), service(service)
 {
 }
 
@@ -58,12 +86,17 @@ GattService &GattCharacteristic::gattCharacteristicEnd()
 // Locates a D-Bus method within this D-Bus interface and invokes the method
 bool GattCharacteristic::callMethod(const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const
 {
+	return callMethod(methodName, DBusMethodCallRef(pConnection, pParameters, pInvocation, pUserData));
+}
+
+bool GattCharacteristic::callMethod(const std::string &methodName, DBusMethodCallRef methodCall) const
+{
 	for (const DBusMethod &method : methods)
 	{
 		if (methodName == method.getName())
 		{
 			const std::string notImplementedErrorName = owner.getServer().getOwnedName() + ".NotImplemented";
-			method.call<GattCharacteristic>(pConnection, getPath(), getName(), methodName, notImplementedErrorName, pParameters, pInvocation, pUserData);
+			method.call<GattCharacteristic>(methodCall, getPath(), getName(), methodName, notImplementedErrorName);
 			return true;
 		}
 	}
@@ -73,7 +106,7 @@ bool GattCharacteristic::callMethod(const std::string &methodName, GDBusConnecti
 
 bool GattCharacteristic::callMethod(const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const
 {
-	return callMethod(methodName, connection.get(), parameters.get(), invocation.get(), pUserData);
+	return callMethod(methodName, DBusMethodCallRef(connection, parameters, invocation, pUserData));
 }
 
 // Modern approach: Use GLib timers directly for periodic updates
@@ -89,30 +122,76 @@ bool GattCharacteristic::callMethod(const std::string &methodName, DBusConnectio
 //     Output args: value   - "ay"
 GattCharacteristic &GattCharacteristic::onReadValue(RawMethodCallback callback)
 {
-	// array{byte} ReadValue(dict options)
+	callbacks::CharacteristicMethodCallHandler handler;
+	if (callback != nullptr)
+	{
+		handler = [callback](const GattCharacteristic &self, const std::string &methodName, DBusMethodCallRef methodCall) {
+			callback(self, methodCall.connection().get(), methodName, methodCall.parameters().get(), methodCall.invocation().get(), methodCall.userData());
+		};
+	}
+
 	static const char *inArgs[] = {"a{sv}", nullptr};
-	if (readCallback_ != nullptr) {
+	if (static_cast<bool>(readHandler_)) {
 		Logger::warn("GattCharacteristic::onReadValue() called twice — replacing callback without re-adding method");
-		this->readCallback_ = callback;
+		readHandler_ = handler;
 		return *this;
 	}
-	// Store callback and use static thunk
-	this->readCallback_ = callback;
-	addMethod("ReadValue", inArgs, "ay", &GattCharacteristic::ReadThunk);
+	readHandler_ = handler;
+	addMethod("ReadValue", inArgs, "ay",
+		[](const DBusInterface& self, DBusConnectionRef c, const std::string& mn, DBusVariantRef p, DBusMethodInvocationRef inv, void* u) {
+			const auto* ch = dynamic_cast<const GattCharacteristic*>(&self);
+			if (!ch) {
+				Logger::error("ReadValue handler: type mismatch — expected GattCharacteristic");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Type error");
+				return;
+			}
+			if (!ch->readHandler_) return;
+			try {
+				ch->readHandler_(*ch, mn, DBusMethodCallRef(c, p, inv, u));
+			} catch (const std::exception& e) {
+				Logger::error(SSTR << "ReadValue handler: user callback threw exception: " << e.what());
+				inv.returnDbusError("com.bzperi.Error.InternalError", e.what());
+			} catch (...) {
+				Logger::error("ReadValue handler: user callback threw unknown exception");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Unknown internal error");
+			}
+		});
 	return *this;
 }
 
 GattCharacteristic &GattCharacteristic::onReadValue(const callbacks::CharacteristicMethodHandler &callback)
 {
+	return onReadValue(makeMethodCallHandler(callback));
+}
+
+GattCharacteristic &GattCharacteristic::onReadValue(const callbacks::CharacteristicMethodCallHandler &callback)
+{
 	static const char *inArgs[] = {"a{sv}", nullptr};
-	if (readCallback_ != nullptr || static_cast<bool>(readHandler_)) {
+	if (static_cast<bool>(readHandler_)) {
 		Logger::warn("GattCharacteristic::onReadValue() called twice — replacing callback without re-adding method");
-		readCallback_ = nullptr;
 		readHandler_ = callback;
 		return *this;
 	}
 	readHandler_ = callback;
-	addMethod("ReadValue", inArgs, "ay", &GattCharacteristic::ReadThunk);
+	addMethod("ReadValue", inArgs, "ay",
+		[](const DBusInterface& self, DBusConnectionRef c, const std::string& mn, DBusVariantRef p, DBusMethodInvocationRef inv, void* u) {
+			const auto* ch = dynamic_cast<const GattCharacteristic*>(&self);
+			if (!ch) {
+				Logger::error("ReadValue handler: type mismatch — expected GattCharacteristic");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Type error");
+				return;
+			}
+			if (!ch->readHandler_) return;
+			try {
+				ch->readHandler_(*ch, mn, DBusMethodCallRef(c, p, inv, u));
+			} catch (const std::exception& e) {
+				Logger::error(SSTR << "ReadValue handler: user callback threw exception: " << e.what());
+				inv.returnDbusError("com.bzperi.Error.InternalError", e.what());
+			} catch (...) {
+				Logger::error("ReadValue handler: user callback threw unknown exception");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Unknown internal error");
+			}
+		});
 	return *this;
 }
 
@@ -127,29 +206,76 @@ GattCharacteristic &GattCharacteristic::onReadValue(const callbacks::Characteris
 //     Output args: void
 GattCharacteristic &GattCharacteristic::onWriteValue(RawMethodCallback callback)
 {
+	callbacks::CharacteristicMethodCallHandler handler;
+	if (callback != nullptr)
+	{
+		handler = [callback](const GattCharacteristic &self, const std::string &methodName, DBusMethodCallRef methodCall) {
+			callback(self, methodCall.connection().get(), methodName, methodCall.parameters().get(), methodCall.invocation().get(), methodCall.userData());
+		};
+	}
+
 	static const char *inArgs[] = {"ay", "a{sv}", nullptr};
-	if (writeCallback_ != nullptr) {
+	if (static_cast<bool>(writeHandler_)) {
 		Logger::warn("GattCharacteristic::onWriteValue() called twice — replacing callback without re-adding method");
-		this->writeCallback_ = callback;
+		writeHandler_ = handler;
 		return *this;
 	}
-	// Store callback and use static thunk
-	this->writeCallback_ = callback;
-	addMethod("WriteValue", inArgs, nullptr, &GattCharacteristic::WriteThunk);
+	writeHandler_ = handler;
+	addMethod("WriteValue", inArgs, nullptr,
+		[](const DBusInterface& self, DBusConnectionRef c, const std::string& mn, DBusVariantRef p, DBusMethodInvocationRef inv, void* u) {
+			const auto* ch = dynamic_cast<const GattCharacteristic*>(&self);
+			if (!ch) {
+				Logger::error("WriteValue handler: type mismatch — expected GattCharacteristic");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Type error");
+				return;
+			}
+			if (!ch->writeHandler_) return;
+			try {
+				ch->writeHandler_(*ch, mn, DBusMethodCallRef(c, p, inv, u));
+			} catch (const std::exception& e) {
+				Logger::error(SSTR << "WriteValue handler: user callback threw exception: " << e.what());
+				inv.returnDbusError("com.bzperi.Error.InternalError", e.what());
+			} catch (...) {
+				Logger::error("WriteValue handler: user callback threw unknown exception");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Unknown internal error");
+			}
+		});
 	return *this;
 }
 
 GattCharacteristic &GattCharacteristic::onWriteValue(const callbacks::CharacteristicMethodHandler &callback)
 {
+	return onWriteValue(makeMethodCallHandler(callback));
+}
+
+GattCharacteristic &GattCharacteristic::onWriteValue(const callbacks::CharacteristicMethodCallHandler &callback)
+{
 	static const char *inArgs[] = {"ay", "a{sv}", nullptr};
-	if (writeCallback_ != nullptr || static_cast<bool>(writeHandler_)) {
+	if (static_cast<bool>(writeHandler_)) {
 		Logger::warn("GattCharacteristic::onWriteValue() called twice — replacing callback without re-adding method");
-		writeCallback_ = nullptr;
 		writeHandler_ = callback;
 		return *this;
 	}
 	writeHandler_ = callback;
-	addMethod("WriteValue", inArgs, nullptr, &GattCharacteristic::WriteThunk);
+	addMethod("WriteValue", inArgs, nullptr,
+		[](const DBusInterface& self, DBusConnectionRef c, const std::string& mn, DBusVariantRef p, DBusMethodInvocationRef inv, void* u) {
+			const auto* ch = dynamic_cast<const GattCharacteristic*>(&self);
+			if (!ch) {
+				Logger::error("WriteValue handler: type mismatch — expected GattCharacteristic");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Type error");
+				return;
+			}
+			if (!ch->writeHandler_) return;
+			try {
+				ch->writeHandler_(*ch, mn, DBusMethodCallRef(c, p, inv, u));
+			} catch (const std::exception& e) {
+				Logger::error(SSTR << "WriteValue handler: user callback threw exception: " << e.what());
+				inv.returnDbusError("com.bzperi.Error.InternalError", e.what());
+			} catch (...) {
+				Logger::error("WriteValue handler: user callback threw unknown exception");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Unknown internal error");
+			}
+		});
 	return *this;
 }
 
@@ -165,14 +291,26 @@ GattCharacteristic &GattCharacteristic::onWriteValue(const callbacks::Characteri
 // `callOnUpdatedValue` for more information.
 GattCharacteristic &GattCharacteristic::onUpdatedValue(RawUpdatedValueCallback callback)
 {
-	updateHandler_ = {};
-	pOnUpdatedValueFunc = callback;
+	if (callback == nullptr)
+	{
+		updateHandler_ = {};
+		return *this;
+	}
+
+	updateHandler_ = [callback](const GattCharacteristic &self, DBusUpdateRef update) {
+		return callback(self, update.connection().get(), update.userData());
+	};
 	return *this;
 }
 
 GattCharacteristic &GattCharacteristic::onUpdatedValue(const callbacks::CharacteristicUpdateHandler &callback)
 {
-	pOnUpdatedValueFunc = nullptr;
+	updateHandler_ = makeUpdateCallHandler(callback);
+	return *this;
+}
+
+GattCharacteristic &GattCharacteristic::onUpdatedValue(const callbacks::CharacteristicUpdateCallHandler &callback)
+{
 	updateHandler_ = callback;
 	return *this;
 }
@@ -196,24 +334,23 @@ GattCharacteristic &GattCharacteristic::onUpdatedValue(const callbacks::Characte
 //      })
 bool GattCharacteristic::callOnUpdatedValue(GDBusConnection *pConnection, void *pUserData) const
 {
-	if (updateHandler_)
-	{
-		Logger::debug(SSTR << "Calling OnUpdatedValue function for interface at path '" << getPath() << "'");
-		return updateHandler_(*this, DBusConnectionRef(pConnection), pUserData);
-	}
+	return callOnUpdatedValue(DBusUpdateRef(pConnection, pUserData));
+}
 
-	if (nullptr == pOnUpdatedValueFunc)
+bool GattCharacteristic::callOnUpdatedValue(DBusConnectionRef connection, void *pUserData) const
+{
+	return callOnUpdatedValue(DBusUpdateRef(connection, pUserData));
+}
+
+bool GattCharacteristic::callOnUpdatedValue(DBusUpdateRef update) const
+{
+	if (!updateHandler_)
 	{
 		return false;
 	}
 
 	Logger::debug(SSTR << "Calling OnUpdatedValue function for interface at path '" << getPath() << "'");
-	return pOnUpdatedValueFunc(*this, pConnection, pUserData);
-}
-
-bool GattCharacteristic::callOnUpdatedValue(DBusConnectionRef connection, void *pUserData) const
-{
-	return callOnUpdatedValue(connection.get(), pUserData);
+	return updateHandler_(*this, update);
 }
 
 // Convenience functions to add a GATT descriptor to the hierarchy
@@ -250,81 +387,39 @@ GattDescriptor &GattCharacteristic::gattDescriptorBegin(const std::string &pathE
 // This is a generalized method that accepts a `GVariant *`. A templated version is available that supports common types called
 // `sendChangeNotificationValue()`.
 //
-// The caller may choose to consult BluezAdapter::getInstance().getActiveConnectionCount() in order to determine if there are any
+// The caller may choose to consult getActiveBluezAdapter().getActiveConnectionCount() in order to determine if there are any
 // active connections before sending a change notification.
 void GattCharacteristic::sendChangeNotificationVariant(GDBusConnection *pBusConnection, GVariant *pNewValue) const
 {
-	(void)sendChangeNotificationVariantChecked(pBusConnection, pNewValue);
+	(void)sendChangeNotificationVariant(DBusNotificationRef(pBusConnection, pNewValue));
 }
 
 void GattCharacteristic::sendChangeNotificationVariant(DBusConnectionRef busConnection, DBusVariantRef newValue) const
 {
-	sendChangeNotificationVariant(busConnection.get(), newValue.get());
+	(void)sendChangeNotificationVariant(DBusNotificationRef(busConnection, newValue));
+}
+
+void GattCharacteristic::sendChangeNotificationVariant(DBusNotificationRef notification) const
+{
+	(void)sendChangeNotificationVariantChecked(notification);
 }
 
 bool GattCharacteristic::sendChangeNotificationVariantChecked(GDBusConnection *pBusConnection, GVariant *pNewValue) const
 {
-	g_auto(GVariantBuilder) builder;
-	g_variant_builder_init(&builder, G_VARIANT_TYPE_ARRAY);
-	g_variant_builder_add(&builder, "{sv}", "Value", pNewValue);
-	GVariant *pSasv = g_variant_new("(sa{sv})", "org.bluez.GattCharacteristic1", &builder);
-	return owner.emitSignalChecked(pBusConnection, "org.freedesktop.DBus.Properties", "PropertiesChanged", pSasv);
+	return sendChangeNotificationVariantChecked(DBusNotificationRef(pBusConnection, pNewValue));
 }
 
 bool GattCharacteristic::sendChangeNotificationVariantChecked(DBusConnectionRef busConnection, DBusVariantRef newValue) const
 {
-	return sendChangeNotificationVariantChecked(busConnection.get(), newValue.get());
+	return sendChangeNotificationVariantChecked(DBusNotificationRef(busConnection, newValue));
 }
 
-// Static thunk implementations for function pointer compatibility
-
-void GattCharacteristic::ReadThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u)
+bool GattCharacteristic::sendChangeNotificationVariantChecked(DBusNotificationRef notification) const
 {
-	const auto* ch = dynamic_cast<const GattCharacteristic*>(&self);
-	if (!ch) {
-		Logger::error("ReadThunk: type mismatch — expected GattCharacteristic");
-		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", "Type error");
-		return;
-	}
-	if (!ch->readCallback_ && !ch->readHandler_) return;
-	try {
-		if (ch->readHandler_) {
-			ch->readHandler_(*ch, DBusConnectionRef(c), mn, DBusVariantRef(p), DBusMethodInvocationRef(inv), u);
-			return;
-		}
-		ch->readCallback_(*ch, c, mn, p, inv, u);
-	} catch (const std::exception& e) {
-		Logger::error(SSTR << "ReadThunk: user callback threw exception: " << e.what());
-		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", e.what());
-	} catch (...) {
-		Logger::error("ReadThunk: user callback threw unknown exception");
-		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", "Unknown internal error");
-	}
+	g_auto(GVariantBuilder) builder;
+	g_variant_builder_init(&builder, G_VARIANT_TYPE_ARRAY);
+	g_variant_builder_add(&builder, "{sv}", "Value", notification.value().get());
+	GVariant *pSasv = g_variant_new("(sa{sv})", "org.bluez.GattCharacteristic1", &builder);
+	return owner.emitSignalChecked(DBusSignalRef(notification.connection(), "org.freedesktop.DBus.Properties", "PropertiesChanged", DBusVariantRef(pSasv)));
 }
-
-void GattCharacteristic::WriteThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u)
-{
-	const auto* ch = dynamic_cast<const GattCharacteristic*>(&self);
-	if (!ch) {
-		Logger::error("WriteThunk: type mismatch — expected GattCharacteristic");
-		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", "Type error");
-		return;
-	}
-	if (!ch->writeCallback_ && !ch->writeHandler_) return;
-	try {
-		if (ch->writeHandler_) {
-			ch->writeHandler_(*ch, DBusConnectionRef(c), mn, DBusVariantRef(p), DBusMethodInvocationRef(inv), u);
-			return;
-		}
-		ch->writeCallback_(*ch, c, mn, p, inv, u);
-	} catch (const std::exception& e) {
-		Logger::error(SSTR << "WriteThunk: user callback threw exception: " << e.what());
-		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", e.what());
-	} catch (...) {
-		Logger::error("WriteThunk: user callback threw unknown exception");
-		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", "Unknown internal error");
-	}
-}
-
-
 }; // namespace bzp

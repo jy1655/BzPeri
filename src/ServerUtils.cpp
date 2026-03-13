@@ -88,7 +88,7 @@ static void addManagedObjectsNode(const DBusObject &object, const DBusObjectPath
 							pPropertyArray,
 							"{sv}",
 							property.getName().c_str(),
-							property.getValue()
+							property.getValueRef().get()
 						);
 					}
 
@@ -116,7 +116,7 @@ static void addManagedObjectsNode(const DBusObject &object, const DBusObjectPath
 							pPropertyArray,
 							"{sv}",
 							property.getName().c_str(),
-							property.getValue()
+							property.getValueRef().get()
 						);
 					}
 
@@ -144,7 +144,7 @@ static void addManagedObjectsNode(const DBusObject &object, const DBusObjectPath
 							pPropertyArray,
 							"{sv}",
 							property.getName().c_str(),
-							property.getValue()
+							property.getValueRef().get()
 						);
 					}
 
@@ -179,19 +179,24 @@ static void addManagedObjectsNode(const DBusObject &object, const DBusObjectPath
 	}
 }
 
-// Builds the response to the method call `GetManagedObjects` from the D-Bus interface `org.freedesktop.DBus.ObjectManager`
-void ServerUtils::getManagedObjects(const Server& server, GDBusMethodInvocation *pInvocation)
+DBusVariantRef ServerUtils::buildManagedObjectsPayload(const Server& server)
 {
 	Logger::debug(SSTR << "Reporting managed objects");
 
 	GVariantBuilder *pObjectArray = g_variant_builder_new(G_VARIANT_TYPE_ARRAY);
 	for (const DBusObject &object : server.getObjects())
 	{
-		addManagedObjectsNode(object, DBusObjectPath(""), pObjectArray);
+		addManagedObjectsNode(object, DBusObjectPath(), pObjectArray);
 	}
 
 	GVariant *pParams = g_variant_new("(a{oa{sa{sv}}})", pObjectArray);
-	g_dbus_method_invocation_return_value(pInvocation, pParams);
+	return DBusVariantRef(pParams);
+}
+
+// Builds the response to the method call `GetManagedObjects` from the D-Bus interface `org.freedesktop.DBus.ObjectManager`
+void ServerUtils::getManagedObjects(const Server& server, DBusMethodCallRef methodCall)
+{
+	methodCall.returnValue(buildManagedObjectsPayload(server));
 }
 
 // WARNING: Hacky code - don't count on this working properly on all systems

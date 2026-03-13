@@ -42,18 +42,22 @@ struct DBusInterface;
 
 namespace callbacks {
 	using InterfaceMethodHandler = std::function<void(const DBusInterface&, DBusConnectionRef, const std::string&, DBusVariantRef, DBusMethodInvocationRef, void*)>;
+	using InterfaceMethodCallHandler = std::function<void(const DBusInterface&, const std::string&, DBusMethodCallRef)>;
 }
 
 struct DBusMethod
 {
 	// A method callback delegate
 	using RawCallback = void (*)(const DBusInterface &self, GDBusConnection *pConnection, const std::string &methodName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData);
-	using Callback BZP_DEPRECATED("Use DBusMethod::Handler instead of raw GDBus callback typedefs") = RawCallback;
+	using Callback BZP_DEPRECATED("Use DBusMethod::CallHandler or DBusMethod::Handler instead of raw GDBus callback typedefs") = RawCallback;
 	using Handler = callbacks::InterfaceMethodHandler;
+	using CallHandler = callbacks::InterfaceMethodCallHandler;
 
 	// Instantiate a named method on a given interface (pOwner) with a given set of arguments and a callback delegate
+	BZP_DEPRECATED("Use DBusMethod(..., CallHandler/Handler) instead of raw GDBus callbacks")
 	DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, RawCallback callback);
 	DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, const Handler &handler);
+	DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, const CallHandler &handler);
 
 	//
 	// Accessors
@@ -91,31 +95,58 @@ struct DBusMethod
 	//
 	// If a callback delegate has been set, then this method will call that delegate, otherwise this method will do nothing
 	template<typename T>
+	BZP_DEPRECATED("Use DBusMethod::call(..., DBusMethodCallRef)")
 	void call(GDBusConnection *pConnection, const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, const std::string &notImplementedErrorName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData) const
 	{
+		call<T>(
+			DBusMethodCallRef(pConnection, pParameters, pInvocation, pUserData),
+			path,
+			interfaceName,
+			methodName,
+			notImplementedErrorName);
+	}
+
+	template<typename T>
+	void call(DBusMethodCallRef methodCall, const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, const std::string &notImplementedErrorName) const
+	{
+		callImpl<T>(methodCall, path, interfaceName, methodName, notImplementedErrorName);
+	}
+
+	template<typename T>
+	BZP_DEPRECATED("Use DBusMethod::call(..., DBusMethodCallRef)")
+	void call(DBusConnectionRef connection, const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, const std::string &notImplementedErrorName, DBusVariantRef parameters, DBusMethodInvocationRef invocation, void *pUserData) const
+	{
+		callImpl<T>(DBusMethodCallRef(connection, parameters, invocation, pUserData), path, interfaceName, methodName, notImplementedErrorName);
+	}
+
+	template<typename T>
+	void callImpl(DBusMethodCallRef methodCall, const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, const std::string &notImplementedErrorName) const
+	{
 		// This should never happen, but technically possible if instantiated with a nullptr for `callback`
-		if (!callback && !handler)
+		if (!callHandler)
 		{
 			Logger::error(SSTR << "DBusMethod contains no callback: [" << path << "]:[" << interfaceName << "]:[" << methodName << "]");
-			g_dbus_method_invocation_return_dbus_error(pInvocation, notImplementedErrorName.c_str(), "This method is not implemented");
+			methodCall.returnDbusError(notImplementedErrorName.c_str(), "This method is not implemented");
+			return;
+		}
+
+		const T *typedOwner = dynamic_cast<const T *>(pOwner);
+		if (typedOwner == nullptr)
+		{
+			Logger::error(SSTR << "DBusMethod owner type mismatch: [" << path << "]:[" << interfaceName << "]:[" << methodName << "] expected [" << T::kInterfaceType << "]");
+			methodCall.returnDbusError("com.bzperi.Error.InternalError", "Internal type error");
 			return;
 		}
 
 		Logger::info(SSTR << "Calling method: [" << path << "]:[" << interfaceName << "]:[" << methodName << "]");
 		try {
-			if (handler)
-			{
-				handler(*static_cast<const T *>(pOwner), DBusConnectionRef(pConnection), methodName, DBusVariantRef(pParameters), DBusMethodInvocationRef(pInvocation), pUserData);
-				return;
-			}
-
-			callback(*static_cast<const T *>(pOwner), pConnection, methodName, pParameters, pInvocation, pUserData);
+			callHandler(*typedOwner, methodName, methodCall);
 		} catch (const std::exception& e) {
 			Logger::error(SSTR << "DBusMethod::call: callback threw exception: " << e.what());
-			g_dbus_method_invocation_return_dbus_error(pInvocation, "com.bzperi.Error.InternalError", e.what());
+			methodCall.returnDbusError("com.bzperi.Error.InternalError", e.what());
 		} catch (...) {
 			Logger::error("DBusMethod::call: callback threw unknown exception");
-			g_dbus_method_invocation_return_dbus_error(pInvocation, "com.bzperi.Error.InternalError", "Unknown internal error");
+			methodCall.returnDbusError("com.bzperi.Error.InternalError", "Unknown internal error");
 		}
 	}
 
@@ -127,8 +158,7 @@ private:
 	std::string name;
 	std::vector<std::string> inArgs;
 	std::string outArgs;
-	RawCallback callback;
-	Handler handler;
+	CallHandler callHandler;
 };
 
 }; // namespace bzp

@@ -39,6 +39,7 @@
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <new>
 
 #include <bzp/Server.h>
 #include <bzp/BluezAdapter.h>
@@ -74,8 +75,16 @@ GDBusConnection *pBusConnection = nullptr;
 static guint ownedNameId = 0;
 static guint periodicTimeoutId = 0;
 static guint updateProcessorSourceId = 0;
+static guint sigtermSourceId = 0;
+static guint sigintSourceId = 0;
 static std::vector<guint> registeredObjectIds;
 static std::atomic<GMainLoop *> pMainLoop(nullptr);
+static GMainContext *pMainContext = nullptr;
+static bool bManualRunLoopMode = false;
+static bool bRunLoopActivated = false;
+static bool bRunLoopInstallsSignalHandlers = false;
+static bool bThreadDefaultContextPushed = false;
+static std::thread::id mainContextOwnerThread;
 static GDBusObjectManager *pBluezObjectManager = nullptr;
 static GDBusObject *pBluezAdapterObject = nullptr;
 static GDBusObject *pBluezDeviceObject = nullptr;
@@ -88,6 +97,7 @@ static bool bAdapterConfigured = false;
 static bool bApplicationRegistered = false;
 static std::string bluezGattManagerInterfaceName = "";
 static Server* pServerContext = nullptr;
+static BluezAdapter* pAdapterContext = nullptr;
 
 //
 // Externs
@@ -95,16 +105,315 @@ static Server* pServerContext = nullptr;
 
 extern void setServerRunState(enum BZPServerRunState newState);
 extern void setServerHealth(enum BZPServerHealth newHealth);
+extern void restoreGLibHandlers();
 
 //
 // Forward declarations
 //
 
 static void initializationStateProcessor();
+bool idleFunc(void *pUserData);
+void uninit();
 
 static Server& serverContext()
 {
 	return *pServerContext;
+}
+
+static BluezAdapter& adapterContext()
+{
+	return *pAdapterContext;
+}
+
+static GMainContext *mainContextForSources()
+{
+	if (pMainContext != nullptr)
+	{
+		return pMainContext;
+	}
+
+	if (GMainContext *threadDefault = g_main_context_get_thread_default(); threadDefault != nullptr)
+	{
+		return threadDefault;
+	}
+
+	return g_main_context_default();
+}
+
+static guint attachTimeoutSource(guint intervalMS, GSourceFunc callback, gpointer userData)
+{
+	GSource *source = g_timeout_source_new(intervalMS);
+	g_source_set_callback(source, callback, userData, nullptr);
+	const guint sourceId = g_source_attach(source, mainContextForSources());
+	g_source_unref(source);
+	return sourceId;
+}
+
+static guint attachTimeoutSecondsSource(guint intervalSeconds, GSourceFunc callback, gpointer userData)
+{
+	GSource *source = g_timeout_source_new_seconds(intervalSeconds);
+	g_source_set_callback(source, callback, userData, nullptr);
+	const guint sourceId = g_source_attach(source, mainContextForSources());
+	g_source_unref(source);
+	return sourceId;
+}
+
+static guint attachUnixSignalSource(int signalNumber, GSourceFunc callback, gpointer userData)
+{
+	GSource *source = g_unix_signal_source_new(signalNumber);
+	g_source_set_callback(source, callback, userData, nullptr);
+	const guint sourceId = g_source_attach(source, mainContextForSources());
+	g_source_unref(source);
+	return sourceId;
+}
+
+struct RunLoopInvocation
+{
+	void (*callback)(void *);
+	void *userData;
+};
+
+struct RunLoopTimeoutWake
+{
+	guint sourceId = 0;
+	bool fired = false;
+};
+
+struct RunLoopPollCycle
+{
+	bool active = false;
+	bool preparedReady = false;
+	bool ready = false;
+	int maxPriority = G_PRIORITY_DEFAULT;
+	int timeoutMS = -1;
+	int requiredFDCount = 0;
+	std::thread::id ownerThread;
+};
+
+static RunLoopPollCycle runLoopPollCycle;
+
+static void resetRunLoopPollCycle()
+{
+	runLoopPollCycle = RunLoopPollCycle();
+}
+
+static bool hasActiveRunLoopPollCycle()
+{
+	return runLoopPollCycle.active;
+}
+
+static bool ensureRunLoopPollCycleThread(const char *context)
+{
+	if (!runLoopPollCycle.active)
+	{
+		Logger::warn(SSTR << context << " requires an active manual run-loop poll cycle");
+		return false;
+	}
+
+	if (runLoopPollCycle.ownerThread != std::this_thread::get_id())
+	{
+		Logger::warn(SSTR << context << " must be called from the thread that prepared the current manual run-loop poll cycle");
+		return false;
+	}
+
+	return true;
+}
+
+static void releaseRunLoopPollCycle()
+{
+	if (runLoopPollCycle.active && pMainContext != nullptr)
+	{
+		g_main_context_release(pMainContext);
+	}
+
+	resetRunLoopPollCycle();
+}
+
+static void attachUpdateProcessor()
+{
+	updateProcessorSourceId = attachTimeoutSource
+	(
+		kIdleFrequencyMS,
+		[](gpointer pUserData) -> gboolean
+		{
+			if (bzpGetServerRunState() > ERunning)
+			{
+				updateProcessorSourceId = 0;
+				return G_SOURCE_REMOVE;
+			}
+
+			idleFunc(pUserData);
+			return G_SOURCE_CONTINUE;
+		},
+		nullptr
+	);
+
+	if (updateProcessorSourceId == 0)
+	{
+		Logger::error(SSTR << "Unable to add update timer to main loop");
+	}
+}
+
+static void attachShutdownSignalHandlers()
+{
+	sigtermSourceId = attachUnixSignalSource(SIGTERM, [](gpointer data) -> gboolean {
+		sigtermSourceId = 0;
+		Logger::info("SIGTERM received, initiating graceful shutdown");
+		g_main_loop_quit(static_cast<GMainLoop*>(data));
+		return G_SOURCE_REMOVE;
+	}, pMainLoop.load(std::memory_order_acquire));
+	sigintSourceId = attachUnixSignalSource(SIGINT, [](gpointer data) -> gboolean {
+		sigintSourceId = 0;
+		Logger::info("SIGINT received, initiating graceful shutdown");
+		g_main_loop_quit(static_cast<GMainLoop*>(data));
+		return G_SOURCE_REMOVE;
+	}, pMainLoop.load(std::memory_order_acquire));
+}
+
+static bool activateRunLoopOnCurrentThread()
+{
+	if (bThreadDefaultContextPushed)
+	{
+		return mainContextOwnerThread == std::this_thread::get_id();
+	}
+
+	if (pMainContext == nullptr)
+	{
+		Logger::error("BzPeri run loop cannot be activated without a GLib main context");
+		return false;
+	}
+
+	mainContextOwnerThread = std::this_thread::get_id();
+	g_main_context_push_thread_default(pMainContext);
+	bThreadDefaultContextPushed = true;
+
+	if (!bRunLoopActivated)
+	{
+		initializationStateProcessor();
+		attachUpdateProcessor();
+
+		if (bRunLoopInstallsSignalHandlers)
+		{
+			attachShutdownSignalHandlers();
+		}
+
+		bRunLoopActivated = true;
+	}
+
+	return true;
+}
+
+static bool detachRunLoopFromCurrentThread()
+{
+	if (!bManualRunLoopMode)
+	{
+		Logger::warn("detachRunLoopFromCurrentThread() is only valid in manual run-loop mode");
+		return false;
+	}
+
+	if (pMainContext == nullptr)
+	{
+		Logger::warn("detachRunLoopFromCurrentThread() called without an active manual run loop");
+		return false;
+	}
+
+	if (!bThreadDefaultContextPushed || mainContextOwnerThread == std::thread::id())
+	{
+		Logger::warn("detachRunLoopFromCurrentThread() called with no attached owner thread");
+		return false;
+	}
+
+	if (mainContextOwnerThread != std::this_thread::get_id())
+	{
+		Logger::warn("detachRunLoopFromCurrentThread() must be called from the current manual run-loop owner thread");
+		return false;
+	}
+
+	if (hasActiveRunLoopPollCycle())
+	{
+		Logger::warn("detachRunLoopFromCurrentThread() cannot detach while a manual run-loop poll cycle is active");
+		return false;
+	}
+
+	g_main_context_pop_thread_default(pMainContext);
+	bThreadDefaultContextPushed = false;
+	mainContextOwnerThread = std::thread::id();
+	return true;
+}
+
+static bool initializeRunLoop(Server *serverContextPtr, BluezAdapter *adapterContextPtr, bool installSignalHandlers, bool activateImmediately)
+{
+	if (pMainContext != nullptr || pMainLoop.load(std::memory_order_acquire) != nullptr)
+	{
+		Logger::error("BzPeri run loop is already initialized");
+		return false;
+	}
+
+	pServerContext = serverContextPtr;
+	pAdapterContext = adapterContextPtr;
+	pMainContext = g_main_context_new();
+	if (pMainContext == nullptr)
+	{
+		Logger::error("Unable to create a dedicated GLib main context");
+		pServerContext = nullptr;
+		pAdapterContext = nullptr;
+		return false;
+	}
+
+	Logger::debug(SSTR << "Creating GLib main loop");
+	GMainLoop *mainLoop = g_main_loop_new(pMainContext, FALSE);
+	if (mainLoop == nullptr)
+	{
+		Logger::error("Unable to create the GLib main loop");
+		g_main_context_unref(pMainContext);
+		pMainContext = nullptr;
+		pServerContext = nullptr;
+		pAdapterContext = nullptr;
+		mainContextOwnerThread = std::thread::id();
+		return false;
+	}
+
+	pMainLoop.store(mainLoop, std::memory_order_release);
+	mainContextOwnerThread = std::thread::id();
+	bRunLoopInstallsSignalHandlers = installSignalHandlers;
+	bThreadDefaultContextPushed = false;
+	bRunLoopActivated = false;
+
+	return !activateImmediately || activateRunLoopOnCurrentThread();
+}
+
+static void finalizeRunLoop()
+{
+	Logger::info("BzPeri server main loop stopped; cleaning up");
+	uninit();
+	bManualRunLoopMode = false;
+	mainContextOwnerThread = std::thread::id();
+
+	setServerRunState(EStopped);
+	Logger::info("BzPeri server stopped");
+	restoreGLibHandlers();
+}
+
+static bool ensureRunLoopOwnerThread(const char *context)
+{
+	if (mainContextOwnerThread == std::thread::id() || mainContextOwnerThread == std::this_thread::get_id())
+	{
+		return true;
+	}
+
+	Logger::warn(SSTR << context << " must be called from the thread that owns the manual BzPeri run loop");
+	return false;
+}
+
+static bool finalizeManualRunLoopIfStopped()
+{
+	if (!bManualRunLoopMode || pMainContext == nullptr || bzpGetServerRunState() <= ERunning)
+	{
+		return false;
+	}
+
+	finalizeRunLoop();
+	return true;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -175,7 +484,7 @@ bool idleFunc(void *pUserData)
 		if (std::shared_ptr<const GattCharacteristic> pCharacteristic = TRY_GET_CONST_INTERFACE_OF_TYPE(pInterface, GattCharacteristic))
 		{
 			Logger::debug(SSTR << "Processing updated value for interface '" << interfaceName << "' at path '" << objectPath << "'");
-			pCharacteristic->callOnUpdatedValue(pBusConnection, pUserData);
+			pCharacteristic->callOnUpdatedValue(DBusUpdateRef(pBusConnection, pUserData));
 			return true;
 		}
 	}
@@ -196,9 +505,16 @@ bool idleFunc(void *pUserData)
 // Perform final cleanup of various resources that were allocated while the server was initialized and/or running
 void uninit()
 {
-	// We've left our main loop - nullify its pointer so we know we're no longer running
-  	pMainLoop = nullptr;
+	GMainLoop *mainLoop = pMainLoop.exchange(nullptr);
+	GMainContext *mainContext = pMainContext;
+	if (runLoopPollCycle.active && mainContext != nullptr)
+	{
+		g_main_context_release(mainContext);
+	}
+	resetRunLoopPollCycle();
+	pMainContext = nullptr;
 	pServerContext = nullptr;
+	pAdapterContext = nullptr;
 
 	if (nullptr != pBluezAdapterObject)
 	{
@@ -257,9 +573,28 @@ void uninit()
 		periodicTimeoutId = 0;
 	}
 
+	if (0 != updateProcessorSourceId)
+	{
+		g_source_remove(updateProcessorSourceId);
+		updateProcessorSourceId = 0;
+	}
+
+	if (0 != sigtermSourceId)
+	{
+		g_source_remove(sigtermSourceId);
+		sigtermSourceId = 0;
+	}
+
+	if (0 != sigintSourceId)
+	{
+		g_source_remove(sigintSourceId);
+		sigintSourceId = 0;
+	}
+
   	if (ownedNameId > 0)
   	{
 		g_bus_unown_name(ownedNameId);
+		ownedNameId = 0;
 	}
 
 	if (nullptr != pBusConnection)
@@ -268,11 +603,23 @@ void uninit()
 		pBusConnection = nullptr;
 	}
 
-	if (nullptr != pMainLoop)
+	if (nullptr != mainLoop)
 	{
-		g_main_loop_unref(pMainLoop);
-		pMainLoop = nullptr;
+		g_main_loop_unref(mainLoop);
 	}
+
+	if (nullptr != mainContext)
+	{
+		if (bThreadDefaultContextPushed)
+		{
+			g_main_context_pop_thread_default(mainContext);
+		}
+		g_main_context_unref(mainContext);
+	}
+
+	bThreadDefaultContextPushed = false;
+	bRunLoopActivated = false;
+	bRunLoopInstallsSignalHandlers = false;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -300,12 +647,17 @@ void shutdown()
 	setServerRunState(EStopping);
 
 	// Shutdown our BluezAdapter
-	BluezAdapter::getInstance().shutdown();
+	adapterContext().shutdown();
 
 	// If we still have a main loop, ask it to quit
 	if (nullptr != pMainLoop)
 	{
 		g_main_loop_quit(pMainLoop);
+	}
+
+	if (pMainContext != nullptr)
+	{
+		g_main_context_wakeup(pMainContext);
 	}
 }
 
@@ -328,6 +680,7 @@ gboolean onPeriodicTimer(gpointer pUserData)
 	// If we're shutting down, don't do anything and stop the periodic timer
 	if (bzpGetServerRunState() > ERunning)
 	{
+		periodicTimeoutId = 0;
 		return FALSE;
 	}
 
@@ -377,11 +730,16 @@ void onMethodCall
 	// Convert our input path into our custom type for path management
 	DBusObjectPath objectPath(pObjectPath);
 
-	if (!serverContext().callMethod(objectPath, pInterfaceName, pMethodName, pConnection, pParameters, pInvocation, pUserData))
+	if (!serverContext().callMethod(
+		objectPath,
+		pInterfaceName,
+		pMethodName,
+		DBusMethodCallRef(pConnection, pParameters, pInvocation, pUserData)
+	))
 	{
 		Logger::error(SSTR << " + Method not found: [" << pSender << "]:[" << objectPath << "]:[" << pInterfaceName << "]:[" << pMethodName << "]");
 		const std::string notImplementedErrorName = serverContext().getOwnedName() + ".NotImplemented";
-		g_dbus_method_invocation_return_dbus_error(pInvocation, notImplementedErrorName.c_str(), "This method is not implemented");
+		DBusMethodInvocationRef(pInvocation).returnDbusError(notImplementedErrorName.c_str(), "This method is not implemented");
 		return;
 	}
 
@@ -413,8 +771,27 @@ GVariant *onGetProperty
 		return nullptr;
 	}
 
+	const DBusPropertyCallRef propertyCall(
+		DBusConnectionRef(pConnection),
+		pSender != nullptr ? std::string_view(pSender) : std::string_view(),
+		objectPath.toString(),
+		pInterfaceName != nullptr ? std::string_view(pInterfaceName) : std::string_view(),
+		pPropertyName != nullptr ? std::string_view(pPropertyName) : std::string_view(),
+		DBusVariantRef(),
+		DBusErrorRef(ppError),
+		pUserData);
+
+	const auto &getterCallHandler = pProperty->getGetterCallHandler();
 	const auto &getterHandler = pProperty->getGetterHandler();
-	if (!getterHandler && !pProperty->getGetterFunc())
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+	const auto rawGetterFunc = pProperty->getGetterFunc();
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+	if (!getterCallHandler && !getterHandler && !rawGetterFunc)
 	{
 		Logger::error(SSTR << "Property(get) func not found: " << propertyPath);
 	    g_set_error(ppError, G_IO_ERROR, G_IO_ERROR_FAILED, ("Property(get) func not found: " + propertyPath).c_str(), pSender);
@@ -423,20 +800,24 @@ GVariant *onGetProperty
 
 	Logger::info(SSTR << "Calling property getter: " << propertyPath);
 	GVariant *pResult = nullptr;
-	if (getterHandler)
+	if (getterCallHandler)
+	{
+		pResult = getterCallHandler(propertyCall).get();
+	}
+	else if (getterHandler)
 	{
 		pResult = getterHandler(
-			DBusConnectionRef(pConnection),
-			pSender != nullptr ? std::string_view(pSender) : std::string_view(),
-			objectPath.toString(),
-			pInterfaceName != nullptr ? std::string_view(pInterfaceName) : std::string_view(),
-			pPropertyName != nullptr ? std::string_view(pPropertyName) : std::string_view(),
-			DBusErrorRef(ppError),
-			pUserData).get();
+			propertyCall.connection(),
+			propertyCall.sender(),
+			propertyCall.objectPath(),
+			propertyCall.interfaceName(),
+			propertyCall.propertyName(),
+			propertyCall.error(),
+			propertyCall.userData()).get();
 	}
 	else
 	{
-		pResult = pProperty->getGetterFunc()(pConnection, pSender, objectPath.c_str(), pInterfaceName, pPropertyName, ppError, pUserData);
+		pResult = rawGetterFunc(pConnection, pSender, objectPath.c_str(), pInterfaceName, pPropertyName, ppError, pUserData);
 	}
 
 	if (nullptr == pResult)
@@ -478,8 +859,27 @@ gboolean onSetProperty
 		return false;
 	}
 
+	const DBusPropertyCallRef propertyCall(
+		DBusConnectionRef(pConnection),
+		pSender != nullptr ? std::string_view(pSender) : std::string_view(),
+		objectPath.toString(),
+		pInterfaceName != nullptr ? std::string_view(pInterfaceName) : std::string_view(),
+		pPropertyName != nullptr ? std::string_view(pPropertyName) : std::string_view(),
+		DBusVariantRef(pValue),
+		DBusErrorRef(ppError),
+		pUserData);
+
+	const auto &setterCallHandler = pProperty->getSetterCallHandler();
 	const auto &setterHandler = pProperty->getSetterHandler();
-	if (!setterHandler && !pProperty->getSetterFunc())
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+	const auto rawSetterFunc = pProperty->getSetterFunc();
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+	if (!setterCallHandler && !setterHandler && !rawSetterFunc)
 	{
 		Logger::error(SSTR << "Property(set) func not found: " << propertyPath);
 	    g_set_error(ppError, G_IO_ERROR, G_IO_ERROR_FAILED, ("Property(set) func not found: " + propertyPath).c_str(), pSender);
@@ -487,17 +887,19 @@ gboolean onSetProperty
 	}
 
 	Logger::info(SSTR << "Calling property setter: " << propertyPath);
-	const bool success = setterHandler
-		? setterHandler(
-			DBusConnectionRef(pConnection),
-			pSender != nullptr ? std::string_view(pSender) : std::string_view(),
-			objectPath.toString(),
-			pInterfaceName != nullptr ? std::string_view(pInterfaceName) : std::string_view(),
-			pPropertyName != nullptr ? std::string_view(pPropertyName) : std::string_view(),
-			DBusVariantRef(pValue),
-			DBusErrorRef(ppError),
-			pUserData)
-		: pProperty->getSetterFunc()(pConnection, pSender, objectPath.c_str(), pInterfaceName, pPropertyName, pValue, ppError, pUserData);
+	const bool success = setterCallHandler
+		? setterCallHandler(propertyCall)
+		: setterHandler
+			? setterHandler(
+				propertyCall.connection(),
+				propertyCall.sender(),
+				propertyCall.objectPath(),
+				propertyCall.interfaceName(),
+				propertyCall.propertyName(),
+				propertyCall.value(),
+				propertyCall.error(),
+				propertyCall.userData())
+			: rawSetterFunc(pConnection, pSender, objectPath.c_str(), pInterfaceName, pPropertyName, pValue, ppError, pUserData);
 	if (!success)
 	{
 		if (ppError != nullptr && *ppError != nullptr)
@@ -706,10 +1108,11 @@ void configureAdapter()
 	const char* listAdapters = std::getenv("BLUEZ_LIST_ADAPTERS");
 
 	std::string adapterName = preferredAdapter ? preferredAdapter : "";
-	BluezAdapter::getInstance().setServiceNameContext(serverContext().getServiceName());
+	adapterContext().setServiceNameContext(serverContext().getServiceName());
+	adapterContext().setServerContext(&serverContext());
 
 	// Initialize the modern BlueZ adapter with discovery
-	auto result = BluezAdapter::getInstance().initialize(adapterName);
+	auto result = adapterContext().initialize(adapterName);
 	if (result.hasError())
 	{
 		Logger::error(SSTR << "Failed to initialize BluezAdapter: " << result.errorMessage());
@@ -717,7 +1120,7 @@ void configureAdapter()
 		// If adapter listing was requested, try to show available adapters anyway
 		if (listAdapters)
 		{
-			auto adapters = BluezAdapter::getInstance().discoverAdapters();
+			auto adapters = adapterContext().discoverAdapters();
 			if (adapters.isSuccess())
 			{
 				Logger::info("Available BlueZ adapters:");
@@ -735,7 +1138,7 @@ void configureAdapter()
 	// List adapters if requested
 	if (listAdapters)
 	{
-		auto adapters = BluezAdapter::getInstance().discoverAdapters();
+		auto adapters = adapterContext().discoverAdapters();
 		if (adapters.isSuccess())
 		{
 			Logger::info("Available BlueZ adapters:");
@@ -751,7 +1154,7 @@ void configureAdapter()
 	std::string advertisingName = Utils::truncateName(serverContext().getAdvertisingName());
 	std::string advertisingShortName = Utils::truncateShortName(serverContext().getAdvertisingShortName());
 
-	BluezAdapter& adapter = BluezAdapter::getInstance();
+	BluezAdapter& adapter = adapterContext();
 
 	// Configure adapter settings using modern D-Bus API
 	// Note: Modern BlueZ automatically handles LE when needed, no explicit LE enabling required
@@ -981,7 +1384,7 @@ void doOwnedNameAcquire()
 		[](GDBusConnection *, const gchar *, gpointer)
 		{
 			// Handy way to get periodic activity
-			periodicTimeoutId = g_timeout_add_seconds(kPeriodicTimerFrequencySeconds, onPeriodicTimer, pBusConnection);
+			periodicTimeoutId = attachTimeoutSecondsSource(kPeriodicTimerFrequencySeconds, onPeriodicTimer, pBusConnection);
 			if (periodicTimeoutId <= 0)
 			{
 				Logger::fatal(SSTR << "Failed to add a periodic timer");
@@ -1182,79 +1585,472 @@ void initializationStateProcessor()
 // Entry point for the asynchronous server thread
 //
 // This method should not be called directly, instead, direct your attention over to `bzpStart()`
-void runServerThread()
+void runServerThread(Server *serverContextPtr, BluezAdapter *adapterContextPtr)
 {
-	pServerContext = getActiveServerPtr();
-
-	// Set the initialization state
-	setServerRunState(EInitializing);
-
-	// Start our state processor, which is really just a simplified state machine that steps us through an asynchronous
-	// initialization process.
-	//
-	// In case you're wondering if these really need to be async, the answer is yes. For one, it's the right way to do it. But
-	// the more practical response is that the main loop must be running (see below) in order for us to receive and respond to
-	// events from BlueZ. Well, one of the calls we need to make during initialization is 'RegisterApplication'. This method will
-	// will require that we respond the 'GetNamedObjects' method before it returns. If we were to call the synchronous version of
-	// 'RegisterApplication', then we've effectively created a deadlock.
-	//
-	// There are alternatives, but using async methods is the recommended way.
-	initializationStateProcessor();
-
-	Logger::debug(SSTR << "Creating GLib main loop");
-	pMainLoop = g_main_loop_new(NULL, FALSE);
-
-	// Add the update processing timer instead of idle function to avoid blocking the main loop
-	//
-	// This timer processes queued updates without blocking the GLib main loop
-	updateProcessorSourceId = g_timeout_add
-	(
-		kIdleFrequencyMS,
-		[](gpointer pUserData) -> gboolean
-		{
-			// Check if we should continue running
-			if (bzpGetServerRunState() > ERunning)
-			{
-				return G_SOURCE_REMOVE;
-			}
-
-			// Process data updates - no sleep needed as timer handles frequency
-			idleFunc(pUserData);
-
-			// Continue the timer
-			return G_SOURCE_CONTINUE;
-		},
-		nullptr
-	);
-
-	if (updateProcessorSourceId == 0)
+	bManualRunLoopMode = false;
+	if (!initializeRunLoop(serverContextPtr, adapterContextPtr, true, true))
 	{
-		Logger::error(SSTR << "Unable to add update timer to main loop");
+		setServerHealth(EFailedInit);
+		setServerRunState(EStopped);
+		return;
 	}
 
 	Logger::trace(SSTR << "Starting GLib main loop");
+	g_main_loop_run(pMainLoop.load(std::memory_order_acquire));
+	finalizeRunLoop();
+}
 
-	// Register graceful shutdown signal handlers via GLib
-	// (g_unix_signal_add is async-signal-safe; runs in the main loop)
-	g_unix_signal_add(SIGTERM, [](gpointer data) -> gboolean {
-		Logger::info("SIGTERM received, initiating graceful shutdown");
-		g_main_loop_quit(static_cast<GMainLoop*>(data));
-		return G_SOURCE_REMOVE;
-	}, pMainLoop.load());
-	g_unix_signal_add(SIGINT, [](gpointer data) -> gboolean {
-		Logger::info("SIGINT received, initiating graceful shutdown");
-		g_main_loop_quit(static_cast<GMainLoop*>(data));
-		return G_SOURCE_REMOVE;
-	}, pMainLoop.load());
+bool startServerLoopManually(Server *serverContextPtr, BluezAdapter *adapterContextPtr)
+{
+	bManualRunLoopMode = false;
+	if (!initializeRunLoop(serverContextPtr, adapterContextPtr, false, false))
+	{
+		return false;
+	}
 
-	g_main_loop_run(pMainLoop);
+	bManualRunLoopMode = true;
+	Logger::trace("BzPeri manual run loop initialized; the first runServerLoopIteration() call binds the loop to the pumping thread");
+	return true;
+}
 
-	// We have stopped
-	setServerRunState(EStopped);
-	Logger::info("BzPeri server stopped");
+int runServerLoopIteration(int mayBlock)
+{
+	if (!bManualRunLoopMode)
+	{
+		Logger::warn("runServerLoopIteration() is only valid after startServerLoopManually()");
+		return 0;
+	}
 
-	// Cleanup
-	uninit();
+	if (pMainContext == nullptr)
+	{
+		Logger::warn("runServerLoopIteration() called without an active manual run loop");
+		return 0;
+	}
+
+	if (!ensureRunLoopOwnerThread("runServerLoopIteration()"))
+	{
+		return 0;
+	}
+
+	if (hasActiveRunLoopPollCycle())
+	{
+		Logger::warn("runServerLoopIteration() cannot run while a manual run-loop poll cycle is active; call dispatch or cancel first");
+		return 0;
+	}
+
+	if (!activateRunLoopOnCurrentThread())
+	{
+		setServerHealth(EFailedInit);
+		setServerRunState(EStopped);
+		finalizeRunLoop();
+		return 0;
+	}
+
+	if (finalizeManualRunLoopIfStopped())
+	{
+		return 1;
+	}
+
+	const gboolean dispatched = g_main_context_iteration(pMainContext, mayBlock ? TRUE : FALSE);
+	if (finalizeManualRunLoopIfStopped())
+	{
+		return 1;
+	}
+
+	return dispatched ? 1 : 0;
+}
+
+int runServerLoopIterationFor(int timeoutMS)
+{
+	if (timeoutMS < 0)
+	{
+		return runServerLoopIteration(1);
+	}
+
+	if (timeoutMS == 0)
+	{
+		return runServerLoopIteration(0);
+	}
+
+	if (!bManualRunLoopMode)
+	{
+		Logger::warn("runServerLoopIterationFor() is only valid after startServerLoopManually()");
+		return 0;
+	}
+
+	if (pMainContext == nullptr)
+	{
+		Logger::warn("runServerLoopIterationFor() called without an active manual run loop");
+		return 0;
+	}
+
+	if (!ensureRunLoopOwnerThread("runServerLoopIterationFor()"))
+	{
+		return 0;
+	}
+
+	if (hasActiveRunLoopPollCycle())
+	{
+		Logger::warn("runServerLoopIterationFor() cannot run while a manual run-loop poll cycle is active; call dispatch or cancel first");
+		return 0;
+	}
+
+	if (!activateRunLoopOnCurrentThread())
+	{
+		setServerHealth(EFailedInit);
+		setServerRunState(EStopped);
+		finalizeRunLoop();
+		return 0;
+	}
+
+	if (finalizeManualRunLoopIfStopped())
+	{
+		return 1;
+	}
+
+	RunLoopTimeoutWake timeoutWake;
+	GSource *timeoutSource = g_timeout_source_new(timeoutMS);
+	g_source_set_callback(
+		timeoutSource,
+		[](gpointer data) -> gboolean {
+			auto *timeoutWake = static_cast<RunLoopTimeoutWake *>(data);
+			timeoutWake->fired = true;
+			timeoutWake->sourceId = 0;
+			return G_SOURCE_REMOVE;
+		},
+		&timeoutWake,
+		nullptr);
+	timeoutWake.sourceId = g_source_attach(timeoutSource, pMainContext);
+	g_source_unref(timeoutSource);
+
+	const gboolean dispatched = g_main_context_iteration(pMainContext, TRUE);
+	if (timeoutWake.sourceId != 0)
+	{
+		g_source_remove(timeoutWake.sourceId);
+		timeoutWake.sourceId = 0;
+	}
+
+	if (finalizeManualRunLoopIfStopped())
+	{
+		return 1;
+	}
+
+	if (timeoutWake.fired)
+	{
+		return 0;
+	}
+
+	return dispatched ? 1 : 0;
+}
+
+bool attachServerLoopToCurrentThread()
+{
+	if (!bManualRunLoopMode)
+	{
+		Logger::warn("attachServerLoopToCurrentThread() is only valid after startServerLoopManually()");
+		return false;
+	}
+
+	if (pMainContext == nullptr)
+	{
+		Logger::warn("attachServerLoopToCurrentThread() called without an active manual run loop");
+		return false;
+	}
+
+	if (!ensureRunLoopOwnerThread("attachServerLoopToCurrentThread()"))
+	{
+		return false;
+	}
+
+	return activateRunLoopOnCurrentThread();
+}
+
+bool detachServerLoopFromCurrentThread()
+{
+	return detachRunLoopFromCurrentThread();
+}
+
+bool isManualServerLoopMode()
+{
+	return bManualRunLoopMode && pMainContext != nullptr;
+}
+
+bool hasServerLoopOwner()
+{
+	return mainContextOwnerThread != std::thread::id();
+}
+
+bool isCurrentThreadServerLoopOwner()
+{
+	return mainContextOwnerThread != std::thread::id() && mainContextOwnerThread == std::this_thread::get_id();
+}
+
+bool prepareServerLoopPoll(int *timeoutMS, int *requiredFDCount, int *dispatchReady)
+{
+	if (!bManualRunLoopMode)
+	{
+		Logger::warn("prepareServerLoopPoll() is only valid after startServerLoopManually()");
+		return false;
+	}
+
+	if (pMainContext == nullptr)
+	{
+		Logger::warn("prepareServerLoopPoll() called without an active manual run loop");
+		return false;
+	}
+
+	if (hasActiveRunLoopPollCycle())
+	{
+		Logger::warn("prepareServerLoopPoll() cannot start a nested manual run-loop poll cycle");
+		return false;
+	}
+
+	if (!ensureRunLoopOwnerThread("prepareServerLoopPoll()"))
+	{
+		return false;
+	}
+
+	if (!activateRunLoopOnCurrentThread())
+	{
+		setServerHealth(EFailedInit);
+		setServerRunState(EStopped);
+		finalizeRunLoop();
+		return false;
+	}
+
+	if (finalizeManualRunLoopIfStopped())
+	{
+		return false;
+	}
+
+	if (!g_main_context_acquire(pMainContext))
+	{
+		Logger::warn("prepareServerLoopPoll() could not acquire the manual run-loop context");
+		return false;
+	}
+
+	resetRunLoopPollCycle();
+	runLoopPollCycle.active = true;
+	runLoopPollCycle.ownerThread = std::this_thread::get_id();
+	runLoopPollCycle.preparedReady = g_main_context_prepare(pMainContext, &runLoopPollCycle.maxPriority) != FALSE;
+	runLoopPollCycle.ready = false;
+	runLoopPollCycle.timeoutMS = runLoopPollCycle.preparedReady ? 0 : -1;
+	runLoopPollCycle.requiredFDCount = 0;
+
+	if (!runLoopPollCycle.preparedReady)
+	{
+		runLoopPollCycle.requiredFDCount = g_main_context_query(
+			pMainContext,
+			runLoopPollCycle.maxPriority,
+			&runLoopPollCycle.timeoutMS,
+			nullptr,
+			0);
+	}
+
+	if (timeoutMS != nullptr)
+	{
+		*timeoutMS = runLoopPollCycle.timeoutMS;
+	}
+
+	if (requiredFDCount != nullptr)
+	{
+		*requiredFDCount = runLoopPollCycle.requiredFDCount;
+	}
+
+	if (dispatchReady != nullptr)
+	{
+		*dispatchReady = runLoopPollCycle.preparedReady ? 1 : 0;
+	}
+
+	return true;
+}
+
+bool queryServerLoopPoll(BZPPollFD *pollFDs, int pollFDCount, int *requiredFDCount)
+{
+	if (pollFDCount < 0)
+	{
+		Logger::warn("queryServerLoopPoll() requires a non-negative pollFDCount");
+		return false;
+	}
+
+	if (pollFDCount > 0 && pollFDs == nullptr)
+	{
+		Logger::warn("queryServerLoopPoll() requires a non-null pollFDs buffer when pollFDCount is positive");
+		return false;
+	}
+
+	if (!ensureRunLoopPollCycleThread("queryServerLoopPoll()"))
+	{
+		return false;
+	}
+
+	std::vector<GPollFD> gpollFDs(static_cast<size_t>(pollFDCount));
+	int timeoutMS = runLoopPollCycle.timeoutMS;
+	const int neededFDCount = g_main_context_query(
+		pMainContext,
+		runLoopPollCycle.maxPriority,
+		&timeoutMS,
+		gpollFDs.data(),
+		pollFDCount);
+
+	runLoopPollCycle.timeoutMS = timeoutMS;
+	runLoopPollCycle.requiredFDCount = neededFDCount;
+	if (requiredFDCount != nullptr)
+	{
+		*requiredFDCount = neededFDCount;
+	}
+
+	if (neededFDCount > pollFDCount)
+	{
+		if (pollFDCount == 0 && pollFDs == nullptr)
+		{
+			return true;
+		}
+
+		return false;
+	}
+
+	if (neededFDCount == 0)
+	{
+		return true;
+	}
+
+	for (int index = 0; index < neededFDCount; ++index)
+	{
+		pollFDs[index].fd = gpollFDs[index].fd;
+		pollFDs[index].events = gpollFDs[index].events;
+		pollFDs[index].revents = gpollFDs[index].revents;
+	}
+
+	return true;
+}
+
+bool checkServerLoopPoll(const BZPPollFD *pollFDs, int pollFDCount)
+{
+	if (pollFDCount < 0)
+	{
+		Logger::warn("checkServerLoopPoll() requires a non-negative pollFDCount");
+		return false;
+	}
+
+	if (pollFDCount > 0 && pollFDs == nullptr)
+	{
+		Logger::warn("checkServerLoopPoll() requires a non-null pollFDs buffer when pollFDCount is positive");
+		return false;
+	}
+
+	if (!ensureRunLoopPollCycleThread("checkServerLoopPoll()"))
+	{
+		return false;
+	}
+
+	std::vector<GPollFD> gpollFDs(static_cast<size_t>(pollFDCount));
+	for (int index = 0; index < pollFDCount; ++index)
+	{
+		gpollFDs[index].fd = pollFDs[index].fd;
+		gpollFDs[index].events = pollFDs[index].events;
+		gpollFDs[index].revents = pollFDs[index].revents;
+	}
+
+	runLoopPollCycle.ready = g_main_context_check(
+		pMainContext,
+		runLoopPollCycle.maxPriority,
+		pollFDCount > 0 ? gpollFDs.data() : nullptr,
+		pollFDCount) != FALSE;
+
+	return runLoopPollCycle.ready;
+}
+
+int dispatchServerLoopPoll()
+{
+	if (!ensureRunLoopPollCycleThread("dispatchServerLoopPoll()"))
+	{
+		return 0;
+	}
+
+	const bool ready = runLoopPollCycle.ready;
+	if (ready)
+	{
+		g_main_context_dispatch(pMainContext);
+	}
+
+	releaseRunLoopPollCycle();
+
+	if (finalizeManualRunLoopIfStopped())
+	{
+		return 1;
+	}
+
+	return ready ? 1 : 0;
+}
+
+bool cancelServerLoopPoll()
+{
+	if (!ensureRunLoopPollCycleThread("cancelServerLoopPoll()"))
+	{
+		return false;
+	}
+
+	releaseRunLoopPollCycle();
+	(void)finalizeManualRunLoopIfStopped();
+	return true;
+}
+
+bool invokeOnServerLoop(void (*callback)(void *), void *userData)
+{
+	if (callback == nullptr)
+	{
+		Logger::warn("invokeOnServerLoop() requires a non-null callback");
+		return false;
+	}
+
+	if (pMainContext == nullptr)
+	{
+		Logger::warn("invokeOnServerLoop() called without an active BzPeri run loop");
+		return false;
+	}
+
+	RunLoopInvocation *invocation = new (std::nothrow) RunLoopInvocation{callback, userData};
+	if (invocation == nullptr)
+	{
+		Logger::error("Unable to allocate run-loop invocation state");
+		return false;
+	}
+
+	if (mainContextOwnerThread != std::thread::id() && mainContextOwnerThread != std::this_thread::get_id())
+	{
+		g_main_context_invoke_full(
+			pMainContext,
+			G_PRIORITY_DEFAULT,
+			[](gpointer data) -> gboolean {
+				auto *invocation = static_cast<RunLoopInvocation *>(data);
+				invocation->callback(invocation->userData);
+				return G_SOURCE_REMOVE;
+			},
+			invocation,
+			[](gpointer data) {
+				delete static_cast<RunLoopInvocation *>(data);
+			});
+		return true;
+	}
+
+	GSource *source = g_idle_source_new();
+	g_source_set_priority(source, G_PRIORITY_DEFAULT);
+	g_source_set_callback(
+		source,
+		[](gpointer data) -> gboolean {
+			auto *invocation = static_cast<RunLoopInvocation *>(data);
+			invocation->callback(invocation->userData);
+			return G_SOURCE_REMOVE;
+		},
+		invocation,
+		[](gpointer data) {
+			delete static_cast<RunLoopInvocation *>(data);
+		});
+	g_source_attach(source, pMainContext);
+	g_source_unref(source);
+
+	return true;
 }
 
 }; // namespace bzp

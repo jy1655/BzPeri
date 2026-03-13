@@ -24,7 +24,7 @@
 
 #pragma once
 
-#include <gio/gio.h>
+#include <bzp/GLibTypes.h>
 #include <string>
 
 namespace bzp {
@@ -33,8 +33,10 @@ struct Server;
 
 struct ServerUtils
 {
+	static DBusVariantRef buildManagedObjectsPayload(const Server& server);
+
 	// Builds the response to the method call `GetManagedObjects` from the D-Bus interface `org.freedesktop.DBus.ObjectManager`
-	static void getManagedObjects(const Server& server, GDBusMethodInvocation *pInvocation);
+	static void getManagedObjects(const Server& server, DBusMethodCallRef methodCall);
 
 	// WARNING: Hacky code - don't count on this working properly on all systems
 	//

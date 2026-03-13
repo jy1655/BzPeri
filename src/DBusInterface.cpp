@@ -110,11 +110,24 @@ DBusObjectPath DBusInterface::getPath() const
 // This method returns a reference to `this` in order to enable chaining inside the server description.
 DBusInterface &DBusInterface::addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, RawMethodCallback callback)
 {
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 	methods.push_back(DBusMethod(this, name, pInArgs, pOutArgs, callback));
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 	return *this;
 }
 
 DBusInterface &DBusInterface::addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, const MethodHandler &handler)
+{
+	methods.push_back(DBusMethod(this, name, pInArgs, pOutArgs, handler));
+	return *this;
+}
+
+DBusInterface &DBusInterface::addMethod(const std::string &name, const char *pInArgs[], const char *pOutArgs, const MethodCallHandler &handler)
 {
 	methods.push_back(DBusMethod(this, name, pInArgs, pOutArgs, handler));
 	return *this;
@@ -129,12 +142,17 @@ DBusInterface &DBusInterface::addMethod(const std::string &name, const char *pIn
 // their subclass type.
 bool DBusInterface::callMethod(const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const
 {
+	return callMethod(methodName, DBusMethodCallRef(pConnection, pParameters, pInvocation, pUserData));
+}
+
+bool DBusInterface::callMethod(const std::string &methodName, DBusMethodCallRef methodCall) const
+{
 	for (const DBusMethod &method : methods)
 	{
 		if (methodName == method.getName())
 		{
 			const std::string notImplementedErrorName = owner.getServer().getOwnedName() + ".NotImplemented";
-			method.call<DBusInterface>(pConnection, getPath(), getName(), methodName, notImplementedErrorName, pParameters, pInvocation, pUserData);
+			method.call<DBusInterface>(methodCall, getPath(), getName(), methodName, notImplementedErrorName);
 			return true;
 		}
 	}
@@ -144,7 +162,7 @@ bool DBusInterface::callMethod(const std::string &methodName, GDBusConnection *p
 
 bool DBusInterface::callMethod(const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const
 {
-	return callMethod(methodName, connection.get(), parameters.get(), invocation.get(), pUserData);
+	return callMethod(methodName, DBusMethodCallRef(connection, parameters, invocation, pUserData));
 }
 
 // Internal method used to generate introspection XML used to describe our services on D-Bus

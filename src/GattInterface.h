@@ -77,7 +77,14 @@ struct GattInterface : DBusInterface
 	// There are helper methods for common types (UUIDs, strings, boolean, etc.) Use this method when no helper method exists for
 	// the type you want to use. There is also a helper method for adding a named property of a pre-built `GattProperty`.
 	template<typename T>
-	T &addProperty(const std::string &name, GVariant *pValue, GDBusInterfaceGetPropertyFunc getter = nullptr, GDBusInterfaceSetPropertyFunc setter = nullptr)
+	T &addProperty(const std::string &name, GVariant *pValue)
+	{
+		return addProperty<T>(GattProperty(name, pValue));
+	}
+
+	template<typename T>
+	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
+	T &addProperty(const std::string &name, GVariant *pValue, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
 	{
 		return addProperty<T>(GattProperty(name, pValue, getter, setter));
 	}
@@ -89,7 +96,14 @@ struct GattInterface : DBusInterface
 	}
 
 	template<typename T>
-	T &addProperty(const std::string &name, DBusVariantRef value, GDBusInterfaceGetPropertyFunc getter = nullptr, GDBusInterfaceSetPropertyFunc setter = nullptr)
+	T &addProperty(const std::string &name, DBusVariantRef value)
+	{
+		return addProperty<T>(GattProperty(name, value));
+	}
+
+	template<typename T>
+	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
+	T &addProperty(const std::string &name, DBusVariantRef value, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
 	{
 		return addProperty<T>(GattProperty(name, value, getter, setter));
 	}
@@ -102,93 +116,142 @@ struct GattInterface : DBusInterface
 
 	// Helper method for adding a named property with a `GattUuid`
 	template<typename T>
-	T &addProperty(const std::string &name, const GattUuid &uuid, GDBusInterfaceGetPropertyFunc getter = nullptr, GDBusInterfaceSetPropertyFunc setter = nullptr)
+	T &addProperty(const std::string &name, const GattUuid &uuid)
 	{
-		return addProperty<T>(GattProperty(name, Utils::gvariantFromString(uuid.toString128().c_str()), getter, setter));
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(uuid.toString128().c_str())));
+	}
+
+	template<typename T>
+	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
+	T &addProperty(const std::string &name, const GattUuid &uuid, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
+	{
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(uuid.toString128().c_str()), getter, setter));
 	}
 
 	template<typename T>
 	T &addProperty(const std::string &name, const GattUuid &uuid, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
 	{
-		return addProperty<T>(GattProperty(name, Utils::gvariantFromString(uuid.toString128().c_str()), getter, setter));
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(uuid.toString128().c_str()), getter, setter));
 	}
 
 	// Helper method for adding a named property with a `DBusObjectPath`
 	template<typename T>
-	T &addProperty(const std::string &name, const DBusObjectPath &path, GDBusInterfaceGetPropertyFunc getter = nullptr, GDBusInterfaceSetPropertyFunc setter = nullptr)
+	T &addProperty(const std::string &name, const DBusObjectPath &path)
 	{
-		return addProperty<T>(GattProperty(name, Utils::gvariantFromObject(path), getter, setter));
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromObject(path)));
+	}
+
+	template<typename T>
+	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
+	T &addProperty(const std::string &name, const DBusObjectPath &path, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
+	{
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromObject(path), getter, setter));
 	}
 
 	template<typename T>
 	T &addProperty(const std::string &name, const DBusObjectPath &path, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
 	{
-		return addProperty<T>(GattProperty(name, Utils::gvariantFromObject(path), getter, setter));
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromObject(path), getter, setter));
 	}
 
 	// Helper method for adding a named property with a std::strings
 	template<typename T>
-	T &addProperty(const std::string &name, const std::string &str, GDBusInterfaceGetPropertyFunc getter = nullptr, GDBusInterfaceSetPropertyFunc setter = nullptr)
+	T &addProperty(const std::string &name, const std::string &str)
 	{
-		return addProperty<T>(GattProperty(name, Utils::gvariantFromString(str), getter, setter));
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(str)));
+	}
+
+	template<typename T>
+	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
+	T &addProperty(const std::string &name, const std::string &str, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
+	{
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(str), getter, setter));
 	}
 
 	template<typename T>
 	T &addProperty(const std::string &name, const std::string &str, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
 	{
-		return addProperty<T>(GattProperty(name, Utils::gvariantFromString(str), getter, setter));
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(str), getter, setter));
 	}
 
 	// Helper method for adding a named property with an array of std::strings
 	template<typename T>
-	T &addProperty(const std::string &name, const std::vector<std::string> &arr, GDBusInterfaceGetPropertyFunc getter = nullptr, GDBusInterfaceSetPropertyFunc setter = nullptr)
+	T &addProperty(const std::string &name, const std::vector<std::string> &arr)
 	{
-		return addProperty<T>(GattProperty(name, Utils::gvariantFromStringArray(arr), getter, setter));
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromStringArray(arr)));
+	}
+
+	template<typename T>
+	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
+	T &addProperty(const std::string &name, const std::vector<std::string> &arr, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
+	{
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromStringArray(arr), getter, setter));
 	}
 
 	template<typename T>
 	T &addProperty(const std::string &name, const std::vector<std::string> &arr, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
 	{
-		return addProperty<T>(GattProperty(name, Utils::gvariantFromStringArray(arr), getter, setter));
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromStringArray(arr), getter, setter));
 	}
 
 	// Helper method for adding a named property with an array of C strings
 	template<typename T>
-	T &addProperty(const std::string &name, const std::vector<const char *> &arr, GDBusInterfaceGetPropertyFunc getter = nullptr, GDBusInterfaceSetPropertyFunc setter = nullptr)
+	T &addProperty(const std::string &name, const std::vector<const char *> &arr)
 	{
-		return addProperty<T>(GattProperty(name, Utils::gvariantFromStringArray(arr), getter, setter));
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromStringArray(arr)));
+	}
+
+	template<typename T>
+	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
+	T &addProperty(const std::string &name, const std::vector<const char *> &arr, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
+	{
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromStringArray(arr), getter, setter));
 	}
 
 	template<typename T>
 	T &addProperty(const std::string &name, const std::vector<const char *> &arr, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
 	{
-		return addProperty<T>(GattProperty(name, Utils::gvariantFromStringArray(arr), getter, setter));
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromStringArray(arr), getter, setter));
 	}
 
 	// Helper method for adding a named property with a given C string
 	template<typename T>
-	T &addProperty(const std::string &name, const char *pStr, GDBusInterfaceGetPropertyFunc getter = nullptr, GDBusInterfaceSetPropertyFunc setter = nullptr)
+	T &addProperty(const std::string &name, const char *pStr)
 	{
-		return addProperty<T>(GattProperty(name, Utils::gvariantFromString(pStr), getter, setter));
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(pStr)));
+	}
+
+	template<typename T>
+	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
+	T &addProperty(const std::string &name, const char *pStr, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
+	{
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(pStr), getter, setter));
 	}
 
 	template<typename T>
 	T &addProperty(const std::string &name, const char *pStr, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
 	{
-		return addProperty<T>(GattProperty(name, Utils::gvariantFromString(pStr), getter, setter));
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromString(pStr), getter, setter));
 	}
 
 	// Helper method for adding a named property with a given boolean value
 	template<typename T>
-	T &addProperty(const std::string &name, bool value, GDBusInterfaceGetPropertyFunc getter = nullptr, GDBusInterfaceSetPropertyFunc setter = nullptr)
+	T &addProperty(const std::string &name, bool value)
 	{
-		return addProperty<T>(GattProperty(name, Utils::gvariantFromBoolean(value), getter, setter));
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromBoolean(value)));
+	}
+
+	template<typename T>
+	BZP_DEPRECATED("Use GattInterface::addProperty() with wrapper handlers or without raw GDBus property callbacks")
+	T &addProperty(const std::string &name, bool value, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr)
+	{
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromBoolean(value), getter, setter));
 	}
 
 	template<typename T>
 	T &addProperty(const std::string &name, bool value, const GattProperty::GetterHandler &getter, const GattProperty::SetterHandler &setter = {})
 	{
-		return addProperty<T>(GattProperty(name, Utils::gvariantFromBoolean(value), getter, setter));
+		return addProperty<T>(GattProperty(name, Utils::dbusVariantFromBoolean(value), getter, setter));
 	}
 
 	// Return a data value from the server's registered data getter (BZPServerDataGetter)
@@ -253,6 +316,7 @@ struct GattInterface : DBusInterface
 	//
 	// This is the generalized form that accepts a GVariant *. There is a templated helper method (`methodReturnValue()`) that accepts
 	// common types.
+	BZP_DEPRECATED("Use GattInterface::methodReturnVariant() wrapper overload with DBusMethodInvocationRef/DBusVariantRef")
 	void methodReturnVariant(GDBusMethodInvocation *pInvocation, GVariant *pVariant, bool wrapInTuple = false) const;
 	void methodReturnVariant(DBusMethodInvocationRef invocation, DBusVariantRef variant, bool wrapInTuple = false) const;
 
@@ -265,15 +329,13 @@ struct GattInterface : DBusInterface
 	template<typename T>
 	void methodReturnValue(GDBusMethodInvocation *pInvocation, T value, bool wrapInTuple = false) const
 	{
-		GVariant *pVariant = Utils::gvariantFromByteArray(value);
-		methodReturnVariant(pInvocation, pVariant, wrapInTuple);
+		methodReturnVariant(DBusMethodInvocationRef(pInvocation), Utils::dbusVariantFromByteArray(value), wrapInTuple);
 	}
 
 	template<typename T>
 	void methodReturnValue(DBusMethodInvocationRef invocation, T value, bool wrapInTuple = false) const
 	{
-		GVariant *pVariant = Utils::gvariantFromByteArray(value);
-		methodReturnVariant(invocation, DBusVariantRef(pVariant), wrapInTuple);
+		methodReturnVariant(invocation, Utils::dbusVariantFromByteArray(value), wrapInTuple);
 	}
 
 	// Locates a `GattProperty` within the interface

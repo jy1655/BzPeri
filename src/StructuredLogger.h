@@ -48,10 +48,12 @@ public:
         EntryBuilder& error(const std::string& error) { entry_.error = error; return *this; }
         EntryBuilder& extra(const std::string& extra) { entry_.extra = extra; return *this; }
 
+        void status() { Logger::status(entry_.format().c_str()); }
         void info() { Logger::info(entry_.format().c_str()); }
         void warn() { Logger::warn(entry_.format().c_str()); }
         void error() { Logger::error(entry_.format().c_str()); }
         void debug() { Logger::debug(entry_.format().c_str()); }
+        void trace() { Logger::trace(entry_.format().c_str()); }
 
     private:
         LogEntry entry_;
@@ -70,8 +72,13 @@ public:
         log().op(op).result("Retry").error(error).extra(extra.str()).debug();
     }
 
-    void logConnectionEvent(const std::string& devicePath, bool connected) {
-        log().op("Connection").path(devicePath).result(connected ? "Connected" : "Disconnected").info();
+    void logConnectionEvent(const std::string& devicePath, bool connected, int activeCount = -1) {
+        auto entry = log().op("Connection").path(devicePath).result(connected ? "Connected" : "Disconnected");
+        if (activeCount >= 0)
+        {
+            entry.extra("active=" + std::to_string(activeCount));
+        }
+        entry.info();
     }
 
 private:

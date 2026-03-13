@@ -121,7 +121,10 @@ struct DBusObject
 	std::shared_ptr<const DBusInterface> findInterface(const DBusObjectPath &path, const std::string &interfaceName, const DBusObjectPath &basePath = DBusObjectPath()) const;
 
 	// Finds a BlueZ method by name within the specified D-Bus interface
+	BZP_DEPRECATED("Use DBusObject::callMethod(..., DBusMethodCallRef)")
 	bool callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData, const DBusObjectPath &basePath = DBusObjectPath()) const;
+	bool callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, DBusMethodCallRef methodCall, const DBusObjectPath &basePath = DBusObjectPath()) const;
+	BZP_DEPRECATED("Use DBusObject::callMethod(..., DBusMethodCallRef)")
 	bool callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData, const DBusObjectPath &basePath = DBusObjectPath()) const;
 
 	// -----------------------------------------------------------------------------------------------------------------------------
@@ -129,10 +132,18 @@ struct DBusObject
 	// -----------------------------------------------------------------------------------------------------------------------------
 
 	// Emits a signal and returns whether GLib accepted it for delivery.
+	BZP_DEPRECATED("Use DBusObject::emitSignalChecked(DBusSignalRef)")
 	bool emitSignalChecked(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters);
+	BZP_DEPRECATED("Use DBusObject::emitSignalChecked(DBusSignalRef)")
+	bool emitSignalChecked(DBusConnectionRef busConnection, const std::string &interfaceName, const std::string &signalName, DBusVariantRef parameters);
+	bool emitSignalChecked(DBusSignalRef signal);
 
 	// Emits a signal on the bus from the given path, interface name and signal name, containing a GVariant set of parameters
+	BZP_DEPRECATED("Use DBusObject::emitSignal(DBusSignalRef)")
 	void emitSignal(GDBusConnection *pBusConnection, const std::string &interfaceName, const std::string &signalName, GVariant *pParameters);
+	BZP_DEPRECATED("Use DBusObject::emitSignal(DBusSignalRef)")
+	void emitSignal(DBusConnectionRef busConnection, const std::string &interfaceName, const std::string &signalName, DBusVariantRef parameters);
+	void emitSignal(DBusSignalRef signal);
 
 private:
 	Server *server_;

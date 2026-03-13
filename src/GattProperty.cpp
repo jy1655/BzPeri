@@ -36,13 +36,57 @@ GVariant *retainVariant(GVariant *variant)
 	return variant != nullptr ? g_variant_ref_sink(variant) : nullptr;
 }
 
-void releaseVariant(GVariant *&variant)
+DBusVariantRef retainVariantRef(GVariant *variant)
 {
-	if (variant != nullptr)
+	return DBusVariantRef(retainVariant(variant));
+}
+
+void releaseVariant(DBusVariantRef &variant)
+{
+	if (variant.get() != nullptr)
 	{
-		g_variant_unref(variant);
-		variant = nullptr;
+		g_variant_unref(variant.get());
+		variant = DBusVariantRef();
 	}
+}
+
+GattProperty::GetterCallHandler makeGetterCallHandler(const GattProperty::GetterHandler &getter)
+{
+	if (!getter)
+	{
+		return {};
+	}
+
+	return [getter](DBusPropertyCallRef call) {
+		return getter(
+			call.connection(),
+			call.sender(),
+			call.objectPath(),
+			call.interfaceName(),
+			call.propertyName(),
+			call.error(),
+			call.userData());
+	};
+}
+
+GattProperty::SetterCallHandler makeSetterCallHandler(const GattProperty::SetterHandler &setter)
+{
+	if (!setter)
+	{
+		return {};
+	}
+
+	return [setter](DBusPropertyCallRef call) {
+		return setter(
+			call.connection(),
+			call.sender(),
+			call.objectPath(),
+			call.interfaceName(),
+			call.propertyName(),
+			call.value(),
+			call.error(),
+			call.userData());
+	};
 }
 
 } // namespace
@@ -51,45 +95,71 @@ void releaseVariant(GVariant *&variant)
 //
 // In general, properties should not be constructed directly as properties are typically instanticated by adding them to to an
 // interface using one of the the interface's `addProperty` methods.
-GattProperty::GattProperty(const std::string &name, GVariant *pValue, GDBusInterfaceGetPropertyFunc getter, GDBusInterfaceSetPropertyFunc setter)
-: name(name), pValue(retainVariant(pValue)), getterFunc(getter), setterFunc(setter)
+GattProperty::GattProperty(const std::string &name, GVariant *pValue)
+: name(name), value_(retainVariantRef(pValue)), getterFunc(nullptr), setterFunc(nullptr)
 {
 }
 
-GattProperty::GattProperty(const std::string &name, DBusVariantRef value, GDBusInterfaceGetPropertyFunc getter, GDBusInterfaceSetPropertyFunc setter)
-: GattProperty(name, value.get(), getter, setter)
+GattProperty::GattProperty(const std::string &name, DBusVariantRef value)
+: name(name), value_(retainVariantRef(value.get())), getterFunc(nullptr), setterFunc(nullptr)
+{
+}
+
+GattProperty::GattProperty(const std::string &name, GVariant *pValue, RawPropertyGetterCallback getter, RawPropertySetterCallback setter)
+: name(name), value_(retainVariantRef(pValue)), getterFunc(getter), setterFunc(setter)
+{
+}
+
+GattProperty::GattProperty(const std::string &name, DBusVariantRef value, RawPropertyGetterCallback getter, RawPropertySetterCallback setter)
+: name(name), value_(retainVariantRef(value.get())), getterFunc(getter), setterFunc(setter)
 {
 }
 
 GattProperty::GattProperty(const std::string &name, GVariant *pValue, const GetterHandler &getter, const SetterHandler &setter)
-: name(name), pValue(retainVariant(pValue)), getterFunc(nullptr), setterFunc(nullptr), getterHandler(getter), setterHandler(setter)
+: name(name), value_(retainVariantRef(pValue)), getterFunc(nullptr), setterFunc(nullptr), getterHandler(getter), setterHandler(setter),
+  getterCallHandler(makeGetterCallHandler(getter)), setterCallHandler(makeSetterCallHandler(setter))
 {
 }
 
 GattProperty::GattProperty(const std::string &name, DBusVariantRef value, const GetterHandler &getter, const SetterHandler &setter)
-: GattProperty(name, value.get(), getter, setter)
+: name(name), value_(retainVariantRef(value.get())), getterFunc(nullptr), setterFunc(nullptr), getterHandler(getter), setterHandler(setter),
+  getterCallHandler(makeGetterCallHandler(getter)), setterCallHandler(makeSetterCallHandler(setter))
+{
+}
+
+GattProperty::GattProperty(const std::string &name, GVariant *pValue, const GetterCallHandler &getter, const SetterCallHandler &setter)
+: name(name), value_(retainVariantRef(pValue)), getterFunc(nullptr), setterFunc(nullptr), getterCallHandler(getter), setterCallHandler(setter)
+{
+}
+
+GattProperty::GattProperty(const std::string &name, DBusVariantRef value, const GetterCallHandler &getter, const SetterCallHandler &setter)
+: name(name), value_(retainVariantRef(value.get())), getterFunc(nullptr), setterFunc(nullptr), getterCallHandler(getter), setterCallHandler(setter)
 {
 }
 
 GattProperty::GattProperty(const GattProperty &other)
 : name(other.name),
-  pValue(retainVariant(other.pValue)),
+  value_(retainVariantRef(other.value_.get())),
   getterFunc(other.getterFunc),
   setterFunc(other.setterFunc),
   getterHandler(other.getterHandler),
-  setterHandler(other.setterHandler)
+  setterHandler(other.setterHandler),
+  getterCallHandler(other.getterCallHandler),
+  setterCallHandler(other.setterCallHandler)
 {
 }
 
 GattProperty::GattProperty(GattProperty &&other) noexcept
 : name(std::move(other.name)),
-  pValue(other.pValue),
+  value_(other.value_),
   getterFunc(other.getterFunc),
   setterFunc(other.setterFunc),
   getterHandler(std::move(other.getterHandler)),
-  setterHandler(std::move(other.setterHandler))
+  setterHandler(std::move(other.setterHandler)),
+  getterCallHandler(std::move(other.getterCallHandler)),
+  setterCallHandler(std::move(other.setterCallHandler))
 {
-	other.pValue = nullptr;
+	other.value_ = DBusVariantRef();
 	other.getterFunc = nullptr;
 	other.setterFunc = nullptr;
 }
@@ -101,13 +171,15 @@ GattProperty &GattProperty::operator=(const GattProperty &other)
 		return *this;
 	}
 
-	releaseVariant(pValue);
+	releaseVariant(value_);
 	name = other.name;
-	pValue = retainVariant(other.pValue);
+	value_ = retainVariantRef(other.value_.get());
 	getterFunc = other.getterFunc;
 	setterFunc = other.setterFunc;
 	getterHandler = other.getterHandler;
 	setterHandler = other.setterHandler;
+	getterCallHandler = other.getterCallHandler;
+	setterCallHandler = other.setterCallHandler;
 	return *this;
 }
 
@@ -118,15 +190,17 @@ GattProperty &GattProperty::operator=(GattProperty &&other) noexcept
 		return *this;
 	}
 
-	releaseVariant(pValue);
+	releaseVariant(value_);
 	name = std::move(other.name);
-	pValue = other.pValue;
+	value_ = other.value_;
 	getterFunc = other.getterFunc;
 	setterFunc = other.setterFunc;
 	getterHandler = std::move(other.getterHandler);
 	setterHandler = std::move(other.setterHandler);
+	getterCallHandler = std::move(other.getterCallHandler);
+	setterCallHandler = std::move(other.setterCallHandler);
 
-	other.pValue = nullptr;
+	other.value_ = DBusVariantRef();
 	other.getterFunc = nullptr;
 	other.setterFunc = nullptr;
 	return *this;
@@ -134,7 +208,7 @@ GattProperty &GattProperty::operator=(GattProperty &&other) noexcept
 
 GattProperty::~GattProperty()
 {
-	releaseVariant(pValue);
+	releaseVariant(value_);
 }
 
 //
@@ -164,12 +238,12 @@ GattProperty &GattProperty::setName(const std::string &name)
 // Returns the property's value
 const GVariant *GattProperty::getValue() const
 {
-	return pValue;
+	return value_.get();
 }
 
 DBusVariantRef GattProperty::getValueRef() const
 {
-	return DBusVariantRef(pValue);
+	return value_;
 }
 
 // Sets the property's value
@@ -178,14 +252,16 @@ DBusVariantRef GattProperty::getValueRef() const
 // interface's `addProperty` methods.
 GattProperty &GattProperty::setValue(GVariant *pValue)
 {
-	releaseVariant(this->pValue);
-	this->pValue = retainVariant(pValue);
+	releaseVariant(value_);
+	value_ = retainVariantRef(pValue);
 	return *this;
 }
 
 GattProperty &GattProperty::setValue(DBusVariantRef value)
 {
-	return setValue(value.get());
+	releaseVariant(value_);
+	value_ = retainVariantRef(value.get());
+	return *this;
 }
 
 //
@@ -193,7 +269,7 @@ GattProperty &GattProperty::setValue(DBusVariantRef value)
 //
 
 // Internal use method to retrieve the getter delegate method used to return custom values for a property
-GDBusInterfaceGetPropertyFunc GattProperty::getGetterFunc() const
+RawPropertyGetterCallback GattProperty::getGetterFunc() const
 {
 	return getterFunc;
 }
@@ -203,14 +279,20 @@ const GattProperty::GetterHandler &GattProperty::getGetterHandler() const
 	return getterHandler;
 }
 
+const GattProperty::GetterCallHandler &GattProperty::getGetterCallHandler() const
+{
+	return getterCallHandler;
+}
+
 // Internal use method to set the getter delegate method used to return custom values for a property
 //
 // In general, this method should not be called directly as properties are typically added to an interface using one of the the
 // interface's `addProperty` methods.
-GattProperty &GattProperty::setGetterFunc(GDBusInterfaceGetPropertyFunc func)
+GattProperty &GattProperty::setGetterFunc(RawPropertyGetterCallback func)
 {
 	getterFunc = func;
 	getterHandler = {};
+	getterCallHandler = {};
 	return *this;
 }
 
@@ -218,11 +300,20 @@ GattProperty &GattProperty::setGetterHandler(const GetterHandler &handler)
 {
 	getterFunc = nullptr;
 	getterHandler = handler;
+	getterCallHandler = makeGetterCallHandler(handler);
+	return *this;
+}
+
+GattProperty &GattProperty::setGetterCallHandler(const GetterCallHandler &handler)
+{
+	getterFunc = nullptr;
+	getterHandler = {};
+	getterCallHandler = handler;
 	return *this;
 }
 
 // Internal use method to retrieve the setter delegate method used to return custom values for a property
-GDBusInterfaceSetPropertyFunc GattProperty::getSetterFunc() const
+RawPropertySetterCallback GattProperty::getSetterFunc() const
 {
 	return setterFunc;
 }
@@ -232,14 +323,20 @@ const GattProperty::SetterHandler &GattProperty::getSetterHandler() const
 	return setterHandler;
 }
 
+const GattProperty::SetterCallHandler &GattProperty::getSetterCallHandler() const
+{
+	return setterCallHandler;
+}
+
 // Internal use method to set the setter delegate method used to return custom values for a property
 //
 // In general, this method should not be called directly as properties are typically added to an interface using one of the the
 // interface's `addProperty` methods.
-GattProperty &GattProperty::setSetterFunc(GDBusInterfaceSetPropertyFunc func)
+GattProperty &GattProperty::setSetterFunc(RawPropertySetterCallback func)
 {
 	setterFunc = func;
 	setterHandler = {};
+	setterCallHandler = {};
 	return *this;
 }
 
@@ -247,6 +344,15 @@ GattProperty &GattProperty::setSetterHandler(const SetterHandler &handler)
 {
 	setterFunc = nullptr;
 	setterHandler = handler;
+	setterCallHandler = makeSetterCallHandler(handler);
+	return *this;
+}
+
+GattProperty &GattProperty::setSetterCallHandler(const SetterCallHandler &handler)
+{
+	setterFunc = nullptr;
+	setterHandler = {};
+	setterCallHandler = handler;
 	return *this;
 }
 
@@ -258,7 +364,7 @@ std::string GattProperty::generateIntrospectionXML(int depth) const
 
 	std::string xml = std::string();
 
-	GVariant *pValue = const_cast<GVariant *>(getValue());
+	GVariant *pValue = getValueRef().get();
 	const gchar *pType = g_variant_get_type_string(pValue);
 	xml += prefix + "<property name='" + getName() + "' type='" + pType + "' access='read'>\n";
 

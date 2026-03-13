@@ -31,6 +31,34 @@
 
 namespace bzp {
 
+namespace {
+
+callbacks::DescriptorMethodCallHandler makeMethodCallHandler(const callbacks::DescriptorMethodHandler &callback)
+{
+	if (!callback)
+	{
+		return {};
+	}
+
+	return [callback](const GattDescriptor &self, const std::string &methodName, DBusMethodCallRef methodCall) {
+		callback(self, methodCall.connection(), methodName, methodCall.parameters(), methodCall.invocation(), methodCall.userData());
+	};
+}
+
+callbacks::DescriptorUpdateCallHandler makeUpdateCallHandler(const callbacks::DescriptorUpdateHandler &callback)
+{
+	if (!callback)
+	{
+		return {};
+	}
+
+	return [callback](const GattDescriptor &self, DBusUpdateRef update) {
+		return callback(self, update.connection(), update.userData());
+	};
+}
+
+} // namespace
+
 //
 // Standard constructor
 //
@@ -40,7 +68,7 @@ namespace bzp {
 // Genreally speaking, these objects should not be constructed directly. Rather, use the `gattDescriptorBegin()` method
 // in `GattCharacteristic`.
 GattDescriptor::GattDescriptor(DBusObject &owner, GattCharacteristic &characteristic, const std::string &name)
-: GattInterface(owner, name), characteristic(characteristic), pOnUpdatedValueFunc(nullptr)
+: GattInterface(owner, name), characteristic(characteristic)
 {
 }
 
@@ -59,12 +87,17 @@ GattCharacteristic &GattDescriptor::gattDescriptorEnd()
 // Locates a D-Bus method within this D-Bus interface
 bool GattDescriptor::callMethod(const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const
 {
+	return callMethod(methodName, DBusMethodCallRef(pConnection, pParameters, pInvocation, pUserData));
+}
+
+bool GattDescriptor::callMethod(const std::string &methodName, DBusMethodCallRef methodCall) const
+{
 	for (const DBusMethod &method : methods)
 	{
 		if (methodName == method.getName())
 		{
 			const std::string notImplementedErrorName = owner.getServer().getOwnedName() + ".NotImplemented";
-			method.call<GattDescriptor>(pConnection, getPath(), getName(), methodName, notImplementedErrorName, pParameters, pInvocation, pUserData);
+			method.call<GattDescriptor>(methodCall, getPath(), getName(), methodName, notImplementedErrorName);
 			return true;
 		}
 	}
@@ -74,7 +107,7 @@ bool GattDescriptor::callMethod(const std::string &methodName, GDBusConnection *
 
 bool GattDescriptor::callMethod(const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const
 {
-	return callMethod(methodName, connection.get(), parameters.get(), invocation.get(), pUserData);
+	return callMethod(methodName, DBusMethodCallRef(connection, parameters, invocation, pUserData));
 }
 
 // Modern approach: Use GLib timers directly for periodic updates
@@ -90,30 +123,76 @@ bool GattDescriptor::callMethod(const std::string &methodName, DBusConnectionRef
 //     Output args: value   - "ay"
 GattDescriptor &GattDescriptor::onReadValue(RawMethodCallback callback)
 {
-	// array{byte} ReadValue(dict options)
+	callbacks::DescriptorMethodCallHandler handler;
+	if (callback != nullptr)
+	{
+		handler = [callback](const GattDescriptor &self, const std::string &methodName, DBusMethodCallRef methodCall) {
+			callback(self, methodCall.connection().get(), methodName, methodCall.parameters().get(), methodCall.invocation().get(), methodCall.userData());
+		};
+	}
+
 	const char *inArgs[] = {"a{sv}", nullptr};
-	if (readCallback_ != nullptr) {
+	if (static_cast<bool>(readHandler_)) {
 		Logger::warn("GattDescriptor::onReadValue() called twice — replacing callback without re-adding method");
-		this->readCallback_ = callback;
+		readHandler_ = handler;
 		return *this;
 	}
-	// Store callback and use static thunk
-	this->readCallback_ = callback;
-	addMethod("ReadValue", inArgs, "ay", &GattDescriptor::ReadThunk);
+	readHandler_ = handler;
+	addMethod("ReadValue", inArgs, "ay",
+		[](const DBusInterface& self, DBusConnectionRef c, const std::string& mn, DBusVariantRef p, DBusMethodInvocationRef inv, void* u) {
+			const auto* desc = dynamic_cast<const GattDescriptor*>(&self);
+			if (!desc) {
+				Logger::error("ReadValue handler: type mismatch — expected GattDescriptor");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Type error");
+				return;
+			}
+			if (!desc->readHandler_) return;
+			try {
+				desc->readHandler_(*desc, mn, DBusMethodCallRef(c, p, inv, u));
+			} catch (const std::exception& e) {
+				Logger::error(SSTR << "ReadValue handler: user callback threw exception: " << e.what());
+				inv.returnDbusError("com.bzperi.Error.InternalError", e.what());
+			} catch (...) {
+				Logger::error("ReadValue handler: user callback threw unknown exception");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Unknown internal error");
+			}
+		});
 	return *this;
 }
 
 GattDescriptor &GattDescriptor::onReadValue(const callbacks::DescriptorMethodHandler &callback)
 {
+	return onReadValue(makeMethodCallHandler(callback));
+}
+
+GattDescriptor &GattDescriptor::onReadValue(const callbacks::DescriptorMethodCallHandler &callback)
+{
 	const char *inArgs[] = {"a{sv}", nullptr};
-	if (readCallback_ != nullptr || static_cast<bool>(readHandler_)) {
+	if (static_cast<bool>(readHandler_)) {
 		Logger::warn("GattDescriptor::onReadValue() called twice — replacing callback without re-adding method");
-		readCallback_ = nullptr;
 		readHandler_ = callback;
 		return *this;
 	}
 	readHandler_ = callback;
-	addMethod("ReadValue", inArgs, "ay", &GattDescriptor::ReadThunk);
+	addMethod("ReadValue", inArgs, "ay",
+		[](const DBusInterface& self, DBusConnectionRef c, const std::string& mn, DBusVariantRef p, DBusMethodInvocationRef inv, void* u) {
+			const auto* desc = dynamic_cast<const GattDescriptor*>(&self);
+			if (!desc) {
+				Logger::error("ReadValue handler: type mismatch — expected GattDescriptor");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Type error");
+				return;
+			}
+			if (!desc->readHandler_) return;
+			try {
+				desc->readHandler_(*desc, mn, DBusMethodCallRef(c, p, inv, u));
+			} catch (const std::exception& e) {
+				Logger::error(SSTR << "ReadValue handler: user callback threw exception: " << e.what());
+				inv.returnDbusError("com.bzperi.Error.InternalError", e.what());
+			} catch (...) {
+				Logger::error("ReadValue handler: user callback threw unknown exception");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Unknown internal error");
+			}
+		});
 	return *this;
 }
 
@@ -128,29 +207,76 @@ GattDescriptor &GattDescriptor::onReadValue(const callbacks::DescriptorMethodHan
 //     Output args: void
 GattDescriptor &GattDescriptor::onWriteValue(RawMethodCallback callback)
 {
+	callbacks::DescriptorMethodCallHandler handler;
+	if (callback != nullptr)
+	{
+		handler = [callback](const GattDescriptor &self, const std::string &methodName, DBusMethodCallRef methodCall) {
+			callback(self, methodCall.connection().get(), methodName, methodCall.parameters().get(), methodCall.invocation().get(), methodCall.userData());
+		};
+	}
+
 	const char *inArgs[] = {"ay", "a{sv}", nullptr};
-	if (writeCallback_ != nullptr) {
+	if (static_cast<bool>(writeHandler_)) {
 		Logger::warn("GattDescriptor::onWriteValue() called twice — replacing callback without re-adding method");
-		this->writeCallback_ = callback;
+		writeHandler_ = handler;
 		return *this;
 	}
-	// Store callback and use static thunk
-	this->writeCallback_ = callback;
-	addMethod("WriteValue", inArgs, nullptr, &GattDescriptor::WriteThunk);
+	writeHandler_ = handler;
+	addMethod("WriteValue", inArgs, nullptr,
+		[](const DBusInterface& self, DBusConnectionRef c, const std::string& mn, DBusVariantRef p, DBusMethodInvocationRef inv, void* u) {
+			const auto* desc = dynamic_cast<const GattDescriptor*>(&self);
+			if (!desc) {
+				Logger::error("WriteValue handler: type mismatch — expected GattDescriptor");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Type error");
+				return;
+			}
+			if (!desc->writeHandler_) return;
+			try {
+				desc->writeHandler_(*desc, mn, DBusMethodCallRef(c, p, inv, u));
+			} catch (const std::exception& e) {
+				Logger::error(SSTR << "WriteValue handler: user callback threw exception: " << e.what());
+				inv.returnDbusError("com.bzperi.Error.InternalError", e.what());
+			} catch (...) {
+				Logger::error("WriteValue handler: user callback threw unknown exception");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Unknown internal error");
+			}
+		});
 	return *this;
 }
 
 GattDescriptor &GattDescriptor::onWriteValue(const callbacks::DescriptorMethodHandler &callback)
 {
+	return onWriteValue(makeMethodCallHandler(callback));
+}
+
+GattDescriptor &GattDescriptor::onWriteValue(const callbacks::DescriptorMethodCallHandler &callback)
+{
 	const char *inArgs[] = {"ay", "a{sv}", nullptr};
-	if (writeCallback_ != nullptr || static_cast<bool>(writeHandler_)) {
+	if (static_cast<bool>(writeHandler_)) {
 		Logger::warn("GattDescriptor::onWriteValue() called twice — replacing callback without re-adding method");
-		writeCallback_ = nullptr;
 		writeHandler_ = callback;
 		return *this;
 	}
 	writeHandler_ = callback;
-	addMethod("WriteValue", inArgs, nullptr, &GattDescriptor::WriteThunk);
+	addMethod("WriteValue", inArgs, nullptr,
+		[](const DBusInterface& self, DBusConnectionRef c, const std::string& mn, DBusVariantRef p, DBusMethodInvocationRef inv, void* u) {
+			const auto* desc = dynamic_cast<const GattDescriptor*>(&self);
+			if (!desc) {
+				Logger::error("WriteValue handler: type mismatch — expected GattDescriptor");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Type error");
+				return;
+			}
+			if (!desc->writeHandler_) return;
+			try {
+				desc->writeHandler_(*desc, mn, DBusMethodCallRef(c, p, inv, u));
+			} catch (const std::exception& e) {
+				Logger::error(SSTR << "WriteValue handler: user callback threw exception: " << e.what());
+				inv.returnDbusError("com.bzperi.Error.InternalError", e.what());
+			} catch (...) {
+				Logger::error("WriteValue handler: user callback threw unknown exception");
+				inv.returnDbusError("com.bzperi.Error.InternalError", "Unknown internal error");
+			}
+		});
 	return *this;
 }
 
@@ -166,14 +292,26 @@ GattDescriptor &GattDescriptor::onWriteValue(const callbacks::DescriptorMethodHa
 // `callOnUpdatedValue` for more information.
 GattDescriptor &GattDescriptor::onUpdatedValue(RawUpdatedValueCallback callback)
 {
-	updateHandler_ = {};
-	pOnUpdatedValueFunc = callback;
+	if (callback == nullptr)
+	{
+		updateHandler_ = {};
+		return *this;
+	}
+
+	updateHandler_ = [callback](const GattDescriptor &self, DBusUpdateRef update) {
+		return callback(self, update.connection().get(), update.userData());
+	};
 	return *this;
 }
 
 GattDescriptor &GattDescriptor::onUpdatedValue(const callbacks::DescriptorUpdateHandler &callback)
 {
-	pOnUpdatedValueFunc = nullptr;
+	updateHandler_ = makeUpdateCallHandler(callback);
+	return *this;
+}
+
+GattDescriptor &GattDescriptor::onUpdatedValue(const callbacks::DescriptorUpdateCallHandler &callback)
+{
 	updateHandler_ = callback;
 	return *this;
 }
@@ -197,74 +335,23 @@ GattDescriptor &GattDescriptor::onUpdatedValue(const callbacks::DescriptorUpdate
 //      })
 bool GattDescriptor::callOnUpdatedValue(GDBusConnection *pConnection, void *pUserData) const
 {
-	if (updateHandler_)
-	{
-		Logger::debug(SSTR << "Calling OnUpdatedValue function for interface at path '" << getPath() << "'");
-		return updateHandler_(*this, DBusConnectionRef(pConnection), pUserData);
-	}
+	return callOnUpdatedValue(DBusUpdateRef(pConnection, pUserData));
+}
 
-	if (nullptr == pOnUpdatedValueFunc)
+bool GattDescriptor::callOnUpdatedValue(DBusConnectionRef connection, void *pUserData) const
+{
+	return callOnUpdatedValue(DBusUpdateRef(connection, pUserData));
+}
+
+bool GattDescriptor::callOnUpdatedValue(DBusUpdateRef update) const
+{
+	if (!updateHandler_)
 	{
 		return false;
 	}
 
 	Logger::debug(SSTR << "Calling OnUpdatedValue function for interface at path '" << getPath() << "'");
-	return pOnUpdatedValueFunc(*this, pConnection, pUserData);
-}
-
-bool GattDescriptor::callOnUpdatedValue(DBusConnectionRef connection, void *pUserData) const
-{
-	return callOnUpdatedValue(connection.get(), pUserData);
-}
-
-// Static thunk implementations for function pointer compatibility
-
-void GattDescriptor::ReadThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u)
-{
-	const auto* desc = dynamic_cast<const GattDescriptor*>(&self);
-	if (!desc) {
-		Logger::error("ReadThunk: type mismatch — expected GattDescriptor");
-		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", "Type error");
-		return;
-	}
-	if (!desc->readCallback_ && !desc->readHandler_) return;
-	try {
-		if (desc->readHandler_) {
-			desc->readHandler_(*desc, DBusConnectionRef(c), mn, DBusVariantRef(p), DBusMethodInvocationRef(inv), u);
-			return;
-		}
-		desc->readCallback_(*desc, c, mn, p, inv, u);
-	} catch (const std::exception& e) {
-		Logger::error(SSTR << "ReadThunk: user callback threw exception: " << e.what());
-		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", e.what());
-	} catch (...) {
-		Logger::error("ReadThunk: user callback threw unknown exception");
-		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", "Unknown internal error");
-	}
-}
-
-void GattDescriptor::WriteThunk(const DBusInterface& self, GDBusConnection* c, const std::string& mn, GVariant* p, GDBusMethodInvocation* inv, void* u)
-{
-	const auto* desc = dynamic_cast<const GattDescriptor*>(&self);
-	if (!desc) {
-		Logger::error("WriteThunk: type mismatch — expected GattDescriptor");
-		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", "Type error");
-		return;
-	}
-	if (!desc->writeCallback_ && !desc->writeHandler_) return;
-	try {
-		if (desc->writeHandler_) {
-			desc->writeHandler_(*desc, DBusConnectionRef(c), mn, DBusVariantRef(p), DBusMethodInvocationRef(inv), u);
-			return;
-		}
-		desc->writeCallback_(*desc, c, mn, p, inv, u);
-	} catch (const std::exception& e) {
-		Logger::error(SSTR << "WriteThunk: user callback threw exception: " << e.what());
-		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", e.what());
-	} catch (...) {
-		Logger::error("WriteThunk: user callback threw unknown exception");
-		g_dbus_method_invocation_return_dbus_error(inv, "com.bzperi.Error.InternalError", "Unknown internal error");
-	}
+	return updateHandler_(*this, update);
 }
 
 

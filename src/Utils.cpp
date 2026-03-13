@@ -216,16 +216,31 @@ std::string Utils::bluetoothAddressString(std::span<const uint8_t, 6> address)
 // GVariant helper functions
 // ---------------------------------------------------------------------------------------------------------------------------------
 
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
 // Returns a GVariant containing a floating reference to a utf8 string
 GVariant *Utils::gvariantFromString(const char *pStr)
 {
 	return g_variant_new_string(pStr);
 }
 
+DBusVariantRef Utils::dbusVariantFromString(const char *pStr)
+{
+	return DBusVariantRef(gvariantFromString(pStr));
+}
+
 // Returns a GVariant containing a floating reference to a utf8 string
 GVariant *Utils::gvariantFromString(const std::string &str)
 {
 	return g_variant_new_string(str.c_str());
+}
+
+DBusVariantRef Utils::dbusVariantFromString(const std::string &str)
+{
+	return DBusVariantRef(gvariantFromString(str));
 }
 
 // Returns an array of strings ("as") with one string per variable argument.
@@ -297,6 +312,11 @@ GVariant *Utils::gvariantFromStringArray(const std::vector<std::string> &arr)
 	return g_variant_builder_end(&builder);
 }
 
+DBusVariantRef Utils::dbusVariantFromStringArray(const std::vector<std::string> &arr)
+{
+	return DBusVariantRef(gvariantFromStringArray(arr));
+}
+
 // Returns an array of strings ("as") from an array of C strings
 GVariant *Utils::gvariantFromStringArray(const std::vector<const char *> &arr)
 {
@@ -317,10 +337,20 @@ GVariant *Utils::gvariantFromStringArray(const std::vector<const char *> &arr)
 	return g_variant_builder_end(&builder);
 }
 
+DBusVariantRef Utils::dbusVariantFromStringArray(const std::vector<const char *> &arr)
+{
+	return DBusVariantRef(gvariantFromStringArray(arr));
+}
+
 // Returns an GVariant* containing an object path ("o") from an DBusObjectPath
 GVariant *Utils::gvariantFromObject(const DBusObjectPath &path)
 {
 	return g_variant_new_object_path(path.c_str());
+}
+
+DBusVariantRef Utils::dbusVariantFromObject(const DBusObjectPath &path)
+{
+	return DBusVariantRef(gvariantFromObject(path));
 }
 
 // Returns an GVariant* containing a boolean
@@ -329,16 +359,31 @@ GVariant *Utils::gvariantFromBoolean(bool b)
 	return g_variant_new_boolean(b);
 }
 
+DBusVariantRef Utils::dbusVariantFromBoolean(bool b)
+{
+	return DBusVariantRef(gvariantFromBoolean(b));
+}
+
 // Returns an GVariant* containing a 16-bit integer
 GVariant *Utils::gvariantFromInt(gint16 value)
 {
 	return g_variant_new_int16(value);
 }
 
+DBusVariantRef Utils::dbusVariantFromInt(gint16 value)
+{
+	return DBusVariantRef(gvariantFromInt(value));
+}
+
 // Returns an GVariant* containing a 32-bit integer
 GVariant *Utils::gvariantFromInt(gint32 value)
 {
 	return g_variant_new_int32(value);
+}
+
+DBusVariantRef Utils::dbusVariantFromInt(gint32 value)
+{
+	return DBusVariantRef(gvariantFromInt(value));
 }
 
 // Returns an array of bytes ("ay") with the contents of the input C string
@@ -353,10 +398,20 @@ GVariant *Utils::gvariantFromByteArray(const char *pStr)
 	return gvariantFromByteArray(reinterpret_cast<const guint8 *>(pStr), strlen(pStr));
 }
 
+DBusVariantRef Utils::dbusVariantFromByteArray(const char *pStr)
+{
+	return DBusVariantRef(gvariantFromByteArray(pStr));
+}
+
 // Returns an array of bytes ("ay") with the contents of the input string
 GVariant *Utils::gvariantFromByteArray(const std::string &str)
 {
 	return gvariantFromByteArray(reinterpret_cast<const guint8 *>(str.c_str()), str.length());
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const std::string &str)
+{
+	return DBusVariantRef(gvariantFromByteArray(str));
 }
 
 // Returns an array of bytes ("ay") with the contents of the input array of unsigned 8-bit values
@@ -368,6 +423,11 @@ GVariant *Utils::gvariantFromByteArray(const guint8 *pBytes, int count)
 	return pGVariant;
 }
 
+DBusVariantRef Utils::dbusVariantFromByteArray(const guint8 *pBytes, int count)
+{
+	return DBusVariantRef(gvariantFromByteArray(pBytes, count));
+}
+
 // Returns an array of bytes ("ay") with the contents of the input array of unsigned 8-bit values
 GVariant *Utils::gvariantFromByteArray(const std::vector<guint8>& bytes)
 {
@@ -375,6 +435,11 @@ GVariant *Utils::gvariantFromByteArray(const std::vector<guint8>& bytes)
 	GVariant *pGVariant = g_variant_new_from_bytes(G_VARIANT_TYPE_BYTESTRING, pGbytes, bytes.size());
 	g_bytes_unref(pGbytes);
 	return pGVariant;
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const std::vector<guint8>& bytes)
+{
+	return DBusVariantRef(gvariantFromByteArray(bytes));
 }
 
 // Modern safe version using std::span
@@ -386,10 +451,20 @@ GVariant *Utils::gvariantFromByteArray(std::span<const guint8> bytes)
 	return pGVariant;
 }
 
+DBusVariantRef Utils::dbusVariantFromByteArray(std::span<const guint8> bytes)
+{
+	return DBusVariantRef(gvariantFromByteArray(bytes));
+}
+
 // Returns an array of bytes ("ay") containing a single unsigned 8-bit value
 GVariant *Utils::gvariantFromByteArray(const guint8 data)
 {
 	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const guint8 data)
+{
+	return DBusVariantRef(gvariantFromByteArray(data));
 }
 
 // Returns an array of bytes ("ay") containing a single signed 8-bit value
@@ -398,10 +473,20 @@ GVariant *Utils::gvariantFromByteArray(const gint8 data)
 	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
 }
 
+DBusVariantRef Utils::dbusVariantFromByteArray(const gint8 data)
+{
+	return DBusVariantRef(gvariantFromByteArray(data));
+}
+
 // Returns an array of bytes ("ay") containing a single unsigned 16-bit value
 GVariant *Utils::gvariantFromByteArray(const guint16 data)
 {
 	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const guint16 data)
+{
+	return DBusVariantRef(gvariantFromByteArray(data));
 }
 
 // Returns an array of bytes ("ay") containing a single signed 16-bit value
@@ -410,10 +495,20 @@ GVariant *Utils::gvariantFromByteArray(const gint16 data)
 	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
 }
 
+DBusVariantRef Utils::dbusVariantFromByteArray(const gint16 data)
+{
+	return DBusVariantRef(gvariantFromByteArray(data));
+}
+
 // Returns an array of bytes ("ay") containing a single unsigned 32-bit value
 GVariant *Utils::gvariantFromByteArray(const guint32 data)
 {
 	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const guint32 data)
+{
+	return DBusVariantRef(gvariantFromByteArray(data));
 }
 
 // Returns an array of bytes ("ay") containing a single signed 32-bit value
@@ -422,10 +517,20 @@ GVariant *Utils::gvariantFromByteArray(const gint32 data)
 	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
 }
 
+DBusVariantRef Utils::dbusVariantFromByteArray(const gint32 data)
+{
+	return DBusVariantRef(gvariantFromByteArray(data));
+}
+
 // Returns an array of bytes ("ay") containing a single unsigned 64-bit value
 GVariant *Utils::gvariantFromByteArray(const guint64 data)
 {
 	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
+}
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const guint64 data)
+{
+	return DBusVariantRef(gvariantFromByteArray(data));
 }
 
 // Returns an array of bytes ("ay") containing a single signed 64-bit value
@@ -433,6 +538,15 @@ GVariant *Utils::gvariantFromByteArray(const gint64 data)
 {
 	return gvariantFromByteArray((const guint8 *) &data, sizeof(data));
 }
+
+DBusVariantRef Utils::dbusVariantFromByteArray(const gint64 data)
+{
+	return DBusVariantRef(gvariantFromByteArray(data));
+}
+
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 // Extracts a string from an array of bytes ("ay")
 std::string Utils::stringFromGVariantByteArray(const GVariant *pVariant)

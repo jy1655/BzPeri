@@ -76,10 +76,10 @@ Creating BLE services is **incredibly simple** with BzPeri's DSL:
 // Simple time service example
 .gattServiceBegin("time_service", "1805")
     .gattCharacteristicBegin("current_time", "2A2B", {"read", "notify"})
-        .onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+        .onReadValue([](const GattCharacteristic& self, const std::string&, DBusMethodCallRef methodCall) {
             auto now = std::chrono::system_clock::now();
             auto time_string = formatTime(now);
-            self.methodReturnValue(pInvocation, time_string, true);
+            self.methodReturnValue(DBusReplyRef(methodCall), time_string, true);
         })
     .gattCharacteristicEnd()
 .gattServiceEnd()
@@ -173,9 +173,9 @@ void configureMyServices(bzp::Server& server) {
         // Device Information Service
         root.gattServiceBegin("device_info", "180A")
             .gattCharacteristicBegin("manufacturer", "2A29", {"read"})
-                .onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+                .onReadValue([](const GattCharacteristic& self, const std::string&, DBusMethodCallRef methodCall) {
                     std::string manufacturer = "My Company";
-                    self.methodReturnValue(pInvocation, manufacturer, true);
+                    self.methodReturnValue(DBusReplyRef(methodCall), manufacturer, true);
                 })
             .gattCharacteristicEnd()
         .gattServiceEnd()
@@ -183,25 +183,25 @@ void configureMyServices(bzp::Server& server) {
         // Custom service example
         .gattServiceBegin("my_service", "12345678-1234-1234-1234-123456789ABC")
             .gattCharacteristicBegin("my_data", "87654321-4321-4321-4321-ABCDEF123456", {"read", "write", "notify"})
-                .onReadValue([](const GattCharacteristic& self, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation* pInvocation, void*) {
+                .onReadValue([](const GattCharacteristic& self, const std::string&, DBusMethodCallRef methodCall) {
                     // Handle read requests
                     uint32_t value = self.getDataValue<uint32_t>("my_service/data", 0);
-                    self.methodReturnValue(pInvocation, value, true);
+                    self.methodReturnValue(DBusReplyRef(methodCall), value, true);
                 })
-                .onWriteValue([](const GattCharacteristic& self, GDBusConnection* pConnection, const std::string&, GVariant* pParameters, GDBusMethodInvocation* pInvocation, void* pUserData) {
+                .onWriteValue([](const GattCharacteristic& self, const std::string&, DBusMethodCallRef methodCall) {
                     // Extract value from D-Bus parameters
-                    GVariant* pAyBuffer = g_variant_get_child_value(pParameters, 0);
+                    GVariant* pAyBuffer = g_variant_get_child_value(methodCall.parameters().get(), 0);
                     // Process the byte array as needed for your data type
                     g_variant_unref(pAyBuffer);
 
                     // Trigger notification handler and respond to client
-                    self.callOnUpdatedValue(pConnection, pUserData);
-                    self.methodReturnVariant(pInvocation, nullptr);
+                    self.callOnUpdatedValue(DBusUpdateRef(methodCall.connection(), methodCall.userData()));
+                    self.methodReturnVariant(DBusReplyRef(methodCall), DBusVariantRef());
                 })
-                .onUpdatedValue([](const GattCharacteristic& self, GDBusConnection* pConnection, void*) {
+                .onUpdatedValue([](const GattCharacteristic& self, DBusUpdateRef update) {
                     // Handle notifications
                     uint32_t value = self.getDataValue<uint32_t>("my_service/data", 0);
-                    self.sendChangeNotificationValue(pConnection, value);
+                    self.sendChangeNotificationValue(update.connection(), value);
                     return true;
                 })
             .gattCharacteristicEnd()
@@ -251,6 +251,9 @@ The configurator API is distributed as part of the `bzperi-dev` package:
 
 If you're coming from the original Gobbledegook library, BzPeri maintains API compatibility while providing enhanced features:
 
+- `#include "Gobbledegook.h"` is still supported as a compatibility path, but new code should include `BzPeri.h` directly.
+- Legacy `ggk*` wrappers are deprecated in favor of `bzp*` APIs.
+
 ```cpp
 // Old API (still supported) - note service name requirements
 ggkStart("bzperi.device", "name", "short", getter, setter, timeout);
@@ -258,6 +261,20 @@ ggkStart("bzperi.device", "name", "short", getter, setter, timeout);
 // New API with bonding control
 bzpStartWithBondable("bzperi.myapp", "name", "short", getter, setter, timeout, true);
 ```
+
+### Runtime Integration Modes
+
+BzPeri now supports two integration styles:
+
+- Thread-owned mode: `bzpStart*()` / `bzpStart*NoWait()` keep using the internal server thread.
+- Manual-iteration mode: `bzpStartManual()` / `bzpStartWithBondableManual()` create the dedicated GLib context without spawning the internal thread; the host then drives progress with `bzpRunLoopIteration()` or bounded waits via `bzpRunLoopIterationFor()`. The first iteration call becomes the owning thread for that manual run loop, or the host can claim/release ownership explicitly with `bzpRunLoopAttach()` / `bzpRunLoopDetach()`.
+
+Manual mode is the better fit when the host already owns its lifecycle and wants explicit control over when BLE initialization, D-Bus callbacks, and shutdown cleanup are pumped.
+For host-to-server scheduling without exposing GLib types directly, `bzpRunLoopInvoke()` can queue a callback onto the same dedicated run loop.
+For host event loops that already use `poll(2)`/`select(2)`-style integration, the hidden poll API `bzpRunLoopPollPrepare()` / `bzpRunLoopPollQuery()` / `bzpRunLoopPollCheck()` / `bzpRunLoopPollDispatch()` / `bzpRunLoopPollCancel()` exposes the dedicated run loop as plain poll descriptors instead of `GMainContext *`.
+For lifecycle control in manual mode, `bzpRunLoopDriveUntilState()` and `bzpRunLoopDriveUntilShutdown()` can pump the loop until a target state is reached.
+If the host needs to reason about ownership explicitly, `bzpRunLoopIsManualMode()`, `bzpRunLoopHasOwner()`, and `bzpRunLoopIsCurrentThreadOwner()` expose the current manual run-loop state.
+The bundled `bzp-standalone` sample can be launched in this mode with `--manual-loop`.
 
 ## ⚙️ Configuration
 

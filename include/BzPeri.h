@@ -68,6 +68,19 @@ extern "C"
 	// Type definition for callback delegates that receive log messages
 	typedef void (*BZPLogReceiver)(const char *pMessage);
 
+	// Type definition for callbacks that should execute on BzPeri's dedicated GLib run loop.
+	typedef void (*BZPRunLoopCallback)(void *pUserData);
+
+	// GLib-hidden poll-descriptor record for integrating the manual BzPeri run loop into a host poll/select loop.
+	//
+	// `events` and `revents` use the same bit layout as the native platform `poll(2)` API.
+	typedef struct BZPPollFD
+	{
+		int fd;
+		unsigned short events;
+		unsigned short revents;
+	} BZPPollFD;
+
 	// Each of these methods registers a log receiver method. Receivers are set when registered. To unregister a log receiver,
 	// simply register with `nullptr`.
 	void bzpLogRegisterDebug(BZPLogReceiver receiver);
@@ -78,6 +91,14 @@ extern "C"
 	void bzpLogRegisterFatal(BZPLogReceiver receiver);
 	void bzpLogRegisterAlways(BZPLogReceiver receiver);
 	void bzpLogRegisterTrace(BZPLogReceiver receiver);
+
+	// Control whether BzPeri captures process-wide GLib print/log handlers during startup.
+	//
+	// When enabled (default), GLib print/log output is routed through the registered BzPeri log receivers while the server
+	// is active. When disabled, BzPeri leaves the process-global GLib handlers untouched, which is often preferable for
+	// embedded use inside larger host applications.
+	void bzpSetGLibLogCaptureEnabled(int enabled);
+	int bzpGetGLibLogCaptureEnabled();
 
 	// -----------------------------------------------------------------------------------------------------------------------------
 	// SERVER DATA
@@ -125,6 +146,14 @@ extern "C"
 		BZP_UPDATE_QUEUE_INVALID_ARGUMENT = -2
 	};
 
+	// Detailed result codes for enqueueing update notifications.
+	enum BZPUpdateEnqueueResult
+	{
+		BZP_UPDATE_ENQUEUE_OK = 1,
+		BZP_UPDATE_ENQUEUE_INVALID_ARGUMENT = -1,
+		BZP_UPDATE_ENQUEUE_NOT_RUNNING = -2
+	};
+
 	// Adds an update to the front of the queue for a characteristic at the given object path
 	//
 	// Returns non-zero value on success or 0 on failure.
@@ -153,6 +182,11 @@ extern "C"
 	//
 	// Returns non-zero value on success or 0 on failure.
 	int bzpPushUpdateQueue(const char *pObjectPath, const char *pInterfaceName);
+
+	// Detailed enqueue helpers that distinguish invalid arguments from "server is not running".
+	enum BZPUpdateEnqueueResult bzpNotifyUpdatedCharacteristicEx(const char *pObjectPath);
+	enum BZPUpdateEnqueueResult bzpNotifyUpdatedDescriptorEx(const char *pObjectPath);
+	enum BZPUpdateEnqueueResult bzpPushUpdateQueueEx(const char *pObjectPath, const char *pInterfaceName);
 
 	// Get the next update from the back of the queue and returns the element in `element` as a string in the format:
 	//
@@ -194,7 +228,11 @@ extern "C"
 	// Set the server state to 'EInitializing' and then immediately create a server thread and initiate the server's async
 	// processing on the server thread.
 	//
-	// At that point the current thread will block for maxAsyncInitTimeoutMS milliseconds or until initialization completes.
+	// At that point the current thread will block for up to maxAsyncInitTimeoutMS milliseconds or until initialization completes.
+	//
+	// If `maxAsyncInitTimeoutMS == 0`, the method returns immediately after the server thread has been created and the server
+	// enters `EInitializing`. In that mode, use `bzpWaitForState(ERunning, timeoutMS)` or `bzpGetServerRunState()` to observe
+	// the asynchronous initialization result.
 	//
 	// If initialization was successful, the method will return a non-zero value with the server running on its own thread in
 	// 'runServerThread'.
@@ -259,8 +297,40 @@ extern "C"
 	// This is the preferred API for new applications. The basic bzpStart() function above calls this with
 	// enableBondable=1 for backward compatibility.
 	//
+	// `maxAsyncInitTimeoutMS` uses the same startup semantics described above. A value of `0` means "do not wait for
+	// initialization completion".
+	//
 	int bzpStartWithBondable(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 		BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS, int enableBondable);
+
+	// Start the server without waiting for asynchronous initialization to complete.
+	//
+	// This is equivalent to calling `bzpStart(..., 0)` and returns after the server thread has been created and the server has
+	// entered `EInitializing`.
+	//
+	// Use `bzpWaitForState(ERunning, timeoutMS)` or `bzpGetServerRunState()` to observe the eventual initialization result.
+	int bzpStartNoWait(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+		BZPServerDataGetter getter, BZPServerDataSetter setter);
+
+	// Bondable-aware no-wait startup variant.
+	//
+	// This is equivalent to calling `bzpStartWithBondable(..., 0, enableBondable)`.
+	int bzpStartWithBondableNoWait(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+		BZPServerDataGetter getter, BZPServerDataSetter setter, int enableBondable);
+
+	// Start the server in manual-iteration mode without creating the internal server thread.
+	//
+	// This returns after the dedicated GLib context has been created and initialization has been scheduled. The caller must then
+	// repeatedly invoke `bzpRunLoopIteration()` until the server reaches `ERunning` or `EStopped`.
+	int bzpStartManual(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+		BZPServerDataGetter getter, BZPServerDataSetter setter);
+
+	// Bondable-aware manual-iteration startup variant.
+	//
+	// This is the preferred way to integrate BzPeri into a host that already owns an event loop and cannot dedicate a thread to
+	// `g_main_loop_run()`.
+	int bzpStartWithBondableManual(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+		BZPServerDataGetter getter, BZPServerDataSetter setter, int enableBondable);
 
 	// Blocks for up to maxAsyncInitTimeoutMS milliseconds until the server shuts down.
 	//
@@ -269,6 +339,9 @@ extern "C"
 	// If the server fails to stop for some reason, the thread will be killed.
 	//
 	// Typically, a call to this method would follow `bzpTriggerShutdown()`.
+	//
+	// This is the indefinite-wait form. For integration code that must avoid an unbounded block, prefer
+	// `bzpWaitForShutdown()`.
 	int bzpWait();
 
 	// Tells the server to begin the shutdown process
@@ -314,6 +387,126 @@ extern "C"
 	//
 	// See `BZPServerRunState` (enumeration) for more information.
 	enum BZPServerRunState bzpGetServerRunState();
+
+	// Wait until the server reaches the exact target state.
+	//
+	// `timeoutMS` is interpreted as follows:
+	//   * `timeoutMS < 0`: wait indefinitely
+	//   * `timeoutMS == 0`: check immediately and return without blocking
+	//   * `timeoutMS > 0`: wait up to the specified number of milliseconds
+	//
+	// This is particularly useful after `bzpStart*()` is invoked with `maxAsyncInitTimeoutMS == 0`.
+	//
+	// Returns non-zero if the requested state was reached, otherwise 0.
+	int bzpWaitForState(enum BZPServerRunState state, int timeoutMS);
+
+	// Wait until shutdown is complete and the internal server thread has been joined.
+	//
+	// This is a bounded alternative to `bzpWait()` that avoids an unbounded block in event-driven hosts.
+	//
+	// `timeoutMS` uses the same semantics as `bzpWaitForState()`.
+	//
+	// Returns non-zero if shutdown completed within the requested timeout, otherwise 0.
+	int bzpWaitForShutdown(int timeoutMS);
+
+	// Run one iteration of the dedicated GLib context when the server was started with `bzpStartManual()` or
+	// `bzpStartWithBondableManual()`.
+	//
+	// `mayBlock == 0` performs a non-blocking poll and returns immediately.
+	// `mayBlock != 0` blocks until one source is dispatched or shutdown cleanup completes.
+	//
+	// Returns non-zero if work was dispatched or shutdown cleanup completed, otherwise 0.
+	int bzpRunLoopIteration(int mayBlock);
+
+	// Run one iteration of the dedicated GLib context with a bounded timeout.
+	//
+	// `timeoutMS < 0` waits indefinitely.
+	// `timeoutMS == 0` performs a non-blocking poll.
+	// `timeoutMS > 0` waits up to the requested timeout and returns 0 if no work was dispatched before it expired.
+	int bzpRunLoopIterationFor(int timeoutMS);
+
+	// Explicitly attach the manual run loop to the current thread.
+	//
+	// This is optional. If not called, the first successful `bzpRunLoopIteration*()` call implicitly attaches the current thread.
+	// Returns non-zero on success, otherwise 0.
+	int bzpRunLoopAttach();
+
+	// Detach the manual run loop from the current thread without shutting it down.
+	//
+	// After detaching, another thread may attach by calling `bzpRunLoopAttach()` or `bzpRunLoopIteration*()`.
+	// Returns non-zero on success, otherwise 0.
+	int bzpRunLoopDetach();
+
+	// Returns non-zero when the server is currently using the manual run-loop execution model.
+	int bzpRunLoopIsManualMode();
+
+	// Returns non-zero when the manual run loop currently has an owning thread attached.
+	int bzpRunLoopHasOwner();
+
+	// Returns non-zero when the calling thread is the current manual run-loop owner.
+	int bzpRunLoopIsCurrentThreadOwner();
+
+	// Schedule a callback to run on BzPeri's dedicated GLib run loop.
+	//
+	// In the default threaded mode, the callback executes on the internal server thread.
+	// In manual mode, the callback executes when the host next drives `bzpRunLoopIteration()`.
+	//
+	// Returns non-zero if the callback was queued successfully, otherwise 0.
+	int bzpRunLoopInvoke(BZPRunLoopCallback callback, void *pUserData);
+
+	// Begin a GLib-hidden poll cycle for the manual run loop.
+	//
+	// This acquires the dedicated run-loop context and prepares it for `query -> check -> dispatch/cancel`.
+	// It is only valid after `bzpStartManual()` / `bzpStartWithBondableManual()`.
+	//
+	// Outputs are optional:
+	//   * `pTimeoutMS`: the current timeout in milliseconds (`-1` means "wait indefinitely")
+	//   * `pRequiredFDCount`: the number of poll descriptors required by `bzpRunLoopPollQuery()`
+	//   * `pDispatchReady`: non-zero when work is ready immediately and `bzpRunLoopPollDispatch()` can run without polling
+	//
+	// Returns non-zero if the poll cycle was prepared successfully, otherwise 0.
+	int bzpRunLoopPollPrepare(int *pTimeoutMS, int *pRequiredFDCount, int *pDispatchReady);
+
+	// Query the poll descriptors for the currently active manual run-loop poll cycle.
+	//
+	// A discovery call with `pPollFDs == nullptr` and `pollFDCount == 0` is valid and stores the required descriptor count in
+	// `pRequiredFDCount` (if non-null).
+	//
+	// Otherwise, if `pollFDCount` is smaller than the required count, the function returns 0 and stores the required size in
+	// `pRequiredFDCount` (if non-null).
+	//
+	// Returns non-zero on success, otherwise 0.
+	int bzpRunLoopPollQuery(BZPPollFD *pPollFDs, int pollFDCount, int *pRequiredFDCount);
+
+	// Check whether the currently active manual run-loop poll cycle is ready to dispatch after the host poll step.
+	//
+	// The caller should copy native poll results into `revents` before calling this.
+	//
+	// Returns non-zero when dispatch is ready, otherwise 0.
+	int bzpRunLoopPollCheck(const BZPPollFD *pPollFDs, int pollFDCount);
+
+	// Dispatch the currently active manual run-loop poll cycle.
+	//
+	// This releases the internal poll-cycle ownership. If shutdown cleanup completes during dispatch, that also counts as work.
+	//
+	// Returns non-zero if work was dispatched or shutdown cleanup completed, otherwise 0.
+	int bzpRunLoopPollDispatch();
+
+	// Cancel the currently active manual run-loop poll cycle without dispatching any work.
+	//
+	// Returns non-zero if an active poll cycle was canceled, otherwise 0.
+	int bzpRunLoopPollCancel();
+
+	// Drive the manual run loop until the requested state is reached or the timeout expires.
+	//
+	// This is intended for hosts using `bzpStartManual()` / `bzpStartWithBondableManual()` that want bounded lifecycle helpers
+	// without handing control back to `bzpWaitForState()`, which does not pump the manual run loop.
+	//
+	// `timeoutMS` uses the same semantics as `bzpWaitForState()`.
+	int bzpRunLoopDriveUntilState(enum BZPServerRunState state, int timeoutMS);
+
+	// Convenience form of `bzpRunLoopDriveUntilState(EStopped, timeoutMS)`.
+	int bzpRunLoopDriveUntilShutdown(int timeoutMS);
 
 	// Convert a `BZPServerRunState` into a human-readable string
 	const char *bzpGetServerRunStateString(enum BZPServerRunState state);

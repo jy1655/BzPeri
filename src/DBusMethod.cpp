@@ -33,7 +33,7 @@ namespace bzp {
 
 // Instantiate a named method on a given interface (pOwner) with a given set of arguments and a callback delegate
 DBusMethod::DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, RawCallback callback)
-: pOwner(pOwner), name(name), callback(callback)
+: pOwner(pOwner), name(name)
 {
 	const char **ppInArg = pInArgs;
 	while(*ppInArg)
@@ -46,10 +46,40 @@ DBusMethod::DBusMethod(const DBusInterface *pOwner, const std::string &name, con
 	{
 		this->outArgs = pOutArgs;
 	}
+
+	if (callback != nullptr)
+	{
+		callHandler = [callback](const DBusInterface &self, const std::string &methodName, DBusMethodCallRef methodCall) {
+			callback(self, methodCall.connection().get(), methodName, methodCall.parameters().get(), methodCall.invocation().get(), methodCall.userData());
+		};
+	}
 }
 
 DBusMethod::DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, const Handler &handler)
-: pOwner(pOwner), name(name), callback(nullptr), handler(handler)
+: pOwner(pOwner), name(name)
+{
+	const char **ppInArg = pInArgs;
+	while(*ppInArg)
+	{
+		this->inArgs.push_back(std::string(*ppInArg));
+		ppInArg++;
+	}
+
+	if (nullptr != pOutArgs)
+	{
+		this->outArgs = pOutArgs;
+	}
+
+	if (handler != nullptr)
+	{
+		callHandler = [handler](const DBusInterface &self, const std::string &methodName, DBusMethodCallRef methodCall) {
+			handler(self, methodCall.connection(), methodName, methodCall.parameters(), methodCall.invocation(), methodCall.userData());
+		};
+	}
+}
+
+DBusMethod::DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, const CallHandler &handler)
+: pOwner(pOwner), name(name), callHandler(handler)
 {
 	const char **ppInArg = pInArgs;
 	while(*ppInArg)

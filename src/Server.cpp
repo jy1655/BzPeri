@@ -151,6 +151,7 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #include <algorithm>
+#include <cctype>
 
 #include <bzp/Server.h>
 #include "ServerUtils.h"
@@ -174,44 +175,6 @@ namespace bzp {
 #if defined(__GNUC__) && !defined(__clang__)
 	#pragma GCC diagnostic push
 	#pragma GCC diagnostic ignored "-Wunused-parameter"
-#endif
-
-// ---------------------------------------------------------------------------------------------------------------------------------
-// Globals
-// ---------------------------------------------------------------------------------------------------------------------------------
-
-#if defined(__GNUC__) && defined(__clang__)
-	#pragma clang diagnostic push
-	#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#endif
-#if defined(__GNUC__) && !defined(__clang__)
-	#pragma GCC diagnostic push
-	#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
-
-// Legacy compatibility storage for callers that still reference TheServer directly.
-std::shared_ptr<Server> TheServer = nullptr;
-
-std::shared_ptr<Server> getActiveServer()
-{
-	return TheServer;
-}
-
-Server* getActiveServerPtr() noexcept
-{
-	return TheServer.get();
-}
-
-void setActiveServer(std::shared_ptr<Server> server)
-{
-	TheServer = std::move(server);
-}
-
-#if defined(__GNUC__) && defined(__clang__)
-	#pragma clang diagnostic pop
-#endif
-#if defined(__GNUC__) && !defined(__clang__)
-	#pragma GCC diagnostic pop
 #endif
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -296,6 +259,19 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 	// e.g., "bzperi.myapp" becomes "/com/bzperi/myapp"
 	std::string pathServiceName = getServiceName();
 	std::replace(pathServiceName.begin(), pathServiceName.end(), '.', '/');
+	for (char &pathChar : pathServiceName)
+	{
+		if (pathChar == '/')
+		{
+			continue;
+		}
+
+		const auto normalized = static_cast<unsigned char>(pathChar);
+		if (!std::isalnum(normalized) && pathChar != '_')
+		{
+			pathChar = '_';
+		}
+	}
 	objects.push_back(DBusObject(*this, DBusObjectPath() + "com" + pathServiceName));
 
 	// Cache the root node for downstream configurators (example services, application-defined services, etc.)
@@ -355,8 +331,8 @@ Server::Server(const std::string &serviceName, const std::string &advertisingNam
 	// 'org.freedesktop.DBus.ObjectManager' interface.
 	const char *pInArgs[] = { nullptr };
 	const char *pOutArgs = "a{oa{sa{sv}}}";
-	omInterface->addMethod("GetManagedObjects", pInArgs, pOutArgs, [](const DBusInterface& self, DBusConnectionRef, const std::string&, DBusVariantRef, DBusMethodInvocationRef invocation, void*) {
-		ServerUtils::getManagedObjects(self.getOwner().getServer(), invocation.get());
+	omInterface->addMethod("GetManagedObjects", pInArgs, pOutArgs, [](const DBusInterface& self, const std::string&, DBusMethodCallRef methodCall) {
+		ServerUtils::getManagedObjects(self.getOwner().getServer(), methodCall);
 	});
 
 }
@@ -398,9 +374,14 @@ std::shared_ptr<const DBusInterface> Server::findInterface(const DBusObjectPath 
 // If the method was called, this method returns true, otherwise false. There is no result from the method call itself.
 bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view interfaceName, std::string_view methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const
 {
+	return callMethod(objectPath, interfaceName, methodName, DBusMethodCallRef(pConnection, pParameters, pInvocation, pUserData));
+}
+
+bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view interfaceName, std::string_view methodName, DBusMethodCallRef methodCall) const
+{
 	for (const DBusObject &object : objects)
 	{
-		if (object.callMethod(objectPath, std::string(interfaceName), std::string(methodName), pConnection, pParameters, pInvocation, pUserData))
+		if (object.callMethod(objectPath, std::string(interfaceName), std::string(methodName), methodCall))
 		{
 			return true;
 		}
@@ -411,7 +392,7 @@ bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view inter
 
 bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view interfaceName, std::string_view methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const
 {
-	return callMethod(objectPath, interfaceName, methodName, connection.get(), parameters.get(), invocation.get(), pUserData);
+	return callMethod(objectPath, interfaceName, methodName, DBusMethodCallRef(connection, parameters, invocation, pUserData));
 }
 
 // Find a GATT Property within the given D-Bus object on the given D-Bus interface
