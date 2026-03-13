@@ -58,10 +58,14 @@ jobs:
           cmake -B build \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DBUILD_STANDALONE=ON \
-            -DBUILD_SHARED_LIBS=ON
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_TESTING=ON
 
       - name: Build
         run: cmake --build build --parallel $(nproc)
+
+      - name: Run unit tests
+        run: ctest --test-dir build --output-on-failure
 
       - name: Check build artifacts
         run: |
@@ -82,20 +86,16 @@ jobs:
 
       - name: Verify executable
         run: |
-          # Check if executable exists and is runnable (will fail without BlueZ but should show help)
-          if [ -f "build/bzp-standalone" ]; then
-            echo "Executable exists"
-            if command -v file >/dev/null 2>&1; then
-              file build/bzp-standalone
-            else
-              echo "Skipping 'file' inspection: utility not installed in this environment"
-            fi
-            # Try to run with --help (may fail on container without BlueZ runtime)
-            build/bzp-standalone --help 2>/dev/null || echo "Help not available (expected in container)"
+          # Verify the standalone binary exists, is executable, and prints its help text.
+          test -x build/bzp-standalone
+          echo "Executable exists"
+          if command -v file >/dev/null 2>&1; then
+            file build/bzp-standalone
           else
-            echo "ERROR: bzp-standalone not built"
-            exit 1
+            echo "Skipping 'file' inspection: utility not installed in this environment"
           fi
+          build/bzp-standalone --help > /tmp/bzp-standalone-help.txt 2>&1
+          grep -q "Usage: standalone" /tmp/bzp-standalone-help.txt
 
   lint:
     name: Code Style Check
