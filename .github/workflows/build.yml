@@ -21,18 +21,21 @@ jobs:
             container: debian:bookworm
             build_type: Release
             name: Debian 12
+            run_tests: false
           
-          # Ubuntu 24.04
+          # Ubuntu 24.04 - host runner keeps the system D-Bus environment for unit tests
           - os: ubuntu-24.04
             container: null
             build_type: Release
             name: Ubuntu 24.04
+            run_tests: true
 
           # Debug build for development
           - os: ubuntu-latest
             container: debian:bookworm
             build_type: Debug
             name: Debian 12 Debug
+            run_tests: false
 
     steps:
       - name: Checkout
@@ -55,16 +58,21 @@ jobs:
 
       - name: Configure CMake
         run: |
+          TESTING_FLAG=OFF
+          if [ "${{ matrix.run_tests }}" = "true" ]; then
+            TESTING_FLAG=ON
+          fi
           cmake -B build \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DBUILD_STANDALONE=ON \
             -DBUILD_SHARED_LIBS=ON \
-            -DBUILD_TESTING=ON
+            -DBUILD_TESTING=${TESTING_FLAG}
 
       - name: Build
         run: cmake --build build --parallel $(nproc)
 
       - name: Run unit tests
+        if: ${{ matrix.run_tests }}
         run: ctest --test-dir build --output-on-failure
 
       - name: Check build artifacts
