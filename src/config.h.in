@@ -29,4 +29,7 @@
 /* Default systemd PrepareForSleep integration: 0=OFF, 1=ON */
 #define BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION_VALUE @BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION_VALUE@
 
+/* Default systemd sleep inhibitor integration: 0=OFF, 1=ON */
+#define BZP_DEFAULT_SLEEP_INHIBITOR_VALUE @BZP_DEFAULT_SLEEP_INHIBITOR_VALUE@
+
 #endif /* CONFIG_H */

@@ -39,6 +39,8 @@ void setServerHealth(BZPServerHealth newHealth);
 
 namespace {
 
+constexpr int kShutdownDriveTimeoutMS = 500;
+
 using bzp::DBusConnectionRef;
 using bzp::DBusErrorRef;
 using bzp::DBusInterface;
@@ -171,6 +173,14 @@ std::vector<std::string> capturedStatusLogs;
 std::vector<std::string> capturedTraceLogs;
 
 void ignoreGLog(const gchar *, GLogLevelFlags, const gchar *, gpointer)
+{
+}
+
+void ignorePrint(const gchar *)
+{
+}
+
+void externalPrint(const gchar *)
 {
 }
 
@@ -886,7 +896,7 @@ void testWaitHelpers()
 	require(bzpStartWithBondableManualEx("bzperi.tests.manual-invalid-timeout", "", "", &nullGetter, &acceptingSetter, 1) == BZP_START_OK,
 		"bzpStartWithBondableManualEx should succeed for manual startup when arguments are valid");
 	bzpTriggerShutdown();
-	require(bzpRunLoopDriveUntilShutdown(100) != 0,
+	require(bzpRunLoopDriveUntilShutdown(kShutdownDriveTimeoutMS) != 0,
 		"Manual startup from bzpStartWithBondableManualEx should still shut down cleanly");
 	require(bzpWaitForShutdownEx(0) == BZP_WAIT_OK,
 		"bzpWaitForShutdownEx should report OK once manual shutdown cleanup completed");
@@ -933,7 +943,7 @@ void testManualRunLoopLifecycle()
 	bzpTriggerShutdown();
 	require(bzpGetServerRunState() == EStopping,
 		"Manual run loop shutdown should transition through EStopping");
-	require(bzpRunLoopDriveUntilShutdown(100) != 0,
+	require(bzpRunLoopDriveUntilShutdown(kShutdownDriveTimeoutMS) != 0,
 		"bzpRunLoopDriveUntilShutdown should pump manual shutdown to completion");
 	require(bzpGetServerRunState() == EStopped,
 		"Manual run loop cleanup should transition the server to EStopped");
@@ -1209,7 +1219,7 @@ void testRunLoopDriveHelpers()
 			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
 			{
 				bzpTriggerShutdown();
-				bzpRunLoopDriveUntilShutdown(100);
+				bzpRunLoopDriveUntilShutdown(kShutdownDriveTimeoutMS);
 			}
 
 			setActiveServer(activeServer);
@@ -1229,7 +1239,7 @@ void testRunLoopDriveHelpers()
 		"bzpRunLoopDriveUntilState should succeed immediately for the current initializing state");
 
 	bzpTriggerShutdown();
-	require(bzpRunLoopDriveUntilShutdown(100) != 0,
+	require(bzpRunLoopDriveUntilShutdown(kShutdownDriveTimeoutMS) != 0,
 		"bzpRunLoopDriveUntilShutdown should drive the manual loop until shutdown completes");
 	require(bzpGetServerRunState() == EStopped,
 		"Drive-until-shutdown helper should leave the server in EStopped");
@@ -1248,7 +1258,7 @@ void testRunLoopPollApi()
 			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
 			{
 				bzpTriggerShutdown();
-				bzpRunLoopDriveUntilShutdown(100);
+				bzpRunLoopDriveUntilShutdown(kShutdownDriveTimeoutMS);
 			}
 
 			setActiveServer(activeServer);
@@ -1364,7 +1374,7 @@ void testRunLoopPollApi()
 		"Queued callback should remain pending until a later hidden poll dispatch");
 
 	bzpTriggerShutdown();
-	require(bzpRunLoopDriveUntilShutdown(100) != 0,
+	require(bzpRunLoopDriveUntilShutdown(kShutdownDriveTimeoutMS) != 0,
 		"bzpRunLoopDriveUntilShutdown should still clean up after hidden poll API use");
 }
 
@@ -1381,7 +1391,7 @@ void testRunLoopExResults()
 			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
 			{
 				bzpTriggerShutdown();
-				bzpRunLoopDriveUntilShutdown(100);
+				bzpRunLoopDriveUntilShutdown(kShutdownDriveTimeoutMS);
 			}
 
 			setActiveServer(activeServer);
@@ -1485,7 +1495,7 @@ void testShutdownTriggerEx()
 			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
 			{
 				bzpTriggerShutdown();
-				bzpRunLoopDriveUntilShutdown(100);
+				bzpRunLoopDriveUntilShutdown(kShutdownDriveTimeoutMS);
 			}
 
 			setActiveServer(activeServer);
@@ -1520,18 +1530,20 @@ void testQueryExHelpers()
 		BZPServerHealth health = bzpGetServerHealth();
 		BZPGLibLogCaptureMode mode = bzpGetGLibLogCaptureMode();
 		int sleepIntegrationEnabled = bzpGetPrepareForSleepIntegrationEnabled();
+		int sleepInhibitorEnabled = bzpGetSleepInhibitorEnabled();
 
 		~RestoreState()
 		{
 			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
 			{
 				bzpTriggerShutdown();
-				bzpRunLoopDriveUntilShutdown(100);
+				bzpRunLoopDriveUntilShutdown(kShutdownDriveTimeoutMS);
 			}
 
 			bzpUpdateQueueClear();
 			bzpSetGLibLogCaptureMode(mode);
 			bzpSetPrepareForSleepIntegrationEnabled(sleepIntegrationEnabled);
+			bzpSetSleepInhibitorEnabled(sleepInhibitorEnabled);
 			setActiveServer(activeServer);
 			bzp::setServerHealth(health);
 			bzp::setServerRunState(runState);
@@ -1560,6 +1572,26 @@ void testQueryExHelpers()
 	bzpSetPrepareForSleepIntegrationEnabled(1);
 	require(bzpGetPrepareForSleepIntegrationEnabledEx(&value) == BZP_QUERY_OK && value != 0,
 		"PrepareForSleep integration query should reflect runtime enable");
+	require(bzpGetSleepInhibitorEnabledEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
+		"bzpGetSleepInhibitorEnabledEx should reject null outputs");
+	require(bzpGetSleepInhibitorEnabledEx(&value) == BZP_QUERY_OK,
+		"bzpGetSleepInhibitorEnabledEx should succeed with a valid output");
+	require(value == bzpGetSleepInhibitorEnabled(),
+		"bzpGetSleepInhibitorEnabledEx should match the legacy boolean getter");
+	require(bzpGetConfiguredSleepInhibitorEnabled() == BZP_DEFAULT_SLEEP_INHIBITOR_VALUE,
+		"Configured sleep inhibitor integration should match the build-time default");
+	bzpSetSleepInhibitorEnabled(0);
+	require(bzpGetSleepInhibitorEnabledEx(&value) == BZP_QUERY_OK && value == 0,
+		"Sleep inhibitor query should reflect runtime disable");
+	bzpSetSleepInhibitorEnabled(1);
+	require(bzpGetSleepInhibitorEnabledEx(&value) == BZP_QUERY_OK && value != 0,
+		"Sleep inhibitor query should reflect runtime enable");
+	require(bzpHasSleepInhibitorEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
+		"bzpHasSleepInhibitorEx should reject null outputs");
+	require(bzpHasSleepInhibitorEx(&value) == BZP_QUERY_OK,
+		"bzpHasSleepInhibitorEx should succeed with a valid output");
+	require(value == bzpHasSleepInhibitor(),
+		"bzpHasSleepInhibitorEx should match the legacy boolean getter");
 
 	require(bzpIsGLibLogCaptureInstalledEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
 		"bzpIsGLibLogCaptureInstalledEx should reject null outputs");
@@ -1702,7 +1734,6 @@ void testGLibLogCaptureToggle()
 		BZPGLibLogCaptureMode mode;
 		unsigned int targets;
 		unsigned int domains;
-
 		~RestoreState()
 		{
 			bzp::setServerHealth(health);
@@ -1720,6 +1751,7 @@ void testGLibLogCaptureToggle()
 			bzpSetGLibLogCaptureTargets(targets);
 			bzpSetGLibLogCaptureDomains(domains);
 			bzpSetGLibLogCaptureMode(mode);
+			bzpClearGLibLogCaptureContention();
 		}
 	} restore{bzpGetServerRunState(), bzpGetServerHealth(), originalMode, originalTargets, originalDomains};
 
@@ -1849,6 +1881,35 @@ void testGLibLogCaptureToggle()
 		"Host-managed GLib log capture Ex API should report not-installed after the final explicit restore");
 	require(bzpIsGLibLogCaptureInstalled() == 0,
 		"Host-managed GLib log capture should report not installed after explicit restore");
+	bzpClearGLibLogCaptureContention();
+	require(bzpGetGLibLogCaptureContentionTargetsEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
+		"GLib log capture contention query should reject null outputs");
+	require(bzpGetGLibLogCaptureContentionTargets() == 0,
+		"GLib log capture contention query should start clear after reset");
+	const GPrintFunc originalPrintHandler = g_set_print_handler(&ignorePrint);
+	(void)g_set_print_handler(originalPrintHandler);
+	require(bzpSetGLibLogCaptureTargetsEx(BZP_GLIB_LOG_CAPTURE_TARGET_PRINT) == BZP_GLIB_LOG_CAPTURE_TARGETS_SET_OK,
+		"GLib log capture targets should support print-only contention testing");
+	require(bzpInstallGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_OK,
+		"Host-managed GLib log capture should reinstall for contention testing");
+	{
+		(void)g_set_print_handler(&externalPrint);
+		require(bzpRestoreGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_OK,
+			"Restoring GLib log capture should still succeed when an external print handler took over");
+		const GPrintFunc current = g_set_print_handler(&ignorePrint);
+		require(current == &externalPrint,
+			"GLib log capture restore should preserve an external print handler that replaced BzPeri capture");
+		(void)g_set_print_handler(current);
+	}
+	(void)g_set_print_handler(originalPrintHandler);
+	int contentionTargets = 0;
+	require(bzpGetGLibLogCaptureContentionTargetsEx(&contentionTargets) == BZP_QUERY_OK,
+		"GLib log capture contention query should succeed with a valid output");
+	require((contentionTargets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINT) != 0,
+		"GLib log capture contention should record the externally replaced print handler");
+	bzpClearGLibLogCaptureContention();
+	require(bzpGetGLibLogCaptureContentionTargets() == 0,
+		"GLib log capture contention should clear after explicit reset");
 	require(bzpSetGLibLogCaptureTargetsEx(BZP_GLIB_LOG_CAPTURE_TARGET_LOG | BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR)
 		== BZP_GLIB_LOG_CAPTURE_TARGETS_SET_OK,
 		"GLib log capture targets Ex setter should allow mixed target masks");
@@ -1906,7 +1967,7 @@ void testGLibLogCaptureStartupAndShutdownMode()
 			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
 			{
 				bzpTriggerShutdown();
-				bzpRunLoopDriveUntilShutdown(100);
+				bzpRunLoopDriveUntilShutdown(kShutdownDriveTimeoutMS);
 			}
 
 			setActiveServer(activeServer);

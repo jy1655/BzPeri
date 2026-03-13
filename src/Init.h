@@ -37,6 +37,9 @@ BZPShutdownTriggerResult shutdownEx();
 bool ensureAutomaticGLibCaptureForShutdown();
 void setPrepareForSleepIntegrationEnabled(bool enabled);
 bool isPrepareForSleepIntegrationEnabled();
+void setSleepInhibitorEnabled(bool enabled);
+bool isSleepInhibitorEnabled();
+bool hasSleepInhibitor();
 
 // Entry point for the asynchronous server thread
 //

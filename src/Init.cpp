@@ -40,6 +40,7 @@
 #include <chrono>
 #include <thread>
 #include <new>
+#include <unistd.h>
 
 #include <bzp/Server.h>
 #include <bzp/BluezAdapter.h>
@@ -80,6 +81,7 @@ static guint sigtermSourceId = 0;
 static guint sigintSourceId = 0;
 static guint sleepSignalSubscriptionId = 0;
 static std::atomic_bool bPrepareForSleepIntegrationEnabled{BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION_VALUE != 0};
+static std::atomic_bool bSleepInhibitorEnabled{BZP_DEFAULT_SLEEP_INHIBITOR_VALUE != 0};
 static std::vector<guint> registeredObjectIds;
 static std::atomic<GMainLoop *> pMainLoop(nullptr);
 static GMainContext *pMainContext = nullptr;
@@ -99,6 +101,7 @@ static bool bOwnedNameAcquired = false;
 static bool bAdapterConfigured = false;
 static bool bApplicationRegistered = false;
 static bool bRestoreAdvertisingAfterResume = false;
+static int sleepInhibitorFD = -1;
 static std::string bluezGattManagerInterfaceName = "";
 static Server* pServerContext = nullptr;
 static BluezAdapter* pAdapterContext = nullptr;
@@ -118,6 +121,9 @@ extern void restoreGLibHandlers();
 static void initializationStateProcessor();
 bool idleFunc(void *pUserData);
 void uninit();
+static void refreshPrepareForSleepSignalSubscriptionOnCurrentThread();
+static void releaseSleepInhibitor();
+static void refreshSleepInhibitorOnCurrentThread();
 
 static Server& serverContext()
 {
@@ -292,21 +298,22 @@ static void onPrepareForSleepSignal(
 	gboolean goingToSleep = FALSE;
 	g_variant_get(parameters, "(b)", &goingToSleep);
 
-	if (pAdapterContext == nullptr || !adapterContext().isInitialized())
-	{
-		LOG_DEBUG_STREAM(SSTR << "PrepareForSleep(" << (goingToSleep ? "true" : "false")
-			<< ") received before adapter initialization");
-		return;
-	}
-
 	if (goingToSleep)
 	{
+		if (pAdapterContext == nullptr || !adapterContext().isInitialized())
+		{
+			LOG_DEBUG_STREAM("PrepareForSleep(true) received before adapter initialization");
+			releaseSleepInhibitor();
+			return;
+		}
+
 		bRestoreAdvertisingAfterResume = adapterContext().isAdvertising();
 		Logger::status("System suspend requested; preparing BLE advertising state");
 
 		if (!bRestoreAdvertisingAfterResume)
 		{
 			Logger::info("BLE advertising was already stopped before suspend");
+			releaseSleepInhibitor();
 			return;
 		}
 
@@ -319,11 +326,20 @@ static void onPrepareForSleepSignal(
 			{
 				Logger::info("BLE advertising paused for system suspend");
 			}
+			releaseSleepInhibitor();
 		});
 		return;
 	}
 
 	Logger::status("System resume detected; restoring BLE adapter state");
+	refreshSleepInhibitorOnCurrentThread();
+
+	if (pAdapterContext == nullptr || !adapterContext().isInitialized())
+	{
+		LOG_DEBUG_STREAM("PrepareForSleep(false) received before adapter initialization");
+		return;
+	}
+
 	const auto powerResult = adapterContext().setPowered(true);
 	if (powerResult.hasError())
 	{
@@ -386,13 +402,107 @@ static void unsubscribePrepareForSleepSignals()
 
 static void refreshPrepareForSleepSignalSubscriptionOnCurrentThread()
 {
-	if (!bPrepareForSleepIntegrationEnabled.load(std::memory_order_acquire))
+	const bool wantsPrepareForSleepSignals =
+		bPrepareForSleepIntegrationEnabled.load(std::memory_order_acquire) ||
+		bSleepInhibitorEnabled.load(std::memory_order_acquire);
+
+	if (!wantsPrepareForSleepSignals)
 	{
 		unsubscribePrepareForSleepSignals();
 		return;
 	}
 
 	subscribePrepareForSleepSignals();
+}
+
+static void releaseSleepInhibitor()
+{
+	if (sleepInhibitorFD >= 0)
+	{
+		close(sleepInhibitorFD);
+		sleepInhibitorFD = -1;
+		Logger::info("Released systemd sleep inhibitor");
+	}
+}
+
+static void acquireSleepInhibitor()
+{
+	if (pBusConnection == nullptr || sleepInhibitorFD >= 0 || !bSleepInhibitorEnabled.load(std::memory_order_acquire))
+	{
+		return;
+	}
+
+	GError *pError = nullptr;
+	GUnixFDList *pOutFDList = nullptr;
+	GVariant *pResult = g_dbus_connection_call_with_unix_fd_list_sync(
+		pBusConnection,
+		"org.freedesktop.login1",
+		"/org/freedesktop/login1",
+		"org.freedesktop.login1.Manager",
+		"Inhibit",
+		g_variant_new("(ssss)", "sleep", "BzPeri", "Keep BLE state consistent across suspend", "delay"),
+		G_VARIANT_TYPE("(h)"),
+		G_DBUS_CALL_FLAGS_NONE,
+		-1,
+		nullptr,
+		&pOutFDList,
+		nullptr,
+		&pError);
+
+	if (pResult == nullptr || pOutFDList == nullptr)
+	{
+		Logger::warn(SSTR << "Unable to acquire systemd sleep inhibitor: "
+			<< (pError == nullptr ? "unknown error" : pError->message));
+		if (pResult != nullptr)
+		{
+			g_variant_unref(pResult);
+		}
+		if (pOutFDList != nullptr)
+		{
+			g_object_unref(pOutFDList);
+		}
+		if (pError != nullptr)
+		{
+			g_error_free(pError);
+		}
+		return;
+	}
+
+	gint fdIndex = -1;
+	g_variant_get(pResult, "(h)", &fdIndex);
+	sleepInhibitorFD = g_unix_fd_list_get(pOutFDList, fdIndex, &pError);
+	if (sleepInhibitorFD < 0)
+	{
+		Logger::warn(SSTR << "Unable to extract systemd sleep inhibitor fd: "
+			<< (pError == nullptr ? "unknown error" : pError->message));
+	}
+	else
+	{
+		Logger::info("Acquired systemd sleep inhibitor");
+	}
+
+	g_variant_unref(pResult);
+	g_object_unref(pOutFDList);
+	if (pError != nullptr)
+	{
+		g_error_free(pError);
+	}
+}
+
+static void refreshSleepInhibitorOnCurrentThread()
+{
+	if (!bSleepInhibitorEnabled.load(std::memory_order_acquire))
+	{
+		releaseSleepInhibitor();
+		return;
+	}
+
+	if (pBusConnection == nullptr || bzpGetServerRunState() == EUninitialized || bzpGetServerRunState() == EStopped)
+	{
+		return;
+	}
+
+	acquireSleepInhibitor();
 }
 
 static bool activateRunLoopOnCurrentThread()
@@ -720,6 +830,8 @@ void uninit()
 	{
 		unsubscribePrepareForSleepSignals();
 	}
+
+	releaseSleepInhibitor();
 
   	if (ownedNameId > 0)
   	{
@@ -1654,6 +1766,7 @@ void initializationStateProcessor()
 	}
 
 	refreshPrepareForSleepSignalSubscriptionOnCurrentThread();
+	refreshSleepInhibitorOnCurrentThread();
 
 	//
 	// Acquire an owned name on the bus
@@ -1755,6 +1868,47 @@ void setPrepareForSleepIntegrationEnabled(bool enabled)
 bool isPrepareForSleepIntegrationEnabled()
 {
 	return bPrepareForSleepIntegrationEnabled.load(std::memory_order_acquire);
+}
+
+void setSleepInhibitorEnabled(bool enabled)
+{
+	bSleepInhibitorEnabled.store(enabled, std::memory_order_release);
+
+	if (pMainContext == nullptr)
+	{
+		if (!enabled)
+		{
+			releaseSleepInhibitor();
+		}
+		return;
+	}
+
+	if (mainContextOwnerThread == std::thread::id() || mainContextOwnerThread == std::this_thread::get_id())
+	{
+		refreshPrepareForSleepSignalSubscriptionOnCurrentThread();
+		refreshSleepInhibitorOnCurrentThread();
+		return;
+	}
+
+	if (const BZPRunLoopResult result = invokeOnServerLoopEx(
+		[](void *) {
+			refreshPrepareForSleepSignalSubscriptionOnCurrentThread();
+			refreshSleepInhibitorOnCurrentThread();
+		},
+		nullptr); result != BZP_RUN_LOOP_OK)
+	{
+		Logger::warn(SSTR << "Unable to refresh sleep inhibitor on the active run loop: " << static_cast<int>(result));
+	}
+}
+
+bool isSleepInhibitorEnabled()
+{
+	return bSleepInhibitorEnabled.load(std::memory_order_acquire);
+}
+
+bool hasSleepInhibitor()
+{
+	return sleepInhibitorFD >= 0;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------

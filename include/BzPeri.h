@@ -194,6 +194,12 @@ extern "C"
 	int bzpGetPrepareForSleepIntegrationEnabled();
 	enum BZPQueryResult bzpGetPrepareForSleepIntegrationEnabledEx(int *pEnabled);
 	int bzpGetConfiguredPrepareForSleepIntegrationEnabled();
+	void bzpSetSleepInhibitorEnabled(int enabled);
+	int bzpGetSleepInhibitorEnabled();
+	enum BZPQueryResult bzpGetSleepInhibitorEnabledEx(int *pEnabled);
+	int bzpGetConfiguredSleepInhibitorEnabled();
+	int bzpHasSleepInhibitor();
+	enum BZPQueryResult bzpHasSleepInhibitorEx(int *pHasInhibitor);
 
 	// Configure how BzPeri captures GLib process-global print/log handlers.
 	//
@@ -246,6 +252,9 @@ extern "C"
 	enum BZPGLibLogCapturePauseResult bzpResumeGLibLogCaptureEx();
 	int bzpIsGLibLogCapturePaused();
 	enum BZPQueryResult bzpIsGLibLogCapturePausedEx(int *pPaused);
+	void bzpClearGLibLogCaptureContention();
+	int bzpGetGLibLogCaptureContentionTargets();
+	enum BZPQueryResult bzpGetGLibLogCaptureContentionTargetsEx(int *pTargets);
 
 	// -----------------------------------------------------------------------------------------------------------------------------
 	// SERVER DATA

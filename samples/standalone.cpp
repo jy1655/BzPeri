@@ -463,6 +463,7 @@ int main(int argc, char **ppArgv)
 	unsigned int glibCaptureTargets = bzpGetConfiguredGLibLogCaptureTargets();
 	unsigned int glibCaptureDomains = bzpGetConfiguredGLibLogCaptureDomains();
 	bool sleepIntegrationEnabled = bzpGetConfiguredPrepareForSleepIntegrationEnabled() != 0;
+	bool sleepInhibitorEnabled = bzpGetConfiguredSleepInhibitorEnabled() != 0;
 	bool installHostManagedCapture = false;
 
 	// A basic command-line parser
@@ -532,6 +533,25 @@ int main(int argc, char **ppArgv)
 			else
 			{
 				LogFatal((std::string("Unknown sleep integration mode: '") + mode + "'").c_str());
+				LogFatal("Expected one of: on, off");
+				return -1;
+			}
+		}
+		else if (arg.rfind("--sleep-inhibitor=", 0) == 0)
+		{
+			std::string mode = arg.substr(19);
+			std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+			if (mode == "on" || mode == "enable" || mode == "enabled" || mode == "true")
+			{
+				sleepInhibitorEnabled = true;
+			}
+			else if (mode == "off" || mode == "disable" || mode == "disabled" || mode == "false")
+			{
+				sleepInhibitorEnabled = false;
+			}
+			else
+			{
+				LogFatal((std::string("Unknown sleep inhibitor mode: '") + mode + "'").c_str());
 				LogFatal("Expected one of: on, off");
 				return -1;
 			}
@@ -612,6 +632,7 @@ int main(int argc, char **ppArgv)
 			LogAlways("  --sample-namespace=NODE  Namespace node for example services (default samples)");
 			LogAlways("  --manual-loop            Drive BzPeri via bzpRunLoopIteration() instead of the internal thread");
 			LogAlways("  --sleep-integration=MODE Enable or disable systemd PrepareForSleep integration: on or off");
+			LogAlways("  --sleep-inhibitor=MODE   Enable or disable systemd sleep inhibitor support: on or off");
 			LogAlways("  --glib-log-capture=MODE Set GLib capture mode: auto, off, host, or startup-shutdown");
 			LogAlways("  --glib-log-targets=SET  Set GLib capture targets: all or comma-separated log,print,printerr");
 			LogAlways("  --glib-log-domains=SET  Set GLib log domains: all or comma-separated default,glib,gio,bluez,other");
@@ -705,11 +726,13 @@ int main(int argc, char **ppArgv)
 	bzpLogRegisterTrace(LogTrace);
 
 	bzpSetPrepareForSleepIntegrationEnabled(sleepIntegrationEnabled ? 1 : 0);
+	bzpSetSleepInhibitorEnabled(sleepInhibitorEnabled ? 1 : 0);
 	bzpSetGLibLogCaptureMode(glibCaptureMode);
 	bzpSetGLibLogCaptureTargets(glibCaptureTargets);
 	bzpSetGLibLogCaptureDomains(glibCaptureDomains);
 	LogStatus((std::string("Compiled log level: ") + describeCompiledLogLevel(bzpGetConfiguredCompiledLogLevel())).c_str());
 	LogStatus((std::string("PrepareForSleep integration: ") + (sleepIntegrationEnabled ? "enabled" : "disabled")).c_str());
+	LogStatus((std::string("Sleep inhibitor integration: ") + (sleepInhibitorEnabled ? "enabled" : "disabled")).c_str());
 	if (glibCaptureMode == BZP_GLIB_LOG_CAPTURE_AUTOMATIC)
 	{
 		LogStatus("GLib log capture mode: automatic");

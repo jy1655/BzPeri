@@ -94,6 +94,7 @@ namespace bzp
 		constexpr unsigned int kConfiguredGLibLogCaptureTargets = BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE;
 		constexpr unsigned int kConfiguredGLibLogCaptureDomains = BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE;
 		constexpr int kConfiguredPrepareForSleepIntegration = BZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION_VALUE;
+		constexpr int kConfiguredSleepInhibitor = BZP_DEFAULT_SLEEP_INHIBITOR_VALUE;
 		constexpr int kConfiguredCompiledLogLevel = BZP_COMPILED_LOG_LEVEL_VALUE;
 
 		RuntimeBluezAdapterPtr& runtimeBluezAdapterStorage()
@@ -159,6 +160,14 @@ namespace bzp
 	static std::atomic<GLogFunc> glibSavedLogHandler{nullptr};
 	static std::atomic<unsigned int> automaticGLibCaptureInstalls{0};
 	static std::atomic<unsigned int> automaticGLibCapturePauseDepth{0};
+	static std::atomic<unsigned int> glibLogCaptureContentionTargets{0};
+
+	void recordGLibLogCaptureContention(unsigned int target, const char *handlerName)
+	{
+		glibLogCaptureContentionTargets.fetch_or(target, std::memory_order_acq_rel);
+		Logger::warn(SSTR << "GLib " << handlerName
+			<< " handler changed outside BzPeri while capture was active; preserving the external handler during restore");
+	}
 
 	// RAII guard that saves and restores GLib global handlers
 	struct GLibHandlerGuard {
@@ -297,17 +306,32 @@ namespace bzp
 			}
 			if ((activeTargets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINT) != 0)
 			{
-				g_set_print_handler(savedPrint);
+				GPrintFunc previous = g_set_print_handler(savedPrint);
+				if (previous != &printHandler)
+				{
+					(void)g_set_print_handler(previous);
+					recordGLibLogCaptureContention(BZP_GLIB_LOG_CAPTURE_TARGET_PRINT, "print");
+				}
 				savedPrint = nullptr;
 			}
 			if ((activeTargets & BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR) != 0)
 			{
-				g_set_printerr_handler(savedPrinterr);
+				GPrintFunc previous = g_set_printerr_handler(savedPrinterr);
+				if (previous != &printerrHandler)
+				{
+					(void)g_set_printerr_handler(previous);
+					recordGLibLogCaptureContention(BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR, "printerr");
+				}
 				savedPrinterr = nullptr;
 			}
 			if ((activeTargets & BZP_GLIB_LOG_CAPTURE_TARGET_LOG) != 0)
 			{
-				g_log_set_default_handler(savedLog, nullptr);
+				GLogFunc previous = g_log_set_default_handler(savedLog, nullptr);
+				if (previous != &logHandler)
+				{
+					(void)g_log_set_default_handler(previous != nullptr ? previous : g_log_default_handler, nullptr);
+					recordGLibLogCaptureContention(BZP_GLIB_LOG_CAPTURE_TARGET_LOG, "log");
+				}
 				glibSavedLogHandler.store(nullptr, std::memory_order_release);
 				savedLog = nullptr;
 			}
@@ -677,6 +701,48 @@ int bzpGetConfiguredPrepareForSleepIntegrationEnabled()
 	return kConfiguredPrepareForSleepIntegration;
 }
 
+void bzpSetSleepInhibitorEnabled(int enabled)
+{
+	setSleepInhibitorEnabled(enabled != 0);
+}
+
+int bzpGetSleepInhibitorEnabled()
+{
+	int enabled = 0;
+	(void)bzpGetSleepInhibitorEnabledEx(&enabled);
+	return enabled;
+}
+
+BZPQueryResult bzpGetSleepInhibitorEnabledEx(int *pEnabled)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return queryIntValue(pEnabled, []() {
+		return isSleepInhibitorEnabled() ? 1 : 0;
+	});
+	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
+}
+
+int bzpGetConfiguredSleepInhibitorEnabled()
+{
+	return kConfiguredSleepInhibitor;
+}
+
+int bzpHasSleepInhibitor()
+{
+	int hasInhibitor = 0;
+	(void)bzpHasSleepInhibitorEx(&hasInhibitor);
+	return hasInhibitor;
+}
+
+BZPQueryResult bzpHasSleepInhibitorEx(int *pHasInhibitor)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return queryIntValue(pHasInhibitor, []() {
+		return hasSleepInhibitor() ? 1 : 0;
+	});
+	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
+}
+
 void bzpSetGLibLogCaptureMode(BZPGLibLogCaptureMode mode)
 {
 	(void)bzpSetGLibLogCaptureModeEx(mode);
@@ -912,6 +978,27 @@ BZPQueryResult bzpIsGLibLogCapturePausedEx(int *pPaused)
 	BZP_C_API_GUARD_BEGIN()
 	return queryIntValue(pPaused, []() {
 		return isAutomaticGLibCapturePaused() ? 1 : 0;
+	});
+	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
+}
+
+void bzpClearGLibLogCaptureContention()
+{
+	glibLogCaptureContentionTargets.store(0, std::memory_order_release);
+}
+
+int bzpGetGLibLogCaptureContentionTargets()
+{
+	int targets = 0;
+	(void)bzpGetGLibLogCaptureContentionTargetsEx(&targets);
+	return targets;
+}
+
+BZPQueryResult bzpGetGLibLogCaptureContentionTargetsEx(int *pTargets)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return queryIntValue(pTargets, []() {
+		return static_cast<int>(glibLogCaptureContentionTargets.load(std::memory_order_acquire));
 	});
 	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
 }
