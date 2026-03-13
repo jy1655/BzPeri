@@ -190,6 +190,7 @@ extern "C"
 	void bzpSetGLibLogCaptureDomains(unsigned int domains);
 	enum BZPGLibLogCaptureDomainsSetResult bzpSetGLibLogCaptureDomainsEx(unsigned int domains);
 	unsigned int bzpGetGLibLogCaptureDomains();
+	unsigned int bzpGetConfiguredGLibLogCaptureDomains();
 
 	// Returns the build-time default GLib capture mode configured into this BzPeri build.
 	enum BZPGLibLogCaptureMode bzpGetConfiguredGLibLogCaptureMode();

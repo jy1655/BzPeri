@@ -1661,10 +1661,13 @@ void testGLibLogCaptureToggle()
 	const auto originalDomains = bzpGetGLibLogCaptureDomains();
 	const auto configuredMode = bzpGetConfiguredGLibLogCaptureMode();
 	const auto configuredTargets = bzpGetConfiguredGLibLogCaptureTargets();
+	const auto configuredDomains = bzpGetConfiguredGLibLogCaptureDomains();
 	require(configuredMode == static_cast<BZPGLibLogCaptureMode>(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE),
 		"Configured GLib log capture mode should match the build-time default");
 	require(configuredTargets == static_cast<unsigned int>(BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE),
 		"Configured GLib log capture targets should match the build-time default");
+	require(configuredDomains == static_cast<unsigned int>(BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE),
+		"Configured GLib log capture domains should match the build-time default");
 
 	struct RestoreState
 	{
@@ -1694,6 +1697,9 @@ void testGLibLogCaptureToggle()
 	bzpSetGLibLogCaptureTargets(configuredTargets);
 	require(bzpGetGLibLogCaptureTargets() == configuredTargets,
 		"Current GLib log capture targets should be settable back to the configured default");
+	bzpSetGLibLogCaptureDomains(configuredDomains);
+	require(bzpGetGLibLogCaptureDomains() == configuredDomains,
+		"Current GLib log capture domains should be settable back to the configured default");
 	require(bzpSetGLibLogCaptureModeEx(static_cast<BZPGLibLogCaptureMode>(99)) == BZP_GLIB_LOG_CAPTURE_MODE_SET_INVALID_MODE,
 		"GLib log capture mode Ex setter should distinguish invalid modes");
 	require(bzpSetGLibLogCaptureTargetsEx(0) == BZP_GLIB_LOG_CAPTURE_TARGETS_SET_INVALID_TARGETS,

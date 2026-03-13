@@ -92,6 +92,7 @@ namespace bzp
 	namespace {
 		constexpr int kConfiguredGLibLogCaptureMode = BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE;
 		constexpr unsigned int kConfiguredGLibLogCaptureTargets = BZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS_VALUE;
+		constexpr unsigned int kConfiguredGLibLogCaptureDomains = BZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS_VALUE;
 
 		RuntimeBluezAdapterPtr& runtimeBluezAdapterStorage()
 		{
@@ -152,7 +153,7 @@ namespace bzp
 	static std::mutex stateChangedMutex;
 	static std::atomic<int> glibLogCaptureMode{kConfiguredGLibLogCaptureMode};
 	static std::atomic<unsigned int> glibLogCaptureTargets{kConfiguredGLibLogCaptureTargets};
-	static std::atomic<unsigned int> glibLogCaptureDomains{BZP_GLIB_LOG_CAPTURE_DOMAIN_ALL};
+	static std::atomic<unsigned int> glibLogCaptureDomains{kConfiguredGLibLogCaptureDomains};
 	static std::atomic<GLogFunc> glibSavedLogHandler{nullptr};
 	static std::atomic<unsigned int> automaticGLibCaptureInstalls{0};
 
@@ -673,6 +674,11 @@ unsigned int bzpGetGLibLogCaptureDomains()
 unsigned int bzpGetConfiguredGLibLogCaptureTargets()
 {
 	return kConfiguredGLibLogCaptureTargets;
+}
+
+unsigned int bzpGetConfiguredGLibLogCaptureDomains()
+{
+	return kConfiguredGLibLogCaptureDomains;
 }
 
 BZPGLibLogCaptureMode bzpGetConfiguredGLibLogCaptureMode()

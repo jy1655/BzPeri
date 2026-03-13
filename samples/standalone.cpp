@@ -436,7 +436,7 @@ int main(int argc, char **ppArgv)
 	bool manualLoopMode = false;
 	BZPGLibLogCaptureMode glibCaptureMode = bzpGetConfiguredGLibLogCaptureMode();
 	unsigned int glibCaptureTargets = bzpGetConfiguredGLibLogCaptureTargets();
-	unsigned int glibCaptureDomains = BZP_GLIB_LOG_CAPTURE_DOMAIN_ALL;
+	unsigned int glibCaptureDomains = bzpGetConfiguredGLibLogCaptureDomains();
 	bool installHostManagedCapture = false;
 
 	// A basic command-line parser
