@@ -85,7 +85,11 @@ jobs:
           # Check if executable exists and is runnable (will fail without BlueZ but should show help)
           if [ -f "build/bzp-standalone" ]; then
             echo "Executable exists"
-            file build/bzp-standalone
+            if command -v file >/dev/null 2>&1; then
+              file build/bzp-standalone
+            else
+              echo "Skipping 'file' inspection: utility not installed in this environment"
+            fi
             # Try to run with --help (may fail on container without BlueZ runtime)
             build/bzp-standalone --help 2>/dev/null || echo "Help not available (expected in container)"
           else
