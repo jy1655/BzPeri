@@ -34,6 +34,7 @@ class BluezAdapter;
 // This method is non-blocking and as such, will only trigger the shutdown process but not wait for it
 void shutdown();
 BZPShutdownTriggerResult shutdownEx();
+bool ensureAutomaticGLibCaptureForShutdown();
 
 // Entry point for the asynchronous server thread
 //

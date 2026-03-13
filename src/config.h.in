@@ -17,7 +17,7 @@
 /* Debug mode */
 #cmakedefine DEBUG
 
-/* Default GLib log capture mode: 0=AUTOMATIC, 1=DISABLED, 2=HOST_MANAGED */
+/* Default GLib log capture mode: 0=AUTOMATIC, 1=DISABLED, 2=HOST_MANAGED, 3=STARTUP_AND_SHUTDOWN */
 #define BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE @BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE@
 
 #endif /* CONFIG_H */

@@ -1600,10 +1600,61 @@ void testGLibLogCaptureToggle()
 	require(bzpRestoreGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_WRONG_MODE,
 		"Explicit GLib log capture restore should report wrong-mode outside host-managed mode");
 
+	bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN);
+	require(bzpGetGLibLogCaptureMode() == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN,
+		"Explicit GLib log capture mode should support startup-and-shutdown integration");
+	require(bzpGetGLibLogCaptureEnabled() == 1,
+		"Legacy enabled query should report true when startup-and-shutdown automatic capture is enabled");
+
 	bzpSetGLibLogCaptureEnabled(original);
 	require(bzpGetGLibLogCaptureEnabled() == original, "GLib log capture toggle should restore the original state");
 	bzpSetGLibLogCaptureMode(originalMode);
 	require(bzpGetGLibLogCaptureMode() == originalMode, "GLib log capture mode should restore the original mode");
+}
+
+void testGLibLogCaptureStartupAndShutdownMode()
+{
+	struct RestoreState
+	{
+		std::shared_ptr<Server> activeServer = getActiveServer();
+		BZPServerRunState runState = bzpGetServerRunState();
+		BZPServerHealth health = bzpGetServerHealth();
+		BZPGLibLogCaptureMode mode = bzpGetGLibLogCaptureMode();
+
+		~RestoreState()
+		{
+			if (bzpGetServerRunState() != EStopped && bzpGetServerRunState() != EUninitialized)
+			{
+				bzpTriggerShutdown();
+				bzpRunLoopDriveUntilShutdown(100);
+			}
+
+			bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_DISABLED);
+			bzpSetGLibLogCaptureMode(mode);
+			setActiveServer(activeServer);
+			bzp::setServerHealth(health);
+			bzp::setServerRunState(runState);
+		}
+	} restore;
+
+	bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN);
+	require(bzpStartManual("bzperi.tests.capture-startup-shutdown", "", "", &nullGetter, &acceptingSetter) != 0,
+		"bzpStartManual should succeed before transient GLib capture testing");
+	require(bzpIsGLibLogCaptureInstalled() != 0,
+		"Startup-and-shutdown mode should install GLib capture during initialization");
+
+	bzp::setServerRunState(ERunning);
+	require(bzpIsGLibLogCaptureInstalled() == 0,
+		"Startup-and-shutdown mode should release GLib capture once the server reaches ERunning");
+
+	require(bzpTriggerShutdownEx() == BZP_SHUTDOWN_TRIGGER_OK,
+		"Shutdown should still be requestable while transient GLib capture mode is active");
+	require(bzpIsGLibLogCaptureInstalled() != 0,
+		"Startup-and-shutdown mode should re-install GLib capture for shutdown");
+	require(bzpRunLoopDriveUntilShutdownEx(100) == BZP_RUN_LOOP_OK,
+		"Manual shutdown should still complete in startup-and-shutdown capture mode");
+	require(bzpIsGLibLogCaptureInstalled() == 0,
+		"Startup-and-shutdown mode should release GLib capture after shutdown cleanup");
 }
 
 void testStructuredLoggerLevelRouting()
@@ -1736,6 +1787,7 @@ int main()
 		{"Shutdown trigger Ex helper", testShutdownTriggerEx},
 		{"DBusMethod type mismatch safety", testDBusMethodTypeMismatchIsSafe},
 		{"GLib log capture toggle", testGLibLogCaptureToggle},
+		{"GLib log startup-shutdown mode", testGLibLogCaptureStartupAndShutdownMode},
 		{"Structured logger level routing", testStructuredLoggerLevelRouting},
 		{"Update enqueue Ex helpers", testUpdateEnqueueExHelpers},
 	};

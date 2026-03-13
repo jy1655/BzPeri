@@ -206,12 +206,18 @@ namespace bzp
 
 	bool shouldAutoCaptureGLibLogs()
 	{
-		return glibLogCaptureMode.load(std::memory_order_acquire) == BZP_GLIB_LOG_CAPTURE_AUTOMATIC;
+		const int mode = glibLogCaptureMode.load(std::memory_order_acquire);
+		return mode == BZP_GLIB_LOG_CAPTURE_AUTOMATIC || mode == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN;
 	}
 
 	bool shouldUseHostManagedGLibCapture()
 	{
 		return glibLogCaptureMode.load(std::memory_order_acquire) == BZP_GLIB_LOG_CAPTURE_HOST_MANAGED;
+	}
+
+	bool shouldReleaseAutomaticGLibLogsAtRunning()
+	{
+		return glibLogCaptureMode.load(std::memory_order_acquire) == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN;
 	}
 
 	bool installAutomaticGLibHandlers()
@@ -278,6 +284,11 @@ namespace bzp
 
 		// Notify waiting threads about state change
 		stateChangedCV.notify_all();
+
+		if (newState == ERunning && oldState != ERunning && shouldReleaseAutomaticGLibLogsAtRunning())
+		{
+			restoreAutomaticGLibHandlers();
+		}
 	}
 
 	// Internal method to set the health of the server
@@ -293,6 +304,21 @@ namespace bzp
 	void restoreGLibHandlers()
 	{
 		restoreAutomaticGLibHandlers();
+	}
+
+	bool ensureAutomaticGLibCaptureForShutdown()
+	{
+		if (glibLogCaptureMode.load(std::memory_order_acquire) != BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN)
+		{
+			return false;
+		}
+
+		if (glibHandlerGuard.isInstalled())
+		{
+			return true;
+		}
+
+		return installAutomaticGLibHandlers();
 	}
 
 	bool isValidRunState(BZPServerRunState state) noexcept
@@ -415,21 +441,25 @@ void bzpSetGLibLogCaptureEnabled(int enabled)
 
 int bzpGetGLibLogCaptureEnabled()
 {
-	return glibLogCaptureMode.load(std::memory_order_acquire) == BZP_GLIB_LOG_CAPTURE_AUTOMATIC ? 1 : 0;
+	const int mode = glibLogCaptureMode.load(std::memory_order_acquire);
+	return (mode == BZP_GLIB_LOG_CAPTURE_AUTOMATIC || mode == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN) ? 1 : 0;
 }
 
 void bzpSetGLibLogCaptureMode(BZPGLibLogCaptureMode mode)
 {
 	if (mode != BZP_GLIB_LOG_CAPTURE_AUTOMATIC
 		&& mode != BZP_GLIB_LOG_CAPTURE_DISABLED
-		&& mode != BZP_GLIB_LOG_CAPTURE_HOST_MANAGED)
+		&& mode != BZP_GLIB_LOG_CAPTURE_HOST_MANAGED
+		&& mode != BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN)
 	{
 		Logger::warn(SSTR << "Ignoring invalid GLib log capture mode (" << static_cast<int>(mode) << ")");
 		return;
 	}
 
 	glibLogCaptureMode.store(mode, std::memory_order_release);
-	if (mode == BZP_GLIB_LOG_CAPTURE_DISABLED)
+	if (mode == BZP_GLIB_LOG_CAPTURE_DISABLED
+		|| mode == BZP_GLIB_LOG_CAPTURE_HOST_MANAGED
+		|| (mode == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN && bzpGetServerRunState() == ERunning))
 	{
 		restoreAutomaticGLibHandlers();
 	}

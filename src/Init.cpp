@@ -649,6 +649,8 @@ BZPShutdownTriggerResult shutdownEx()
 		return BZP_SHUTDOWN_TRIGGER_ALREADY_STOPPING;
 	}
 
+	(void)ensureAutomaticGLibCaptureForShutdown();
+
 	// Our new state: shutting down
 	setServerRunState(EStopping);
 

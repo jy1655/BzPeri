@@ -329,10 +329,14 @@ int main(int argc, char **ppArgv)
 				glibCaptureMode = BZP_GLIB_LOG_CAPTURE_HOST_MANAGED;
 				installHostManagedCapture = true;
 			}
+			else if (mode == "startup-shutdown" || mode == "transient")
+			{
+				glibCaptureMode = BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN;
+			}
 			else
 			{
 				LogFatal((std::string("Unknown GLib log capture mode: '") + mode + "'").c_str());
-				LogFatal("Expected one of: auto, off, host");
+				LogFatal("Expected one of: auto, off, host, startup-shutdown");
 				return -1;
 			}
 		}
@@ -359,7 +363,7 @@ int main(int argc, char **ppArgv)
 			LogAlways("  --advertise-short=NAME   Set LE advertising short name (default BzPeri)");
 			LogAlways("  --sample-namespace=NODE  Namespace node for example services (default samples)");
 			LogAlways("  --manual-loop            Drive BzPeri via bzpRunLoopIteration() instead of the internal thread");
-			LogAlways("  --glib-log-capture=MODE Set GLib capture mode: auto, off, or host");
+			LogAlways("  --glib-log-capture=MODE Set GLib capture mode: auto, off, host, or startup-shutdown");
 			LogAlways("  --no-sample-services      Disable bundled example GATT services");
 			LogAlways("  --with-sample-services    Re-enable bundled example services after disabling");
 			LogAlways("  --help, -h                Show this help message");
@@ -453,6 +457,10 @@ int main(int argc, char **ppArgv)
 	if (glibCaptureMode == BZP_GLIB_LOG_CAPTURE_AUTOMATIC)
 	{
 		LogStatus("GLib log capture mode: automatic");
+	}
+	else if (glibCaptureMode == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN)
+	{
+		LogStatus("GLib log capture mode: startup-and-shutdown");
 	}
 	else if (glibCaptureMode == BZP_GLIB_LOG_CAPTURE_DISABLED)
 	{

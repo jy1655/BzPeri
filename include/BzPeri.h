@@ -86,7 +86,8 @@ extern "C"
 	{
 		BZP_GLIB_LOG_CAPTURE_AUTOMATIC = 0,
 		BZP_GLIB_LOG_CAPTURE_DISABLED = 1,
-		BZP_GLIB_LOG_CAPTURE_HOST_MANAGED = 2
+		BZP_GLIB_LOG_CAPTURE_HOST_MANAGED = 2,
+		BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN = 3
 	};
 
 	enum BZPGLibLogCaptureResult
@@ -125,6 +126,8 @@ extern "C"
 	// `DISABLED`: BzPeri never installs the handlers.
 	// `HOST_MANAGED`: startup/shutdown do not touch the handlers; the host may explicitly call
 	// `bzpInstallGLibLogCapture()` / `bzpRestoreGLibLogCapture()`.
+	// `STARTUP_AND_SHUTDOWN`: capture GLib handlers during initialization and again during shutdown, but release them once the
+	// server reaches `ERunning` so the process-global override does not remain active for the full runtime.
 	void bzpSetGLibLogCaptureMode(enum BZPGLibLogCaptureMode mode);
 	enum BZPGLibLogCaptureMode bzpGetGLibLogCaptureMode();
 
