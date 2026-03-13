@@ -1691,12 +1691,18 @@ void testGLibLogCaptureToggle()
 
 	struct RestoreState
 	{
+		BZPServerRunState runState = bzpGetServerRunState();
+		BZPServerHealth health = bzpGetServerHealth();
 		BZPGLibLogCaptureMode mode;
 		unsigned int targets;
 		unsigned int domains;
 
 		~RestoreState()
 		{
+			bzp::setServerHealth(health);
+			bzp::setServerRunState(runState);
+			bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_DISABLED);
+
 			while (bzpIsGLibLogCaptureInstalled() != 0)
 			{
 				if (!bzpRestoreGLibLogCapture())
@@ -1709,7 +1715,7 @@ void testGLibLogCaptureToggle()
 			bzpSetGLibLogCaptureDomains(domains);
 			bzpSetGLibLogCaptureMode(mode);
 		}
-	} restore{originalMode, originalTargets, originalDomains};
+	} restore{bzpGetServerRunState(), bzpGetServerHealth(), originalMode, originalTargets, originalDomains};
 
 	bzpSetGLibLogCaptureMode(configuredMode);
 	require(bzpGetGLibLogCaptureMode() == configuredMode,
@@ -1746,6 +1752,18 @@ void testGLibLogCaptureToggle()
 	require(bzpGetGLibLogCaptureEnabled() == 1, "GLib log capture toggle should enable capture");
 	require(bzpGetGLibLogCaptureMode() == BZP_GLIB_LOG_CAPTURE_AUTOMATIC,
 		"Legacy GLib log capture toggle should map enabled=true to automatic mode");
+	require(bzpIsGLibLogCaptureInstalled() == 0,
+		"Automatic GLib capture should stay detached while the server is inactive");
+
+	bzp::setServerRunState(EInitializing);
+	require(bzpSetGLibLogCaptureModeEx(BZP_GLIB_LOG_CAPTURE_AUTOMATIC) == BZP_GLIB_LOG_CAPTURE_MODE_SET_OK,
+		"Switching to automatic mode while active should still report success");
+	require(bzpIsGLibLogCaptureInstalled() != 0,
+		"Switching to automatic GLib capture while the server is active should install handlers immediately");
+	require(bzpSetGLibLogCaptureModeEx(BZP_GLIB_LOG_CAPTURE_DISABLED) == BZP_GLIB_LOG_CAPTURE_MODE_SET_OK,
+		"Disabling automatic GLib capture while active should still report success");
+	require(bzpIsGLibLogCaptureInstalled() == 0,
+		"Disabling automatic GLib capture should restore handlers immediately");
 
 	bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_HOST_MANAGED);
 	require(bzpSetGLibLogCaptureModeEx(BZP_GLIB_LOG_CAPTURE_HOST_MANAGED) == BZP_GLIB_LOG_CAPTURE_MODE_SET_OK,
@@ -1771,6 +1789,18 @@ void testGLibLogCaptureToggle()
 		"Legacy host-managed GLib log capture install wrapper should succeed");
 	require(bzpIsGLibLogCaptureInstalled() != 0,
 		"Host-managed GLib log capture should report installed after explicit install");
+	require(bzpSetGLibLogCaptureModeEx(BZP_GLIB_LOG_CAPTURE_AUTOMATIC) == BZP_GLIB_LOG_CAPTURE_MODE_SET_OK,
+		"Switching from host-managed to automatic while active should succeed");
+	require(bzpIsGLibLogCaptureInstalled() != 0,
+		"Switching from host-managed to automatic while active should keep handlers installed under automatic management");
+	require(bzpSetGLibLogCaptureModeEx(BZP_GLIB_LOG_CAPTURE_DISABLED) == BZP_GLIB_LOG_CAPTURE_MODE_SET_OK,
+		"Switching from automatic to disabled should succeed after host-managed installation");
+	require(bzpIsGLibLogCaptureInstalled() == 0,
+		"Disabling GLib capture after a host-managed-to-automatic transition should fully restore handlers");
+	require(bzpSetGLibLogCaptureModeEx(BZP_GLIB_LOG_CAPTURE_HOST_MANAGED) == BZP_GLIB_LOG_CAPTURE_MODE_SET_OK,
+		"Re-entering host-managed mode after automatic disable should succeed");
+	require(bzpInstallGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_OK,
+		"Host-managed install should still work after automatic runtime toggles");
 
 	struct RestoreWarnReceiver
 	{
@@ -1791,8 +1821,8 @@ void testGLibLogCaptureToggle()
 
 	require(bzpRestoreGLibLogCapture() != 0,
 		"Legacy host-managed GLib log capture restore wrapper should succeed");
-	require(bzpRestoreGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_OK,
-		"Host-managed GLib log capture Ex API should restore explicitly");
+	require(bzpRestoreGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_NOT_INSTALLED,
+		"Host-managed GLib log capture Ex API should report not-installed after the final explicit restore");
 	require(bzpIsGLibLogCaptureInstalled() == 0,
 		"Host-managed GLib log capture should report not installed after explicit restore");
 	require(bzpSetGLibLogCaptureTargetsEx(BZP_GLIB_LOG_CAPTURE_TARGET_LOG | BZP_GLIB_LOG_CAPTURE_TARGET_PRINTERR)
@@ -1853,13 +1883,24 @@ void testGLibLogCaptureStartupAndShutdownMode()
 				bzpRunLoopDriveUntilShutdown(100);
 			}
 
-			bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_DISABLED);
-			bzpSetGLibLogCaptureMode(mode);
 			setActiveServer(activeServer);
 			bzp::setServerHealth(health);
 			bzp::setServerRunState(runState);
+			bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_DISABLED);
+			bzpSetGLibLogCaptureMode(mode);
 		}
 	} restore;
+
+	bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_DISABLED);
+	while (bzpIsGLibLogCaptureInstalled() != 0)
+	{
+		if (!bzpRestoreGLibLogCapture())
+		{
+			break;
+		}
+	}
+	require(bzpIsGLibLogCaptureInstalled() == 0,
+		"Startup-and-shutdown mode test should begin from a clean GLib capture baseline");
 
 	bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN);
 	require(bzpStartManual("bzperi.tests.capture-startup-shutdown", "", "", &nullGetter, &acceptingSetter) != 0,

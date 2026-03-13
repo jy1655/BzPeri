@@ -353,6 +353,21 @@ namespace bzp
 		return glibLogCaptureMode.load(std::memory_order_acquire) == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN;
 	}
 
+	bool shouldInstallAutomaticGLibHandlersForState(BZPServerRunState runState)
+	{
+		if (!shouldAutoCaptureGLibLogs())
+		{
+			return false;
+		}
+
+		if (runState == EUninitialized || runState == EStopped)
+		{
+			return false;
+		}
+
+		return !(shouldReleaseAutomaticGLibLogsAtRunning() && runState == ERunning);
+	}
+
 	bool installAutomaticGLibHandlers()
 	{
 		if (!shouldAutoCaptureGLibLogs())
@@ -386,6 +401,40 @@ namespace bzp
 				return;
 			}
 		}
+	}
+
+	void restoreAllAutomaticGLibHandlers()
+	{
+		while (automaticGLibCaptureInstalls.load(std::memory_order_acquire) > 0)
+		{
+			restoreAutomaticGLibHandlers();
+		}
+	}
+
+	void restoreAllInstalledGLibHandlers()
+	{
+		while (glibHandlerGuard.isInstalled())
+		{
+			if (!glibHandlerGuard.restore())
+			{
+				break;
+			}
+		}
+	}
+
+	bool ensureAutomaticGLibCaptureForCurrentState()
+	{
+		if (!shouldInstallAutomaticGLibHandlersForState(serverRunState.load(std::memory_order_acquire)))
+		{
+			return false;
+		}
+
+		if (automaticGLibCaptureInstalls.load(std::memory_order_acquire) > 0)
+		{
+			return true;
+		}
+
+		return installAutomaticGLibHandlers();
 	}
 
 	struct ScopedAction
@@ -624,6 +673,7 @@ void bzpSetGLibLogCaptureMode(BZPGLibLogCaptureMode mode)
 
 BZPGLibLogCaptureModeSetResult bzpSetGLibLogCaptureModeEx(BZPGLibLogCaptureMode mode)
 {
+	const auto previousMode = static_cast<BZPGLibLogCaptureMode>(glibLogCaptureMode.load(std::memory_order_acquire));
 	if (mode != BZP_GLIB_LOG_CAPTURE_AUTOMATIC
 		&& mode != BZP_GLIB_LOG_CAPTURE_DISABLED
 		&& mode != BZP_GLIB_LOG_CAPTURE_HOST_MANAGED
@@ -633,12 +683,27 @@ BZPGLibLogCaptureModeSetResult bzpSetGLibLogCaptureModeEx(BZPGLibLogCaptureMode 
 		return BZP_GLIB_LOG_CAPTURE_MODE_SET_INVALID_MODE;
 	}
 
+	if (previousMode == BZP_GLIB_LOG_CAPTURE_HOST_MANAGED && mode != BZP_GLIB_LOG_CAPTURE_HOST_MANAGED && glibHandlerGuard.isInstalled())
+	{
+		restoreAllInstalledGLibHandlers();
+	}
+
 	glibLogCaptureMode.store(mode, std::memory_order_release);
 	if (mode == BZP_GLIB_LOG_CAPTURE_DISABLED
 		|| mode == BZP_GLIB_LOG_CAPTURE_HOST_MANAGED
 		|| (mode == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN && bzpGetServerRunState() == ERunning))
 	{
-		restoreAutomaticGLibHandlers();
+		restoreAllAutomaticGLibHandlers();
+		if (mode == BZP_GLIB_LOG_CAPTURE_DISABLED
+			|| (mode == BZP_GLIB_LOG_CAPTURE_HOST_MANAGED && previousMode != BZP_GLIB_LOG_CAPTURE_HOST_MANAGED)
+			|| (mode == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN && bzpGetServerRunState() == ERunning))
+		{
+			restoreAllInstalledGLibHandlers();
+		}
+	}
+	else
+	{
+		(void)ensureAutomaticGLibCaptureForCurrentState();
 	}
 
 	return BZP_GLIB_LOG_CAPTURE_MODE_SET_OK;
