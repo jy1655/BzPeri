@@ -1567,6 +1567,12 @@ void testQueryExHelpers()
 		"bzpIsGLibLogCaptureInstalledEx should succeed with a valid output");
 	require(value == bzpIsGLibLogCaptureInstalled(),
 		"bzpIsGLibLogCaptureInstalledEx should match the legacy boolean getter");
+	require(bzpIsGLibLogCapturePausedEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
+		"bzpIsGLibLogCapturePausedEx should reject null outputs");
+	require(bzpIsGLibLogCapturePausedEx(&value) == BZP_QUERY_OK,
+		"bzpIsGLibLogCapturePausedEx should succeed with a valid output");
+	require(value == bzpIsGLibLogCapturePaused(),
+		"bzpIsGLibLogCapturePausedEx should match the legacy paused predicate");
 
 	bzpUpdateQueueClear();
 	require(bzpUpdateQueueIsEmptyEx(nullptr) == BZP_QUERY_INVALID_ARGUMENT,
@@ -1760,10 +1766,24 @@ void testGLibLogCaptureToggle()
 		"Switching to automatic mode while active should still report success");
 	require(bzpIsGLibLogCaptureInstalled() != 0,
 		"Switching to automatic GLib capture while the server is active should install handlers immediately");
+	require(bzpPauseGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_PAUSE_OK,
+		"Automatic GLib capture should support explicit pause");
+	require(bzpIsGLibLogCapturePaused() != 0,
+		"GLib capture pause predicate should report paused after explicit pause");
+	require(bzpIsGLibLogCaptureInstalled() == 0,
+		"Pausing automatic GLib capture should release installed handlers immediately");
+	require(bzpResumeGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_PAUSE_OK,
+		"Automatic GLib capture should support explicit resume");
+	require(bzpIsGLibLogCapturePaused() == 0,
+		"GLib capture pause predicate should report not paused after resume");
+	require(bzpIsGLibLogCaptureInstalled() != 0,
+		"Resuming automatic GLib capture while active should restore handlers immediately");
 	require(bzpSetGLibLogCaptureModeEx(BZP_GLIB_LOG_CAPTURE_DISABLED) == BZP_GLIB_LOG_CAPTURE_MODE_SET_OK,
 		"Disabling automatic GLib capture while active should still report success");
 	require(bzpIsGLibLogCaptureInstalled() == 0,
 		"Disabling automatic GLib capture should restore handlers immediately");
+	require(bzpPauseGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_PAUSE_WRONG_MODE,
+		"GLib capture pause should reject disabled mode");
 
 	bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_HOST_MANAGED);
 	require(bzpSetGLibLogCaptureModeEx(BZP_GLIB_LOG_CAPTURE_HOST_MANAGED) == BZP_GLIB_LOG_CAPTURE_MODE_SET_OK,
@@ -1772,6 +1792,10 @@ void testGLibLogCaptureToggle()
 		"Explicit GLib log capture mode should support host-managed integration");
 	require(bzpGetGLibLogCaptureEnabled() == 0,
 		"Legacy enabled query should report false when host-managed mode disables automatic startup capture");
+	require(bzpPauseGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_PAUSE_WRONG_MODE,
+		"GLib capture pause should reject host-managed mode");
+	require(bzpResumeGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_PAUSE_WRONG_MODE,
+		"GLib capture resume should reject host-managed mode");
 	require(bzpRestoreGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_NOT_INSTALLED,
 		"Explicit GLib log capture restore should report not-installed before any host-managed install");
 	struct RestoreDefaultHandler
@@ -1853,6 +1877,8 @@ void testGLibLogCaptureToggle()
 		"Explicit GLib log capture mode should support startup-and-shutdown integration");
 	require(bzpGetGLibLogCaptureEnabled() == 1,
 		"Legacy enabled query should report true when startup-and-shutdown automatic capture is enabled");
+	require(bzpResumeGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_PAUSE_NOT_PAUSED,
+		"GLib capture resume should report not-paused when no pause is active");
 
 	bzpSetGLibLogCaptureEnabled(original);
 	require(bzpGetGLibLogCaptureEnabled() == original, "GLib log capture toggle should restore the original state");

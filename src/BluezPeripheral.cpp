@@ -158,6 +158,7 @@ namespace bzp
 	static std::atomic<unsigned int> glibLogCaptureDomains{kConfiguredGLibLogCaptureDomains};
 	static std::atomic<GLogFunc> glibSavedLogHandler{nullptr};
 	static std::atomic<unsigned int> automaticGLibCaptureInstalls{0};
+	static std::atomic<unsigned int> automaticGLibCapturePauseDepth{0};
 
 	// RAII guard that saves and restores GLib global handlers
 	struct GLibHandlerGuard {
@@ -353,9 +354,19 @@ namespace bzp
 		return glibLogCaptureMode.load(std::memory_order_acquire) == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN;
 	}
 
+	bool isAutomaticGLibCapturePaused()
+	{
+		return automaticGLibCapturePauseDepth.load(std::memory_order_acquire) > 0;
+	}
+
 	bool shouldInstallAutomaticGLibHandlersForState(BZPServerRunState runState)
 	{
 		if (!shouldAutoCaptureGLibLogs())
+		{
+			return false;
+		}
+
+		if (isAutomaticGLibCapturePaused())
 		{
 			return false;
 		}
@@ -693,6 +704,10 @@ BZPGLibLogCaptureModeSetResult bzpSetGLibLogCaptureModeEx(BZPGLibLogCaptureMode 
 		|| mode == BZP_GLIB_LOG_CAPTURE_HOST_MANAGED
 		|| (mode == BZP_GLIB_LOG_CAPTURE_STARTUP_AND_SHUTDOWN && bzpGetServerRunState() == ERunning))
 	{
+		if (mode == BZP_GLIB_LOG_CAPTURE_DISABLED || mode == BZP_GLIB_LOG_CAPTURE_HOST_MANAGED)
+		{
+			automaticGLibCapturePauseDepth.store(0, std::memory_order_release);
+		}
 		restoreAllAutomaticGLibHandlers();
 		if (mode == BZP_GLIB_LOG_CAPTURE_DISABLED
 			|| (mode == BZP_GLIB_LOG_CAPTURE_HOST_MANAGED && previousMode != BZP_GLIB_LOG_CAPTURE_HOST_MANAGED)
@@ -833,6 +848,70 @@ BZPQueryResult bzpIsGLibLogCaptureInstalledEx(int *pInstalled)
 	BZP_C_API_GUARD_BEGIN()
 	return queryIntValue(pInstalled, []() {
 		return glibHandlerGuard.isInstalled() ? 1 : 0;
+	});
+	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
+}
+
+int bzpPauseGLibLogCapture()
+{
+	return bzpPauseGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_PAUSE_OK ? 1 : 0;
+}
+
+BZPGLibLogCapturePauseResult bzpPauseGLibLogCaptureEx()
+{
+	if (!shouldAutoCaptureGLibLogs())
+	{
+		Logger::warn("bzpPauseGLibLogCapture() requires AUTOMATIC or STARTUP_AND_SHUTDOWN mode");
+		return BZP_GLIB_LOG_CAPTURE_PAUSE_WRONG_MODE;
+	}
+
+	automaticGLibCapturePauseDepth.fetch_add(1, std::memory_order_acq_rel);
+	restoreAllAutomaticGLibHandlers();
+	restoreAllInstalledGLibHandlers();
+	return BZP_GLIB_LOG_CAPTURE_PAUSE_OK;
+}
+
+int bzpResumeGLibLogCapture()
+{
+	return bzpResumeGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_PAUSE_OK ? 1 : 0;
+}
+
+BZPGLibLogCapturePauseResult bzpResumeGLibLogCaptureEx()
+{
+	if (!shouldAutoCaptureGLibLogs())
+	{
+		Logger::warn("bzpResumeGLibLogCapture() requires AUTOMATIC or STARTUP_AND_SHUTDOWN mode");
+		return BZP_GLIB_LOG_CAPTURE_PAUSE_WRONG_MODE;
+	}
+
+	unsigned int expected = automaticGLibCapturePauseDepth.load(std::memory_order_acquire);
+	while (expected > 0)
+	{
+		if (automaticGLibCapturePauseDepth.compare_exchange_weak(expected, expected - 1, std::memory_order_acq_rel))
+		{
+			if (expected == 1)
+			{
+				(void)ensureAutomaticGLibCaptureForCurrentState();
+			}
+			return BZP_GLIB_LOG_CAPTURE_PAUSE_OK;
+		}
+	}
+
+	return BZP_GLIB_LOG_CAPTURE_PAUSE_NOT_PAUSED;
+}
+
+int bzpIsGLibLogCapturePaused()
+{
+	int paused = 0;
+	(void)bzpIsGLibLogCapturePausedEx(&paused);
+	return paused;
+}
+
+BZPQueryResult bzpIsGLibLogCapturePausedEx(int *pPaused)
+{
+	BZP_C_API_GUARD_BEGIN()
+	return queryIntValue(pPaused, []() {
+		return isAutomaticGLibCapturePaused() ? 1 : 0;
 	});
 	BZP_C_API_GUARD_END_RETURN(BZP_QUERY_FAILED)
 }

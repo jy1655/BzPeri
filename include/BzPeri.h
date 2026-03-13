@@ -142,6 +142,13 @@ extern "C"
 		BZP_GLIB_LOG_CAPTURE_DOMAINS_SET_INVALID_DOMAINS = 1
 	};
 
+	enum BZPGLibLogCapturePauseResult
+	{
+		BZP_GLIB_LOG_CAPTURE_PAUSE_OK = 0,
+		BZP_GLIB_LOG_CAPTURE_PAUSE_WRONG_MODE = 1,
+		BZP_GLIB_LOG_CAPTURE_PAUSE_NOT_PAUSED = 2
+	};
+
 	enum BZPQueryResult
 	{
 		BZP_QUERY_OK = 1,
@@ -229,6 +236,16 @@ extern "C"
 	// Returns non-zero when BzPeri currently has GLib process-global handlers installed.
 	int bzpIsGLibLogCaptureInstalled();
 	enum BZPQueryResult bzpIsGLibLogCaptureInstalledEx(int *pInstalled);
+
+	// Temporarily suspend/resume automatic GLib log capture without changing the configured mode.
+	//
+	// This is only valid for `AUTOMATIC` and `STARTUP_AND_SHUTDOWN` modes.
+	int bzpPauseGLibLogCapture();
+	enum BZPGLibLogCapturePauseResult bzpPauseGLibLogCaptureEx();
+	int bzpResumeGLibLogCapture();
+	enum BZPGLibLogCapturePauseResult bzpResumeGLibLogCaptureEx();
+	int bzpIsGLibLogCapturePaused();
+	enum BZPQueryResult bzpIsGLibLogCapturePausedEx(int *pPaused);
 
 	// -----------------------------------------------------------------------------------------------------------------------------
 	// SERVER DATA
