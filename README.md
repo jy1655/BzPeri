@@ -6,7 +6,7 @@
 
 **BzPeri** (BlueZ Peripheral) is a modern C++20 Bluetooth LE GATT server library for Linux systems. It provides an elegant DSL-style interface for creating and managing Bluetooth LE services using BlueZ over D-Bus.
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Requirements
 - **Linux** with BlueZ ≥ 5.77 (tested up to 5.79)
@@ -53,20 +53,52 @@ sudo ../scripts/configure-bluez-experimental.sh enable
 sudo ./bzp-standalone -d
 ```
 
-## 📖 What is BzPeri?
+## What is BzPeri?
 
 BzPeri is a C++20 Bluetooth LE GATT server framework that makes creating BLE services **simple and intuitive**. It handles all the complex BlueZ D-Bus integration while providing a clean, DSL-style API for service definition.
 
 ### Key Features
 
-✨ **Modern C++20** - Uses std::expected, concepts, and modern error handling
-🔧 **DSL-Style API** - Intuitive service definition with method chaining
-🚀 **BlueZ 5.77+ Ready** - Optimized for latest BlueZ with enhanced stability
-⚡ **High Performance** - Asynchronous D-Bus operations with intelligent retry
-🛡️ **Robust Error Handling** - Comprehensive error recovery and logging
-🔒 **Secure by Default** - Proper bonding/pairing support out of the box
+- **Modern C++20** - Uses std::expected, concepts, and modern error handling
+- **DSL-style API** - Intuitive service definition with method chaining
+- **BlueZ 5.77+ ready** - Optimized for current BlueZ with improved stability
+- **Asynchronous runtime** - D-Bus operations with retry/recovery paths
+- **Robust error handling** - Detailed result codes and defensive runtime checks
+- **Secure by default** - Proper bonding/pairing support out of the box
 
-## 🏗️ Service Definition
+## New in v0.2.0
+
+Compared to the `0.1.x` line, `v0.2.0` is primarily a runtime/API maturity release rather than a packaging-only update.
+
+- **Manual run-loop support**: host applications can run BzPeri without the internal server thread and integrate it into an external event loop.
+- **Detailed `Ex` APIs**: startup, wait, shutdown, GLib capture, update queue, and run-loop helpers now have result-code variants instead of ambiguous `0/1` or `void` behavior.
+- **Compatibility isolation**: deprecated singleton/global and raw GLib callback layers can now be compiled out with CMake options.
+- **BlueZ runtime hardening**: better adapter recovery, reconnect behavior, advertising payload selection, and runtime state logging.
+- **Operational controls**: GLib capture modes/targets/domains, power-management hooks, and optional sleep inhibitor support were added for embedded hosts.
+- **Regression coverage**: the project now ships a `ctest` unit/regression target, and the sample/runtime paths have been exercised against real BLE clients.
+
+## Upgrading from v0.1.x
+
+If you are coming from `v0.1.9` or an earlier `0.1.x` release, the important practical changes are:
+
+| Area | v0.1.x | v0.2.0 |
+|------|--------|--------|
+| Event-loop model | Internal server thread only | Internal thread or manual run-loop / hidden-poll integration |
+| Error reporting | Mostly `0/1` or `void` | `Ex` result-code APIs across the main control paths |
+| Public extension surface | Raw GLib callbacks still prominent | Wrapper request objects are the canonical public path |
+| Compatibility cleanup | Deprecated layers always built | Legacy singleton/raw GLib layers can be compiled out |
+| Runtime controls | Limited GLib/power knobs | GLib capture modes, targets, domains, pause/resume, sleep integration, optional inhibitor |
+| Validation | Limited automated coverage | `ctest` regression target plus expanded runtime verification |
+
+Recommended upgrade order:
+
+1. Move to the corrected `bzpNotify*` names if you still use the old misspelled aliases.
+2. Prefer `Ex` APIs where you need failure reasons.
+3. Move custom raw GLib callback code to wrapper request-object APIs.
+4. Test with `-DENABLE_LEGACY_SINGLETON_COMPAT=OFF -DENABLE_LEGACY_RAW_GLIB_COMPAT=OFF`.
+5. If embedding into a larger process, review GLib capture defaults and consider `HOST_MANAGED`.
+
+## Service Definition
 
 Creating BLE services is **incredibly simple** with BzPeri's DSL:
 
@@ -119,7 +151,7 @@ int main() {
 
         // Notify clients of data changes (note the path structure)
         // Service name "bzperi.mydevice" becomes path "/com/bzperi/mydevice/..."
-        bzpNofifyUpdatedCharacteristic("/com/bzperi/mydevice/samples/battery/level");
+        bzpNotifyUpdatedCharacteristic("/com/bzperi/mydevice/samples/battery/level");
     }
 
     bzpShutdownAndWait();
@@ -127,24 +159,25 @@ int main() {
 }
 ```
 
-## 📚 Documentation
+## Documentation
 
 ### For Users
 - **[API Reference](include/BzPeri.h)** - Complete API documentation
+- **[Changelog](CHANGELOG.md)** - Release-by-release summary, including `v0.2.0` vs `v0.1.x`
 - **[Configurator API](include/bzp/ConfiguratorSupport.h)** - Modern service configuration API
 - **[Compatibility Migration](COMPATIBILITY_MIGRATION.md)** - Deprecated API migration from Gobbledegook and legacy BzPeri shims
 - **[Standalone Usage](STANDALONE_USAGE.md)** - Command-line options and adapter selection guide
 
 ### For Developers & Contributors
 - **[Build Guide](BUILD.md)** - Detailed build instructions, dependencies, and CMake options
-- **[Repository Guidelines](AGENTS.md)** - Coding standards, project structure, and contribution workflow
+- **[Contributing Guide](CONTRIBUTING.md)** - Contribution workflow and repository expectations
 
 ### Technical Documentation
 - **[Packaging Guide](README-PACKAGING.md)** - Debian package building and APT repository setup
 - **[BlueZ Migration](BLUEZ_MIGRATION.md)** - HCI Management API → D-Bus migration details
 - **[Modernization Guide](MODERNIZATION.md)** - 2019→2025 upgrade overview and architecture changes
 
-## 📁 Header Layout
+## Header Layout
 
 All development headers install into the `bzp/` include namespace. Downstream projects should reference the configurator surface with canonical includes, for example:
 
@@ -247,7 +280,6 @@ The configurator API is distributed as part of the `bzperi-dev` package:
 - `bzp/GattCharacteristic.h` - Characteristic definition interface
 - `bzp/GattDescriptor.h` - Descriptor definition interface
 - `bzp/GattUuid.h` - UUID handling utilities
-- `bzp/GattCallbacks.h` - Callback macros for event handlers
 
 ### Migration from Gobbledegook
 
@@ -295,17 +327,17 @@ The bundled `bzp-standalone` sample can be launched in this mode with `--manual-
 When advertising starts, BzPeri now logs the selected payload mode (`legacy` vs `extended`), `MaxAdvLen`, and the UUIDs actually placed into the advertisement so Extended Advertising verification is visible at `INFO` level.
 Extended Advertising support is implemented in the payload selection path, but validation on an actually extended-capable controller is still pending because suitable test hardware was not available during this cycle.
 
-## ⚙️ Configuration
+## Configuration
 
 ### D-Bus Permissions
 
 #### Automatic Setup (Package Installation)
 
-**🎉 Automatic**: When installed via package manager (`apt install bzperi`), D-Bus permissions are automatically configured and applied. No manual setup required!
+Installed packages configure the D-Bus policy automatically. No manual setup is required in the normal APT-based path.
 
 #### Manual Installation (Build from Source)
 
-**📋 For builds from source or troubleshooting**, manually install the D-Bus policy:
+For builds from source or troubleshooting, install the D-Bus policy manually:
 
 ```bash
 # Copy the policy file to system D-Bus directory
@@ -326,9 +358,9 @@ sudo cmake --install . --component dbus-policy
 
 #### Service Name Requirements
 
-**🔒 Important**: All service names must be `bzperi` or start with `bzperi.` (e.g., `bzperi.myapp`, `bzperi.company.device`) to ensure D-Bus policy compatibility and prevent conflicts.
+Important: all service names must be `bzperi` or start with `bzperi.` (for example `bzperi.myapp`, `bzperi.company.device`) to ensure D-Bus policy compatibility and prevent conflicts.
 
-**📍 Path Structure**: Service names with dots become D-Bus object paths with slashes:
+Path structure: service names with dots become D-Bus object paths with slashes:
 - `bzperi` → `/com/bzperi/...`
 - `bzperi.myapp` → `/com/bzperi/myapp/...`
 - `bzperi.company.device` → `/com/bzperi/company/device/...`
@@ -358,8 +390,6 @@ The included policy file (`dbus/com.bzperi.conf`) provides comprehensive permiss
   <policy context="default">
     <allow send_destination="com.bzperi"
            send_interface="org.freedesktop.DBus.Introspectable"/>
-    <allow send_destination="com.bzperi"
-           send_interface="org.freedesktop.DBus.Properties"/>
   </policy>
 </busconfig>
 ```
@@ -385,10 +415,10 @@ sudo journalctl -u dbus -f
 # Then run your BzPeri application and watch for errors
 ```
 
-**Common issues:**
-- ❌ **"Connection refused"** → D-Bus policy not installed or incorrect permissions
-- ❌ **"Access denied"** → Service name doesn't start with `bzperi.`
-- ❌ **"Name already in use"** → Another instance is running
+Common issues:
+- **"Connection refused"**: D-Bus policy not installed or incorrect permissions
+- **"Access denied"**: Service name does not start with `bzperi.`
+- **"Name already in use"**: Another instance is running
 
 **Force D-Bus to reload policies:**
 ```bash
@@ -399,7 +429,7 @@ sudo systemctl restart dbus
 
 ### BlueZ Configuration
 
-**🎉 Automatic Helper**: When installed via package manager, BzPeri includes a configuration helper script.
+BzPeri includes a configuration helper script for package installs:
 
 ```bash
 # Enable BlueZ experimental mode (recommended for optimal compatibility)
@@ -427,17 +457,17 @@ sudo systemctl edit bluetooth
 sudo systemctl restart bluetooth
 ```
 
-**Key Benefits of the Helper Script**:
-- ✅ **Auto-detects** bluetoothd path across different Linux distributions
-- ✅ **Preserves existing flags** and adds --experimental safely
-- ✅ **Safe override** method - doesn't modify system files
-- ✅ **Easy rollback** - can disable anytime
+Key benefits of the helper script:
+- **Auto-detects** the `bluetoothd` path across different Linux distributions
+- **Preserves existing flags** and adds `--experimental` safely
+- **Uses a safe override** method instead of editing system files directly
+- **Supports rollback** by disabling the override later
 
-## 🏗️ Architecture Support
+## Architecture Support
 
 BzPeri packages are available for multiple architectures:
-- **amd64** (x86_64) - Intel/AMD 64-bit systems ✅
-- **arm64** (aarch64) - ARM 64-bit systems (Raspberry Pi 4+, Apple Silicon, etc.) ✅
+- **amd64** (x86_64) - Intel/AMD 64-bit systems
+- **arm64** (aarch64) - ARM 64-bit systems (Raspberry Pi 4+, Apple Silicon, etc.)
 
 Both architectures are fully supported and automatically built via GitHub Actions CI/CD.
 
@@ -452,7 +482,7 @@ make -j$(nproc)
 sudo make install
 ```
 
-## 🔧 Advanced Features
+## Advanced Features
 
 ### Bonding/Pairing Control
 ```cpp
@@ -467,7 +497,7 @@ bzpStartWithBondable("bzperi.open", "name", "short", getter, setter, 30000, 0);
 ```cpp
 auto result = someOperation();
 if (!result) {
-    Logger::error("Operation failed: {}", result.error().toString());
+    // Inspect and report the error in your preferred logging style.
     return std::unexpected(result.error());
 }
 ```
@@ -481,43 +511,43 @@ sudo ./bzp-standalone --list-adapters
 sudo ./bzp-standalone --adapter=hci1
 ```
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 **BzPeri is based on the excellent [Gobbledegook](https://github.com/nettlep/gobbledegook) library by Paul Nettle.** We extend our sincere gratitude to Paul for creating the original foundation that made this modern Bluetooth LE library possible.
 
 ### Key Differences from Original Gobbledegook
 
-**Enhanced for 2025:**
-- ✅ **C++20 Modernization** - std::expected, concepts, modern error handling
-- ✅ **BlueZ 5.77+ Compatibility** - Latest BlueZ API integration
-- ✅ **Improved Stability** - Enhanced connection handling and retry mechanisms
-- ✅ **Bondable Configuration** - Fixes common connection issues
-- ✅ **Performance Optimizations** - Asynchronous operations and Linux-specific enhancements
+**Enhanced for 2025+:**
+- **C++20 modernization** - std::expected, concepts, modern error handling
+- **BlueZ 5.77+ compatibility** - Current BlueZ API integration
+- **Improved stability** - Enhanced connection handling and retry mechanisms
+- **Bondable configuration** - Fixes common connection issues
+- **Performance optimizations** - Asynchronous operations and Linux-specific enhancements
 
 **Preserved from Original:**
-- 🔄 **Elegant DSL** - The beloved service definition syntax
-- 🔄 **Thread-Safe Design** - Robust data callback architecture
-- 🔄 **D-Bus Integration** - Seamless BlueZ communication
-- 🔄 **API Compatibility** - Existing code continues to work
+- **Elegant DSL** - The service definition syntax remains familiar
+- **Thread-safe design** - Robust data callback architecture
+- **D-Bus integration** - Seamless BlueZ communication
+- **API compatibility** - Existing code continues to work
 
 Both libraries share the same core philosophy: **making Bluetooth LE development accessible and powerful for Linux developers.**
 
-## 📄 License
+## License
 
-BzPeri is licensed under the [MIT License](LICENSE-MIT).
+BzPeri is licensed under the [MIT License](LICENSE).
 
 **Original Work Attribution:**
 This software contains code derived from Gobbledegook (Copyright 2017-2019 Paul Nettle, BSD License). See [NOTICE](NOTICE) and [COPYRIGHT](COPYRIGHT) files for detailed attribution.
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! Whether it's bug fixes, new features, or documentation improvements, please feel free to submit issues and pull requests.
 
-## 🆘 Support
+## Support
 
-- **Issues**: [GitHub Issues](../../issues)
-- **Examples**: Check out `src/bzp-standalone.cpp` for a complete example
+- **Issues**: [GitHub Issues](https://github.com/jy1655/BzPeri/issues)
+- **Examples**: See [`samples/standalone.cpp`](samples/standalone.cpp) for the main sample application
 
 ---
 
-**BzPeri** - Modern Bluetooth LE made simple. Built on the shoulders of giants. 🚀
+**BzPeri** - Modern Bluetooth LE made simple. Built on the shoulders of giants.

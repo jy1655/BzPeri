@@ -2,7 +2,21 @@
 
 This guide covers the deprecated compatibility layers that still exist in BzPeri for existing users.
 
-It is intentionally separate from [BLUEZ_MIGRATION.md](/home/pi5test2/Developments/BzPeri/BLUEZ_MIGRATION.md), which focuses on the internal BlueZ implementation migration from HCI management commands to D-Bus.
+It is intentionally separate from [BLUEZ_MIGRATION.md](BLUEZ_MIGRATION.md), which focuses on the internal BlueZ implementation migration from HCI management commands to D-Bus.
+
+## v0.2.0 Summary for v0.1.x Users
+
+If you are upgrading from `v0.1.9` or an earlier `0.1.x` release, `v0.2.0` changes the compatibility story in two important ways:
+
+- Deprecated layers are still available by default, so existing applications should keep building.
+- Those same layers can now be compiled out explicitly, which makes it practical to verify that your application is ready for a future major-version cleanup.
+
+For most users, the shortest upgrade path is:
+
+1. Move from `Gobbledegook.h` / `ggk*` to `BzPeri.h` / `bzp*`.
+2. Replace the deprecated singleton/global accessors and raw GLib callback shapes.
+3. Prefer `Ex` result-code APIs where diagnostics matter.
+4. Build once with `ENABLE_LEGACY_SINGLETON_COMPAT=OFF` and `ENABLE_LEGACY_RAW_GLIB_COMPAT=OFF`.
 
 ## Scope
 
@@ -17,7 +31,7 @@ Use this guide if your application currently depends on one or more of the follo
 
 ## 1. Gobbledegook Header and `ggk*` APIs
 
-The compatibility header [`Gobbledegook.h`](/home/pi5test2/Developments/BzPeri/include/Gobbledegook.h) is still shipped, but it is deprecated and intended only for transition.
+The compatibility header [`Gobbledegook.h`](include/Gobbledegook.h) is still shipped, but it is deprecated and intended only for transition.
 
 Recommended migration:
 

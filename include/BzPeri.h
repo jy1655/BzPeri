@@ -18,7 +18,7 @@
 // >>>  DISCUSSION
 // >>
 //
-// The interface to BzPeri is rether simple. It consists of the following categories of functionality:
+// The interface to BzPeri is rather simple. It consists of the following categories of functionality:
 //
 //     * Logging
 //
@@ -31,17 +31,19 @@
 //       with the server. See standalone.cpp for an example of how this is done.
 //
 //       In addition, the server provides a thread-safe queue for notifications of data updates to the server. Generally, the only
-//       methods an application will need to call are `bzpNofifyUpdatedCharacteristic` and `bzpNofifyUpdatedDescriptor`. The other
-//       methods are provided in case an application requies extended functionality.
+//       methods an application will need to call are `bzpNotifyUpdatedCharacteristic` and `bzpNotifyUpdatedDescriptor`. The legacy
+//       misspelled names remain available only as compatibility shims. The other methods are provided in case an application
+//       requires extended functionality.
 //
 //     * Server control
 //
-//       A small set of methods for starting and stopping the server.
+//       A small set of methods for starting and stopping the server. In the `v0.2.x` line this also includes manual run-loop
+//       helpers for applications that want to integrate BzPeri into an external event loop instead of using the internal thread.
 //
 //     * Server state
 //
-//       These routines allow the application to query the server's current state. The server runs through these states during its
-//       lifecycle:
+//       These routines allow the application to query the server's current state. New code should prefer the `Ex` query/result
+//       helpers when failure reasons matter. The server runs through these states during its lifecycle:
 //
 //           EUninitialized -> EInitializing -> ERunning -> EStopping -> EStopped
 //
@@ -209,6 +211,9 @@ extern "C"
 	// `bzpInstallGLibLogCapture()` / `bzpRestoreGLibLogCapture()`.
 	// `STARTUP_AND_SHUTDOWN`: capture GLib handlers during initialization and again during shutdown, but release them once the
 	// server reaches `ERunning` so the process-global override does not remain active for the full runtime.
+	//
+	// Note: even with the narrower modes and filters added in `v0.2.x`, GLib handler capture is still process-global because the
+	// underlying GLib APIs are process-global.
 	void bzpSetGLibLogCaptureMode(enum BZPGLibLogCaptureMode mode);
 	enum BZPGLibLogCaptureModeSetResult bzpSetGLibLogCaptureModeEx(enum BZPGLibLogCaptureMode mode);
 	enum BZPGLibLogCaptureMode bzpGetGLibLogCaptureMode();
@@ -252,6 +257,11 @@ extern "C"
 	enum BZPGLibLogCapturePauseResult bzpResumeGLibLogCaptureEx();
 	int bzpIsGLibLogCapturePaused();
 	enum BZPQueryResult bzpIsGLibLogCapturePausedEx(int *pPaused);
+
+	// Sticky contention state for process-global GLib capture.
+	//
+	// If another component replaces one of the GLib print/log handlers while BzPeri capture is active, BzPeri now preserves that
+	// external handler during restore and records which capture target was contended.
 	void bzpClearGLibLogCaptureContention();
 	int bzpGetGLibLogCaptureContentionTargets();
 	enum BZPQueryResult bzpGetGLibLogCaptureContentionTargetsEx(int *pTargets);

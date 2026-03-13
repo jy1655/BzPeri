@@ -1,6 +1,6 @@
-# BzPeri Build Guide (2025)
+# BzPeri Build Guide
 
-This guide covers building BzPeri for modern systems with support for the latest BlueZ versions (5.77+).
+This guide covers building BzPeri for modern systems with support for current BlueZ versions (5.77+).
 
 ## System Requirements
 
@@ -43,7 +43,7 @@ brew install cmake pkg-config glib
 ### BlueZ Version Support
 - **Minimum**: BlueZ 5.42+ (original compatibility)
 - **Recommended**: BlueZ 5.77+ (latest stable with bug fixes)
-- **Tested**: BlueZ 5.79 (current latest as of 2025)
+- **Tested**: BlueZ 5.79
 
 ## Build Methods
 
@@ -154,7 +154,7 @@ sudo gdb ./bzp-standalone
 - Requires root privileges for BlueZ D-Bus access
 - D-Bus policy configuration may be needed:
   ```bash
-  sudo cp docs/bzperi.conf /etc/dbus-1/system.d/
+  sudo cp dbus/com.bzperi.conf /etc/dbus-1/system.d/
   sudo systemctl reload dbus
   ```
 
@@ -198,7 +198,7 @@ sudo apt install bluez bluez-tools
 #### "D-Bus permission denied"
 ```bash
 # Add D-Bus policy
-sudo cp docs/bzperi.conf /etc/dbus-1/system.d/
+sudo cp dbus/com.bzperi.conf /etc/dbus-1/system.d/
 sudo systemctl reload dbus
 
 # Or run with sudo
@@ -250,19 +250,19 @@ gcc main.o $(pkg-config --libs bzperi) -o main
 #include <BzPeri.h>
 
 // Your application data getters/setters
-int dataGetter(const char* name) { /* ... */ }
-int dataSetter(const char* name, const void* data) { /* ... */ }
+const void* dataGetter(const char* name) { /* ... */ return nullptr; }
+int dataSetter(const char* name, const void* data) { /* ... */ return 1; }
 
 int main() {
-    if (!bzpStart("My Device", "My Service", dataGetter, dataSetter)) {
+    if (!bzpStart("bzperi.mydevice", "My Device", "MyDev", dataGetter, dataSetter, 30000)) {
         return 1;
     }
 
     // Your application logic
 
-    bzpShutdown();
+    bzpShutdownAndWait();
     return 0;
 }
 ```
 
-For more detailed examples, see the `src/bzp-standalone.cpp` file and the original README.md.
+For more detailed examples, see `samples/standalone.cpp`, `STANDALONE_USAGE.md`, and `README.md`.

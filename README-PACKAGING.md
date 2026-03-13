@@ -2,7 +2,7 @@
 
 This guide explains how to build BzPeri as Debian packages (.deb) and make them installable from APT repositories.
 
-## 📋 Table of Contents
+## Table of Contents
 
 1. [Package Structure](#package-structure)
 2. [Build Methods](#build-methods)
@@ -10,7 +10,7 @@ This guide explains how to build BzPeri as Debian packages (.deb) and make them 
 4. [Package Installation and Usage](#package-installation-and-usage)
 5. [Official Repository Distribution](#official-repository-distribution)
 
-## 📦 Package Structure
+## Package Structure
 
 BzPeri is split into 3 Debian packages, supporting **amd64** and **arm64** architectures:
 
@@ -29,7 +29,7 @@ BzPeri is split into 3 Debian packages, supporting **amd64** and **arm64** archi
 - **Included Files**: `bzp-standalone`
 - **Dependencies**: `bzperi`
 
-## 🔨 Build Methods
+## Build Methods
 
 ### 1. System Requirements
 
@@ -111,7 +111,7 @@ packages/
 └── bzperi_<version>_<arch>.buildinfo        # Build info (native build only)
 ```
 
-## 🏪 Local APT Repository Setup
+## Local APT Repository Setup
 
 Create a local APT repository for installation via `apt install`.
 
@@ -317,7 +317,7 @@ Steps for official repository registration:
 2. **Ubuntu**: Request review through REVU process
 3. **ITP (Intent To Package)** bug report submission
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Build Errors
 
@@ -371,7 +371,7 @@ sudo rm /etc/apt/sources.list.d/bzperi-local.list
 sudo apt update
 ```
 
-## 📝 Additional Information
+## Additional Information
 
 - **License**: MIT License (original Gobbledegook is BSD-style)
 - **Supported Platforms**: Linux (BlueZ 5.42+, recommended: 5.77+)

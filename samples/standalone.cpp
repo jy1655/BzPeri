@@ -18,13 +18,14 @@
 // >>
 //
 // Very little is required ("MUST") by a stand-alone application to instantiate a valid BzPeri server. There are also some
-// things that are reocommended ("SHOULD").
+// things that are recommended ("SHOULD").
 //
 // * A stand-alone application MUST:
 //
 //     * Start the server via a call to `bzpStart()`.
 //
-//         Once started the server will run on its own thread.
+//         Once started the server will run on its own thread. In the `v0.2.x` line, a stand-alone application may also choose
+//         the manual run-loop path (`bzpStartManual*()` plus `bzpRunLoopIteration*()`) when it wants to own the event loop.
 //
 //         Two of the parameters to `bzpStart()` are delegates responsible for providing data accessors for the server, a
 //         `BZPServerDataGetter` delegate and a 'BZPServerDataSetter' delegate. The getter method simply receives a string name (for
@@ -32,7 +33,7 @@
 //         the same only in reverse.
 //
 //         While the server is running, you will likely need to update the data being served. This is done by calling
-//         `bzpNofifyUpdatedCharacteristic()` or `bzpNofifyUpdatedDescriptor()` with the full path to the characteristic or delegate
+//         `bzpNotifyUpdatedCharacteristic()` or `bzpNotifyUpdatedDescriptor()` with the full path to the characteristic or delegate
 //         whose data has been updated. This will trigger your server's `onUpdatedValue()` method, which can perform whatever
 //         actions are needed such as sending out a change notification (or in BlueZ parlance, a "PropertiesChanged" signal.)
 //
@@ -82,10 +83,10 @@
 // >>>  Building with BZPERI
 // >>
 //
-// The BzPeri distribution includes this file as part of the BzPeri files with everything compiling to a single, stand-
-// alone binary. It is built this way because BzPeri is not intended to be a generic library. You will need to make your
-// custom modifications to it. Don't worry, a lot of work went into BzPeri to make it almost trivial to customize
-// (see Server.cpp).
+// The BzPeri distribution includes this file as part of the BzPeri files with everything compiling to a single stand-alone
+// binary. It remains a useful integration sample even though BzPeri now also ships as a reusable library/package.
+// The sample intentionally exercises the public C API surface, logging controls, and runtime options that downstream users are
+// most likely to need when validating a new release such as `v0.2.0`.
 //
 // If it is important to you or your build process that BzPeri exist as a library, you are welcome to do so. Just configure
 // your build process to build the BzPeri files (minus this file) as a library and link against that instead. All that is

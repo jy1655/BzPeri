@@ -1,22 +1,22 @@
-# BzPeri 2025 Modernization Guide
+# BzPeri Modernization Guide
 
-## 🎯 Overview
+## Overview
 
-This project is a completely modernized upgrade of BzPeri, originally written in 2019 for BlueZ 5.42, **updated for the current 2025 BlueZ 5.77-5.79 environment**.
+This project is a modernized evolution of BzPeri, originally written in 2019 for BlueZ 5.42 and now aligned with the current BlueZ 5.77-5.79 era and the `v0.2.x` runtime model.
 
 ### Key Improvements
 
-✅ **Linux-Specific Optimization**: Since BlueZ and D-Bus are Linux-only, specialized for Linux environments
-✅ **Full C++20 Support**: Actively leverages modern C++ features
-✅ **BlueZ 5.77+ Compatibility**: Optimized for the latest BlueZ API
-✅ **Performance Enhancement**: Async D-Bus operations and intelligent retry mechanisms
-✅ **Enhanced Error Handling**: Comprehensive error recovery with std::expected
-✅ **Modern Build System**: CMake with CPack for professional packaging
-✅ **GitHub Actions Integration**: Automated testing and package deployment
+- **Linux-focused optimization**: BlueZ and D-Bus are Linux-only, so the runtime is tuned for Linux environments.
+- **C++20 support**: Modern language features are used throughout the runtime and build.
+- **BlueZ 5.77+ compatibility**: Current BlueZ behavior and capabilities are the primary target.
+- **Performance improvements**: Async D-Bus flows and smarter retry handling reduce blocking behavior.
+- **Improved error handling**: Detailed `Ex` APIs and stronger runtime validation improve diagnostics.
+- **Modern build system**: CMake and CPack support library, tools, and packaging workflows.
+- **Automated CI/CD**: GitHub Actions builds and validates release artifacts.
 
 ### Architecture Migration Summary
 
-| Component | 2019 Original | 2025 Modernized |
+| Component | 2019 Original | Current Modernized State |
 |-----------|---------------|------------------|
 | **API Interface** | HCI Management API | Modern D-Bus Interface |
 | **Error Handling** | C-style error codes | std::expected + comprehensive recovery |
@@ -26,7 +26,7 @@ This project is a completely modernized upgrade of BzPeri, originally written in
 | **Packaging** | Manual | Automated Debian packages + APT repository |
 | **CI/CD** | None | GitHub Actions with comprehensive testing |
 
-## 🚀 Performance Improvements
+## Performance Improvements
 
 ### 1. D-Bus Operation Optimization
 
@@ -67,7 +67,7 @@ if (!result) {
 - **Smart pointers** for automatic cleanup
 - **Zero-copy** operations where possible
 
-## 🔧 API Modernization
+## API Modernization
 
 ### 1. Error Handling Evolution
 
@@ -175,7 +175,7 @@ target_include_directories(bzperi PRIVATE ${GLIB_INCLUDE_DIRS})
 - **Automated deployment** to GitHub Pages
 - **Package validation** and testing
 
-## 🔒 Security Enhancements
+## Security Enhancements
 
 ### 1. D-Bus Security
 
@@ -198,28 +198,28 @@ target_include_directories(bzperi PRIVATE ${GLIB_INCLUDE_DIRS})
 - **Backup and rollback** capability
 - **Cross-distribution compatibility**
 
-## 📊 Compatibility Matrix
+## Compatibility Matrix
 
 ### BlueZ Version Support
 
-| BlueZ Version | 2019 Original | 2025 Modernized | Status |
+| BlueZ Version | 2019 Original | Current Modernized State | Status |
 |---------------|---------------|------------------|---------|
-| 5.42-5.49     | ✅ Full        | ⚠️ Limited       | Legacy |
-| 5.50-5.66     | ⚠️ Partial     | ✅ Full          | Stable |
-| 5.67-5.76     | ❌ None        | ✅ Full          | Stable |
-| 5.77-5.79     | ❌ None        | ✅ Optimized     | **Recommended** |
+| 5.42-5.49     | Full          | Limited         | Legacy |
+| 5.50-5.66     | Partial       | Full            | Stable |
+| 5.67-5.76     | None          | Full            | Stable |
+| 5.77-5.79     | None          | Optimized       | Recommended |
 
 ### Distribution Support
 
 | Distribution | Kernel | BlueZ | Status |
 |--------------|--------|-------|---------|
-| Ubuntu 20.04 LTS | 5.4+ | 5.53 | ✅ Supported |
-| Ubuntu 22.04 LTS | 5.15+ | 5.64 | ✅ Fully Supported |
-| Ubuntu 24.04 LTS | 6.8+ | 5.77 | ✅ **Optimized** |
-| Debian 11 | 5.10+ | 5.55 | ✅ Supported |
-| Debian 12 | 6.1+ | 5.66 | ✅ Fully Supported |
+| Ubuntu 20.04 LTS | 5.4+ | 5.53 | Supported |
+| Ubuntu 22.04 LTS | 5.15+ | 5.64 | Fully supported |
+| Ubuntu 24.04 LTS | 6.8+ | 5.77 | Optimized |
+| Debian 11 | 5.10+ | 5.55 | Supported |
+| Debian 12 | 6.1+ | 5.66 | Fully supported |
 
-## 🎁 New Features (2025)
+## New Features
 
 ### 1. Enhanced Logging
 
@@ -253,7 +253,7 @@ monitor.track("connection_establishment", [&] {
 });
 ```
 
-## 🔄 Migration Guide
+## Migration Guide
 
 ### For Existing Gobbledegook Users
 
@@ -284,7 +284,7 @@ if (!result) {
 bzpNotifyUpdatedCharacteristic("/com/device/service/characteristic");
 ```
 
-## 📈 Performance Benchmarks
+## Performance Benchmarks
 
 ### Connection Establishment
 
@@ -302,30 +302,30 @@ bzpNotifyUpdatedCharacteristic("/com/device/service/characteristic");
 | Per Connection | 120 KB | 85 KB | **29% reduction** |
 | Peak Usage | 25 MB | 18 MB | **28% reduction** |
 
-## 🎯 Roadmap
+## Roadmap
 
-### Immediate (2025 Q1)
-- ✅ AMD64 APT packages
-- ✅ ARM64 APT packages
-- ✅ GitHub Actions CI/CD
-- ✅ BlueZ 5.77+ optimization
+### Immediate
+- AMD64 APT packages
+- ARM64 APT packages
+- GitHub Actions CI/CD
+- BlueZ 5.77+ optimization
 
-### Short-term (2025 Q2)
-- 🔄 Container deployment options
-- 🔄 Enhanced debugging tools
-- 🔄 Package repository mirroring
+### Short-term
+- Container deployment options
+- Enhanced debugging tools
+- Package repository mirroring
 
-### Medium-term (2025 Q3-Q4)
-- 📋 WebAssembly bindings
-- 📋 Python/Node.js wrappers
-- 📋 Advanced monitoring dashboard
+### Medium-term
+- WebAssembly bindings
+- Python/Node.js wrappers
+- Advanced monitoring dashboard
 
 ### Long-term (2026+)
-- 📋 Mesh networking support
-- 📋 IoT framework integration
-- 📋 Cloud synchronization
+- Mesh networking support
+- IoT framework integration
+- Cloud synchronization
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions to the modernization effort:
 
@@ -334,7 +334,7 @@ We welcome contributions to the modernization effort:
 3. **Testing**: Add comprehensive test coverage
 4. **Packaging**: Support additional distributions
 
-## 📞 Support
+## Support
 
 - **GitHub Issues**: [Report bugs and feature requests](https://github.com/jy1655/BzPeri/issues)
 - **Discussions**: [Community discussions](https://github.com/jy1655/BzPeri/discussions)
@@ -342,4 +342,4 @@ We welcome contributions to the modernization effort:
 
 ---
 
-**BzPeri 2025** - Bringing Bluetooth LE development into the modern era! 🚀
+**BzPeri** brings Bluetooth LE peripheral development forward with a more robust BlueZ runtime, stronger compatibility controls, and better release tooling.

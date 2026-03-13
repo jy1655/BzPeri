@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `bzp-standalone` application now supports modern BlueZ adapter selection and enhanced command-line options.
+`bzp-standalone` is the main sample application for validating a BzPeri build. In the `v0.2.x` line it covers not only adapter selection, but also manual run-loop mode, GLib capture controls, and sleep/power integration toggles.
 
 ## Command Line Options
 
@@ -73,6 +73,18 @@ sudo ./build/bzp-standalone --no-sample-services
 
 # Re-enable bundled services after disabling them in the same invocation
 sudo ./build/bzp-standalone --no-sample-services --with-sample-services
+
+# Run without the internal BzPeri worker thread
+sudo ./build/bzp-standalone --manual-loop
+
+# Control suspend/resume helpers
+sudo ./build/bzp-standalone --sleep-integration=off
+sudo ./build/bzp-standalone --sleep-inhibitor=on
+
+# Control GLib capture strategy
+sudo ./build/bzp-standalone --glib-log-capture=host
+sudo ./build/bzp-standalone --glib-log-targets=log,printerr
+sudo ./build/bzp-standalone --glib-log-domains=bluez,gio
 ```
 
 ### Help
@@ -156,6 +168,23 @@ sudo ./build/bzp-standalone --list-adapters
 
 # Select the best adapter
 sudo ./build/bzp-standalone --adapter=hci1
+```
+
+### Manual Run-Loop Validation
+```bash
+# Run the sample in host-driven manual-loop mode
+sudo ./build/bzp-standalone -d --manual-loop
+```
+
+### GLib Capture Validation
+```bash
+# Keep GLib capture fully host-managed
+sudo ./build/bzp-standalone -v --glib-log-capture=host
+
+# Use startup/shutdown-only capture with BlueZ/GIO domain filtering
+sudo ./build/bzp-standalone -v \
+  --glib-log-capture=startup-shutdown \
+  --glib-log-domains=bluez,gio
 ```
 
 ### USB Bluetooth Dongle
