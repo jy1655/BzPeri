@@ -194,11 +194,15 @@ struct Server
 	// Find a D-Bus method within the given D-Bus object on the given D-Bus interface
 	//
 	// If the method was found, it is returned, otherwise nullptr is returned
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use Server::callMethod(..., DBusMethodCallRef)")
 	[[nodiscard]] bool callMethod(const DBusObjectPath& objectPath, std::string_view interfaceName, std::string_view methodName, GDBusConnection* pConnection, GVariant* pParameters, GDBusMethodInvocation* pInvocation, gpointer pUserData) const;
+#endif
 	[[nodiscard]] bool callMethod(const DBusObjectPath& objectPath, std::string_view interfaceName, std::string_view methodName, DBusMethodCallRef methodCall) const;
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use Server::callMethod(..., DBusMethodCallRef)")
 	[[nodiscard]] bool callMethod(const DBusObjectPath& objectPath, std::string_view interfaceName, std::string_view methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const;
+#endif
 
 	// Find a GATT Property within the given D-Bus object on the given D-Bus interface
 	//
@@ -271,10 +275,12 @@ std::shared_ptr<Server> getActiveServer();
 Server* getActiveServerPtr() noexcept;
 void setActiveServer(std::shared_ptr<Server> server);
 
+#if BZP_ENABLE_LEGACY_SINGLETON_COMPAT
 // Legacy global server handle retained for compatibility. Prefer getActiveServer()/getActiveServerPtr().
 #if defined(__cplusplus)
 [[deprecated("Use getActiveServer() or getActiveServerPtr() instead of TheServer")]]
 #endif
 extern std::shared_ptr<Server> TheServer;
+#endif
 
 }; // namespace bzp

@@ -89,6 +89,14 @@ extern "C"
 		BZP_GLIB_LOG_CAPTURE_HOST_MANAGED = 2
 	};
 
+	enum BZPGLibLogCaptureResult
+	{
+		BZP_GLIB_LOG_CAPTURE_RESULT_OK = 0,
+		BZP_GLIB_LOG_CAPTURE_RESULT_WRONG_MODE = 1,
+		BZP_GLIB_LOG_CAPTURE_RESULT_NOT_INSTALLED = 2,
+		BZP_GLIB_LOG_CAPTURE_RESULT_FAILED = 3
+	};
+
 	// Each of these methods registers a log receiver method. Receivers are set when registered. To unregister a log receiver,
 	// simply register with `nullptr`.
 	void bzpLogRegisterDebug(BZPLogReceiver receiver);
@@ -120,15 +128,22 @@ extern "C"
 	void bzpSetGLibLogCaptureMode(enum BZPGLibLogCaptureMode mode);
 	enum BZPGLibLogCaptureMode bzpGetGLibLogCaptureMode();
 
+	// Returns the build-time default GLib capture mode configured into this BzPeri build.
+	enum BZPGLibLogCaptureMode bzpGetConfiguredGLibLogCaptureMode();
+
 	// Explicitly install GLib process-global handler capture in `HOST_MANAGED` mode.
 	//
 	// Returns non-zero on success, otherwise 0.
 	int bzpInstallGLibLogCapture();
+	// Detailed result-code variant of bzpInstallGLibLogCapture().
+	enum BZPGLibLogCaptureResult bzpInstallGLibLogCaptureEx();
 
 	// Explicitly restore the previously-installed GLib process-global handlers in `HOST_MANAGED` mode.
 	//
 	// Returns non-zero on success, otherwise 0.
 	int bzpRestoreGLibLogCapture();
+	// Detailed result-code variant of bzpRestoreGLibLogCapture().
+	enum BZPGLibLogCaptureResult bzpRestoreGLibLogCaptureEx();
 
 	// Returns non-zero when BzPeri currently has GLib process-global handlers installed.
 	int bzpIsGLibLogCaptureInstalled();
@@ -185,6 +200,20 @@ extern "C"
 		BZP_UPDATE_ENQUEUE_OK = 1,
 		BZP_UPDATE_ENQUEUE_INVALID_ARGUMENT = -1,
 		BZP_UPDATE_ENQUEUE_NOT_RUNNING = -2
+	};
+
+	// Detailed result codes for startup operations.
+	enum BZPStartResult
+	{
+		BZP_START_OK = 1,
+		BZP_START_INVALID_ARGUMENT = -1,
+		BZP_START_INVALID_TIMEOUT = -2,
+		BZP_START_SERVICE_NAME_TOO_LONG = -3,
+		BZP_START_MANUAL_LOOP_INIT_FAILED = -4,
+		BZP_START_THREAD_START_FAILED = -5,
+		BZP_START_INIT_TIMEOUT = -6,
+		BZP_START_INIT_FAILED = -7,
+		BZP_START_EXCEPTION = -8
 	};
 
 	// Adds an update to the front of the queue for a characteristic at the given object path
@@ -325,6 +354,10 @@ extern "C"
 	int bzpStart(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 		BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS);
 
+	// Detailed-result variant of bzpStart().
+	enum BZPStartResult bzpStartEx(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+		BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS);
+
 	// Extended version of bzpStart with bondable configuration
 	//
 	// This is the preferred API for new applications. The basic bzpStart() function above calls this with
@@ -336,6 +369,10 @@ extern "C"
 	int bzpStartWithBondable(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 		BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS, int enableBondable);
 
+	// Detailed-result variant of bzpStartWithBondable().
+	enum BZPStartResult bzpStartWithBondableEx(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+		BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS, int enableBondable);
+
 	// Start the server without waiting for asynchronous initialization to complete.
 	//
 	// This is equivalent to calling `bzpStart(..., 0)` and returns after the server thread has been created and the server has
@@ -345,10 +382,18 @@ extern "C"
 	int bzpStartNoWait(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 		BZPServerDataGetter getter, BZPServerDataSetter setter);
 
+	// Detailed-result variant of bzpStartNoWait().
+	enum BZPStartResult bzpStartNoWaitEx(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+		BZPServerDataGetter getter, BZPServerDataSetter setter);
+
 	// Bondable-aware no-wait startup variant.
 	//
 	// This is equivalent to calling `bzpStartWithBondable(..., 0, enableBondable)`.
 	int bzpStartWithBondableNoWait(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+		BZPServerDataGetter getter, BZPServerDataSetter setter, int enableBondable);
+
+	// Detailed-result variant of bzpStartWithBondableNoWait().
+	enum BZPStartResult bzpStartWithBondableNoWaitEx(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 		BZPServerDataGetter getter, BZPServerDataSetter setter, int enableBondable);
 
 	// Start the server in manual-iteration mode without creating the internal server thread.
@@ -358,11 +403,19 @@ extern "C"
 	int bzpStartManual(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 		BZPServerDataGetter getter, BZPServerDataSetter setter);
 
+	// Detailed-result variant of bzpStartManual().
+	enum BZPStartResult bzpStartManualEx(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+		BZPServerDataGetter getter, BZPServerDataSetter setter);
+
 	// Bondable-aware manual-iteration startup variant.
 	//
 	// This is the preferred way to integrate BzPeri into a host that already owns an event loop and cannot dedicate a thread to
 	// `g_main_loop_run()`.
 	int bzpStartWithBondableManual(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+		BZPServerDataGetter getter, BZPServerDataSetter setter, int enableBondable);
+
+	// Detailed-result variant of bzpStartWithBondableManual().
+	enum BZPStartResult bzpStartWithBondableManualEx(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 		BZPServerDataGetter getter, BZPServerDataSetter setter, int enableBondable);
 
 	// Blocks for up to maxAsyncInitTimeoutMS milliseconds until the server shuts down.

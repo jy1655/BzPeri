@@ -1,4 +1,5 @@
 #include <gio/gio.h>
+#include "config.h"
 
 #include <BzPeri.h>
 #include <bzp/BluezAdapter.h>
@@ -11,6 +12,7 @@
 #include <bzp/Server.h>
 
 #include "../src/BluezAdvertisingSupport.h"
+#include "../src/BluezAdapterCompat.h"
 #include "../src/ServerUtils.h"
 #include "../src/StructuredLogger.h"
 
@@ -61,6 +63,8 @@ using bzp::Server;
 using bzp::StructuredLogger;
 using bzp::Utils;
 using bzp::setActiveServer;
+using bzp::setActiveBluezAdapterForRuntime;
+using bzp::makeRuntimeBluezAdapterPtr;
 using bzp::detail::canUseExtendedAdvertising;
 using bzp::detail::collectGattServiceUUIDs;
 using bzp::detail::selectAdvertisementServiceUUIDs;
@@ -182,6 +186,7 @@ void captureTraceLog(const char *message)
 	capturedTraceLogs.emplace_back(message != nullptr ? message : "");
 }
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 void legacyRawMethodHandler(const DBusInterface &, GDBusConnection *, const std::string &, GVariant *, GDBusMethodInvocation *, void *userData)
 {
 	auto &state = *static_cast<LegacyRawCallbackState *>(userData);
@@ -200,6 +205,7 @@ bool legacyRawCharacteristicUpdateHandler(const GattCharacteristic &, GDBusConne
 	state.characteristicUpdatedCalled = true;
 	return true;
 }
+#endif
 
 void runLoopInvokeHandler(void *userData)
 {
@@ -325,19 +331,14 @@ void testServerWrapperMethodDispatch()
 	GVariant *wrapperShimParameters = g_variant_ref_sink(g_variant_new_string("wrapper-shim"));
 	state.called = false;
 	state.payload.clear();
-#if defined(__clang__) || defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
-	require(server.callMethod(rootPath, "com.example.Test", "PingWrapper", DBusConnectionRef(), DBusVariantRef(wrapperShimParameters), DBusMethodInvocationRef(), &state),
-		"Server wrapper callMethod shim should still dispatch");
-#if defined(__clang__) || defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
+	require(server.callMethod(rootPath, "com.example.Test", "PingWrapper",
+		DBusMethodCallRef(DBusConnectionRef(), DBusVariantRef(wrapperShimParameters), DBusMethodInvocationRef(), &state)),
+		"Server wrapper callMethod path should still dispatch");
 	g_variant_unref(wrapperShimParameters);
-	require(state.called, "Server wrapper callMethod shim should invoke the method handler");
-	require(state.payload == "wrapper-shim", "Server wrapper callMethod shim should preserve payload");
+	require(state.called, "Server wrapper callMethod path should invoke the method handler");
+	require(state.payload == "wrapper-shim", "Server wrapper callMethod path should preserve payload");
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	GVariant *directRawParameters = g_variant_ref_sink(g_variant_new_string("raw-direct"));
 	state.called = false;
 	state.payload.clear();
@@ -353,8 +354,10 @@ void testServerWrapperMethodDispatch()
 	g_variant_unref(directRawParameters);
 	require(state.called, "DBusInterface raw callMethod shim should invoke the method handler");
 	require(state.payload == "raw-direct", "DBusInterface raw callMethod shim should preserve payload");
+#endif
 }
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 void testLegacyRawCallbacksRemainCompatible()
 {
 	Server server("bzperi.tests.legacy-raw", "", "", &nullGetter, &acceptingSetter);
@@ -401,6 +404,7 @@ void testLegacyRawCallbacksRemainCompatible()
 		"Legacy raw GattCharacteristic updated handler should still dispatch");
 	require(state.characteristicUpdatedCalled, "Legacy raw GattCharacteristic updated handler should run");
 }
+#endif
 
 void testCharacteristicAndPropertyWrappers()
 {
@@ -571,15 +575,45 @@ void testBluezAdapterAccessors()
 	require(adapterPtr == getActiveBluezAdapterPtr(), "BlueZ adapter pointer accessor should remain stable across calls");
 	require(&getActiveBluezAdapter() == &adapter, "BlueZ adapter reference accessor should remain stable across calls");
 
+#if BZP_ENABLE_LEGACY_SINGLETON_COMPAT
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
 	require(&bzp::BluezAdapter::getInstance() == &adapter,
-		"Legacy BlueZ adapter singleton accessor should still resolve to the active adapter instance");
+	"Legacy BlueZ adapter singleton accessor should still resolve to the active adapter instance");
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
+#endif
+}
+
+void testBluezAdapterRuntimeOwnership()
+{
+	auto *originalAdapter = getActiveBluezAdapterPtr();
+	auto runtimeAdapter = makeRuntimeBluezAdapterPtr();
+	setActiveBluezAdapterForRuntime(runtimeAdapter.get());
+
+	require(getActiveBluezAdapterPtr() == runtimeAdapter.get(),
+		"Runtime-owned adapter should become the active adapter pointer");
+	require(&getActiveBluezAdapter() == runtimeAdapter.get(),
+		"Runtime-owned adapter should become the active adapter reference");
+
+#if BZP_ENABLE_LEGACY_SINGLETON_COMPAT
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+	require(&bzp::BluezAdapter::getInstance() == runtimeAdapter.get(),
+		"Legacy BlueZ adapter singleton should mirror the runtime-owned adapter when compat is enabled");
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+#endif
+
+	setActiveBluezAdapterForRuntime(originalAdapter);
+	require(getActiveBluezAdapterPtr() == originalAdapter,
+		"Restoring the previous active adapter should restore the original pointer");
 }
 
 void testServerAccessorCompatibilityStorage()
@@ -587,6 +621,7 @@ void testServerAccessorCompatibilityStorage()
 	auto originalServer = getActiveServer();
 	setActiveServer(nullptr);
 
+#if BZP_ENABLE_LEGACY_SINGLETON_COMPAT
 	auto legacyAssignedServer = std::make_shared<Server>("bzperi.tests.legacy-server", "", "", &nullGetter, &acceptingSetter);
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic push
@@ -601,19 +636,22 @@ void testServerAccessorCompatibilityStorage()
 		"Legacy TheServer assignment should synchronize into active server accessors");
 	require(getActiveServer().get() == legacyAssignedServer.get(),
 		"getActiveServer() should reflect legacy global assignments");
+#endif
 
 	auto accessorAssignedServer = std::make_shared<Server>("bzperi.tests.accessor-server", "", "", &nullGetter, &acceptingSetter);
 	setActiveServer(accessorAssignedServer);
 	require(getActiveServerPtr() == accessorAssignedServer.get(),
 		"Accessor-assigned server should become the active server");
+#if BZP_ENABLE_LEGACY_SINGLETON_COMPAT
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
 	require(bzp::TheServer.get() == accessorAssignedServer.get(),
-		"Accessor-assigned server should mirror back into the legacy global");
+	"Accessor-assigned server should mirror back into the legacy global");
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic pop
+#endif
 #endif
 
 	setActiveServer(originalServer);
@@ -755,6 +793,19 @@ void testWaitHelpers()
 		"bzpStartNoWait should preserve bzpStart argument validation");
 	require(bzpStartWithBondableNoWait(nullptr, "", "", &nullGetter, &acceptingSetter, 1) == 0,
 		"bzpStartWithBondableNoWait should preserve bzpStartWithBondable argument validation");
+	require(bzpStartNoWaitEx(nullptr, "", "", &nullGetter, &acceptingSetter) == BZP_START_INVALID_ARGUMENT,
+		"bzpStartNoWaitEx should distinguish invalid arguments");
+	require(bzpStartWithBondableEx("bzperi.tests.invalid-timeout", "", "", &nullGetter, &acceptingSetter, 50, 1) == BZP_START_INVALID_TIMEOUT,
+		"bzpStartWithBondableEx should distinguish invalid threaded startup timeouts");
+	require(bzpStartWithBondableManualEx("bzperi.tests.manual-invalid-timeout", "", "", &nullGetter, &acceptingSetter, 1) == BZP_START_OK,
+		"bzpStartWithBondableManualEx should succeed for manual startup when arguments are valid");
+	bzpTriggerShutdown();
+	require(bzpRunLoopDriveUntilShutdown(100) != 0,
+		"Manual startup from bzpStartWithBondableManualEx should still shut down cleanly");
+
+	std::string longServiceName(256, 'a');
+	require(bzpStartEx(longServiceName.c_str(), "", "", &nullGetter, &acceptingSetter, 0) == BZP_START_SERVICE_NAME_TOO_LONG,
+		"bzpStartEx should distinguish service names that exceed the D-Bus limit");
 }
 
 void testManualRunLoopLifecycle()
@@ -1267,6 +1318,9 @@ void testGLibLogCaptureToggle()
 {
 	const int original = bzpGetGLibLogCaptureEnabled();
 	const auto originalMode = bzpGetGLibLogCaptureMode();
+	const auto configuredMode = bzpGetConfiguredGLibLogCaptureMode();
+	require(configuredMode == static_cast<BZPGLibLogCaptureMode>(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE),
+		"Configured GLib log capture mode should match the build-time default");
 
 	struct RestoreState
 	{
@@ -1286,6 +1340,10 @@ void testGLibLogCaptureToggle()
 		}
 	} restore{originalMode};
 
+	bzpSetGLibLogCaptureMode(configuredMode);
+	require(bzpGetGLibLogCaptureMode() == configuredMode,
+		"Current GLib log capture mode should be settable back to the configured default");
+
 	bzpSetGLibLogCaptureEnabled(0);
 	require(bzpGetGLibLogCaptureEnabled() == 0, "GLib log capture toggle should disable capture");
 
@@ -1299,18 +1357,28 @@ void testGLibLogCaptureToggle()
 		"Explicit GLib log capture mode should support host-managed integration");
 	require(bzpGetGLibLogCaptureEnabled() == 0,
 		"Legacy enabled query should report false when host-managed mode disables automatic startup capture");
+	require(bzpRestoreGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_NOT_INSTALLED,
+		"Explicit GLib log capture restore should report not-installed before any host-managed install");
+	require(bzpInstallGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_OK,
+		"Host-managed GLib log capture Ex API should install explicitly");
 	require(bzpInstallGLibLogCapture() != 0,
-		"Host-managed GLib log capture should install explicitly");
+		"Legacy host-managed GLib log capture install wrapper should succeed");
 	require(bzpIsGLibLogCaptureInstalled() != 0,
 		"Host-managed GLib log capture should report installed after explicit install");
 	require(bzpRestoreGLibLogCapture() != 0,
-		"Host-managed GLib log capture should restore explicitly");
+		"Legacy host-managed GLib log capture restore wrapper should succeed");
+	require(bzpRestoreGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_OK,
+		"Host-managed GLib log capture Ex API should restore explicitly");
 	require(bzpIsGLibLogCaptureInstalled() == 0,
 		"Host-managed GLib log capture should report not installed after explicit restore");
 
 	bzpSetGLibLogCaptureMode(BZP_GLIB_LOG_CAPTURE_DISABLED);
+	require(bzpInstallGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_WRONG_MODE,
+		"Explicit GLib log capture install should report wrong-mode outside host-managed mode");
 	require(bzpInstallGLibLogCapture() == 0,
 		"Explicit GLib log capture install should fail outside host-managed mode");
+	require(bzpRestoreGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_WRONG_MODE,
+		"Explicit GLib log capture restore should report wrong-mode outside host-managed mode");
 
 	bzpSetGLibLogCaptureEnabled(original);
 	require(bzpGetGLibLogCaptureEnabled() == original, "GLib log capture toggle should restore the original state");
@@ -1425,9 +1493,12 @@ int main()
 	const std::vector<TestCase> tests = {
 		{"GattProperty rule-of-five", testGattPropertyRuleOfFive},
 		{"Server wrapper method dispatch", testServerWrapperMethodDispatch},
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 		{"Legacy raw callback compatibility", testLegacyRawCallbacksRemainCompatible},
+#endif
 		{"Characteristic/property wrapper dispatch", testCharacteristicAndPropertyWrappers},
 		{"BlueZ adapter accessors", testBluezAdapterAccessors},
+		{"BlueZ adapter runtime ownership", testBluezAdapterRuntimeOwnership},
 		{"Server accessor compatibility storage", testServerAccessorCompatibilityStorage},
 		{"Utils wrapper variants", testUtilsVariantWrappers},
 		{"Advertising service UUID selection", testAdvertisingServiceUuidSelection},

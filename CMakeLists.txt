@@ -31,6 +31,20 @@ option(BUILD_STANDALONE "Build standalone server example" ${LINUX})
 option(BUILD_TESTING "Build tests" OFF)
 option(ENABLE_BLUEZ_ADVANCED "Enable advanced BlueZ 5.77+ features" ${LINUX})
 option(ENABLE_PERFORMANCE_OPTIMIZATION "Enable Linux-specific performance optimizations" ${LINUX})
+option(ENABLE_LEGACY_SINGLETON_COMPAT "Build deprecated TheServer and BluezAdapter::getInstance compatibility APIs" ON)
+option(ENABLE_LEGACY_RAW_GLIB_COMPAT "Build deprecated raw GLib callback/method compatibility APIs" ON)
+set(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE "AUTOMATIC" CACHE STRING "Default GLib log capture mode: AUTOMATIC, DISABLED, or HOST_MANAGED")
+set_property(CACHE BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE PROPERTY STRINGS AUTOMATIC DISABLED HOST_MANAGED)
+
+if(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE STREQUAL "AUTOMATIC")
+    set(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE 0)
+elseif(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE STREQUAL "DISABLED")
+    set(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE 1)
+elseif(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE STREQUAL "HOST_MANAGED")
+    set(BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE 2)
+else()
+    message(FATAL_ERROR "BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE must be AUTOMATIC, DISABLED, or HOST_MANAGED")
+endif()
 
 # Optional: override version from CI/tag
 set(BZPERI_VERSION_OVERRIDE "" CACHE STRING "Override project/package version (e.g., from git tag)")
@@ -159,6 +173,11 @@ if(BUILD_SHARED_LIBS)
 else()
     add_library(bzperi STATIC ${BZPERI_SOURCES})
 endif()
+
+target_compile_definitions(bzperi PUBLIC
+    BZP_ENABLE_LEGACY_SINGLETON_COMPAT=$<IF:$<BOOL:${ENABLE_LEGACY_SINGLETON_COMPAT}>,1,0>
+    BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT=$<IF:$<BOOL:${ENABLE_LEGACY_RAW_GLIB_COMPAT}>,1,0>
+)
 
 # Library properties
 set_target_properties(bzperi PROPERTIES
@@ -412,6 +431,9 @@ message(STATUS "  Build type:        ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ standard:      C++${CMAKE_CXX_STANDARD}")
 message(STATUS "  Shared libraries:  ${BUILD_SHARED_LIBS}")
 message(STATUS "  Build standalone:  ${BUILD_STANDALONE}")
+message(STATUS "  Legacy singleton compat: ${ENABLE_LEGACY_SINGLETON_COMPAT}")
+message(STATUS "  Legacy raw GLib compat: ${ENABLE_LEGACY_RAW_GLIB_COMPAT}")
+message(STATUS "  Default GLib capture: ${BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE}")
 message(STATUS "  Platform:          ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  std::format:       ${HAS_STD_FORMAT}")
 if(LINUX)

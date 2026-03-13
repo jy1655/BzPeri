@@ -175,6 +175,21 @@ void configureAdvertisementPayload(BluezAdvertisement& advertisement, const Blue
 
 	const auto selectedServiceUUIDs = detail::selectAdvertisementServiceUUIDs(discoveredServiceUUIDs, capabilities);
 	const bool usingExtendedAdvertising = detail::canUseExtendedAdvertising(capabilities);
+	const char* payloadMode = usingExtendedAdvertising ? "extended" : "legacy";
+
+	if (discoveredServiceUUIDs.empty())
+	{
+		Logger::info(SSTR << "Advertising payload mode: " << payloadMode
+			<< " (MaxAdvLen=" << capabilities.maxAdvertisingDataLength << ", no service UUIDs discovered)");
+	}
+	else
+	{
+		Logger::info(SSTR << "Advertising payload mode: " << payloadMode
+			<< " (MaxAdvLen=" << capabilities.maxAdvertisingDataLength
+			<< ", discovered=" << discoveredServiceUUIDs.size()
+			<< ", selected=" << selectedServiceUUIDs.size()
+			<< ", uuids=" << joinStrings(selectedServiceUUIDs, ", ") << ")");
+	}
 
 	if (!discoveredServiceUUIDs.empty() && !usingExtendedAdvertising &&
 		selectedServiceUUIDs.size() < discoveredServiceUUIDs.size())

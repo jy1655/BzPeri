@@ -196,10 +196,12 @@ std::shared_ptr<const DBusInterface> DBusObject::findInterface(const DBusObjectP
 }
 
 // Finds a BlueZ method by name within the specified D-Bus interface
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData, const DBusObjectPath &basePath) const
 {
 	return callMethod(path, interfaceName, methodName, DBusMethodCallRef(pConnection, pParameters, pInvocation, pUserData), basePath);
 }
+#endif
 
 bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, DBusMethodCallRef methodCall, const DBusObjectPath &basePath) const
 {
@@ -228,10 +230,12 @@ bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &inter
 	return false;
 }
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 bool DBusObject::callMethod(const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData, const DBusObjectPath &basePath) const
 {
 	return callMethod(path, interfaceName, methodName, DBusMethodCallRef(connection, parameters, invocation, pUserData), basePath);
 }
+#endif
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // XML generation for a D-Bus introspection

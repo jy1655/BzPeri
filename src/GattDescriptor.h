@@ -48,8 +48,10 @@ struct DBusObject;
 
 namespace callbacks {
 	// Modern typed callback helpers - no more macro magic
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	using DescriptorMethodFunc BZP_DEPRECATED("Use callbacks::DescriptorMethodHandler instead") = LegacyMethodFunction<GattDescriptor>;
 	using DescriptorUpdateFunc BZP_DEPRECATED("Use callbacks::DescriptorUpdateHandler instead") = LegacyUpdateFunction<GattDescriptor>;
+#endif
 	using DescriptorMethodHandler = std::function<void(const GattDescriptor&, DBusConnectionRef, const std::string&, DBusVariantRef, DBusMethodInvocationRef, void*)>;
 	using DescriptorUpdateHandler = std::function<bool(const GattDescriptor&, DBusConnectionRef, void*)>;
 }

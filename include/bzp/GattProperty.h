@@ -53,10 +53,12 @@ struct GattProperty
 	BZP_DEPRECATED("Use GattProperty(const std::string&, DBusVariantRef) instead of raw GVariant* values")
 	GattProperty(const std::string &name, GVariant *pValue);
 	GattProperty(const std::string &name, DBusVariantRef value);
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattProperty wrapper getter/setter handlers or the constructor without raw GDBus property callbacks")
 	GattProperty(const std::string &name, GVariant *pValue, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr);
 	BZP_DEPRECATED("Use GattProperty wrapper getter/setter handlers or the constructor without raw GDBus property callbacks")
 	GattProperty(const std::string &name, DBusVariantRef value, RawPropertyGetterCallback getter, RawPropertySetterCallback setter = nullptr);
+#endif
 	BZP_DEPRECATED("Use GattProperty(const std::string&, DBusVariantRef, GetterHandler, SetterHandler) instead of raw GVariant* values")
 	GattProperty(const std::string &name, GVariant *pValue, const GetterHandler &getter, const SetterHandler &setter = {});
 	GattProperty(const std::string &name, DBusVariantRef value, const GetterHandler &getter, const SetterHandler &setter = {});
@@ -106,8 +108,10 @@ struct GattProperty
 	//
 
 	// Internal use method to retrieve the getter delegate method used to return custom values for a property
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattProperty::getGetterCallHandler() or getGetterHandler() instead of raw GDBus property callbacks")
 	RawPropertyGetterCallback getGetterFunc() const;
+#endif
 	const GetterHandler &getGetterHandler() const;
 	const GetterCallHandler &getGetterCallHandler() const;
 
@@ -115,14 +119,18 @@ struct GattProperty
 	//
 	// In general, this method should not be called directly as properties are typically added to an interface using one of the the
 	// interface's `addProperty` methods.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattProperty::setGetterCallHandler() or setGetterHandler() instead of raw GDBus property callbacks")
 	GattProperty &setGetterFunc(RawPropertyGetterCallback func);
+#endif
 	GattProperty &setGetterHandler(const GetterHandler &handler);
 	GattProperty &setGetterCallHandler(const GetterCallHandler &handler);
 
 	// Internal use method to retrieve the setter delegate method used to return custom values for a property
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattProperty::getSetterCallHandler() or getSetterHandler() instead of raw GDBus property callbacks")
 	RawPropertySetterCallback getSetterFunc() const;
+#endif
 	const SetterHandler &getSetterHandler() const;
 	const SetterCallHandler &getSetterCallHandler() const;
 
@@ -130,8 +138,10 @@ struct GattProperty
 	//
 	// In general, this method should not be called directly as properties are typically added to an interface using one of the the
 	// interface's `addProperty` methods.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattProperty::setSetterCallHandler() or setSetterHandler() instead of raw GDBus property callbacks")
 	GattProperty &setSetterFunc(RawPropertySetterCallback func);
+#endif
 	GattProperty &setSetterHandler(const SetterHandler &handler);
 	GattProperty &setSetterCallHandler(const SetterCallHandler &handler);
 
@@ -142,8 +152,10 @@ private:
 
 	std::string name;
 	DBusVariantRef value_;
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	RawPropertyGetterCallback getterFunc;
 	RawPropertySetterCallback setterFunc;
+#endif
 	GetterHandler getterHandler;
 	SetterHandler setterHandler;
 	GetterCallHandler getterCallHandler;

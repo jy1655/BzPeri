@@ -48,14 +48,18 @@ namespace callbacks {
 struct DBusMethod
 {
 	// A method callback delegate
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	using RawCallback = void (*)(const DBusInterface &self, GDBusConnection *pConnection, const std::string &methodName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData);
 	using Callback BZP_DEPRECATED("Use DBusMethod::CallHandler or DBusMethod::Handler instead of raw GDBus callback typedefs") = RawCallback;
+#endif
 	using Handler = callbacks::InterfaceMethodHandler;
 	using CallHandler = callbacks::InterfaceMethodCallHandler;
 
 	// Instantiate a named method on a given interface (pOwner) with a given set of arguments and a callback delegate
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use DBusMethod(..., CallHandler/Handler) instead of raw GDBus callbacks")
 	DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, RawCallback callback);
+#endif
 	DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, const Handler &handler);
 	DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, const CallHandler &handler);
 
@@ -94,6 +98,7 @@ struct DBusMethod
 	// Calls the method
 	//
 	// If a callback delegate has been set, then this method will call that delegate, otherwise this method will do nothing
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	BZP_DEPRECATED("Use DBusMethod::call(..., DBusMethodCallRef)")
 	void call(GDBusConnection *pConnection, const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, const std::string &notImplementedErrorName, GVariant *pParameters, GDBusMethodInvocation *pInvocation, void *pUserData) const
@@ -105,6 +110,7 @@ struct DBusMethod
 			methodName,
 			notImplementedErrorName);
 	}
+#endif
 
 	template<typename T>
 	void call(DBusMethodCallRef methodCall, const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, const std::string &notImplementedErrorName) const
@@ -112,12 +118,14 @@ struct DBusMethod
 		callImpl<T>(methodCall, path, interfaceName, methodName, notImplementedErrorName);
 	}
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	template<typename T>
 	BZP_DEPRECATED("Use DBusMethod::call(..., DBusMethodCallRef)")
 	void call(DBusConnectionRef connection, const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, const std::string &notImplementedErrorName, DBusVariantRef parameters, DBusMethodInvocationRef invocation, void *pUserData) const
 	{
 		callImpl<T>(DBusMethodCallRef(connection, parameters, invocation, pUserData), path, interfaceName, methodName, notImplementedErrorName);
 	}
+#endif
 
 	template<typename T>
 	void callImpl(DBusMethodCallRef methodCall, const DBusObjectPath &path, const std::string &interfaceName, const std::string &methodName, const std::string &notImplementedErrorName) const

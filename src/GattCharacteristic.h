@@ -51,8 +51,10 @@ struct DBusObject;
 
 namespace callbacks {
 	// Modern typed callback helpers - no more macro magic
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	using CharacteristicMethodFunc BZP_DEPRECATED("Use callbacks::CharacteristicMethodHandler instead") = LegacyMethodFunction<GattCharacteristic>;
 	using CharacteristicUpdateFunc BZP_DEPRECATED("Use callbacks::CharacteristicUpdateHandler instead") = LegacyUpdateFunction<GattCharacteristic>;
+#endif
 	using CharacteristicMethodHandler = std::function<void(const GattCharacteristic&, DBusConnectionRef, const std::string&, DBusVariantRef, DBusMethodInvocationRef, void*)>;
 	using CharacteristicUpdateHandler = std::function<bool(const GattCharacteristic&, DBusConnectionRef, void*)>;
 }

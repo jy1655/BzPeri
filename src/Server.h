@@ -269,10 +269,12 @@ std::shared_ptr<Server> getActiveServer();
 Server* getActiveServerPtr() noexcept;
 void setActiveServer(std::shared_ptr<Server> server);
 
+#if BZP_ENABLE_LEGACY_SINGLETON_COMPAT
 // Legacy global server handle retained for compatibility. Prefer getActiveServer()/getActiveServerPtr().
 #if defined(__cplusplus)
 [[deprecated("Use getActiveServer() or getActiveServerPtr() instead of TheServer")]]
 #endif
 extern std::shared_ptr<Server> TheServer;
+#endif
 
 }; // namespace bzp

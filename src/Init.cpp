@@ -783,6 +783,7 @@ GVariant *onGetProperty
 
 	const auto &getterCallHandler = pProperty->getGetterCallHandler();
 	const auto &getterHandler = pProperty->getGetterHandler();
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
@@ -790,6 +791,9 @@ GVariant *onGetProperty
 	const auto rawGetterFunc = pProperty->getGetterFunc();
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic pop
+#endif
+#else
+	const auto rawGetterFunc = static_cast<GDBusInterfaceGetPropertyFunc>(nullptr);
 #endif
 	if (!getterCallHandler && !getterHandler && !rawGetterFunc)
 	{
@@ -871,6 +875,7 @@ gboolean onSetProperty
 
 	const auto &setterCallHandler = pProperty->getSetterCallHandler();
 	const auto &setterHandler = pProperty->getSetterHandler();
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
@@ -878,6 +883,9 @@ gboolean onSetProperty
 	const auto rawSetterFunc = pProperty->getSetterFunc();
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic pop
+#endif
+#else
+	const auto rawSetterFunc = static_cast<GDBusInterfaceSetPropertyFunc>(nullptr);
 #endif
 	if (!setterCallHandler && !setterHandler && !rawSetterFunc)
 	{

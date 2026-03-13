@@ -32,6 +32,7 @@
 namespace bzp {
 
 // Instantiate a named method on a given interface (pOwner) with a given set of arguments and a callback delegate
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 DBusMethod::DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, RawCallback callback)
 : pOwner(pOwner), name(name)
 {
@@ -54,6 +55,7 @@ DBusMethod::DBusMethod(const DBusInterface *pOwner, const std::string &name, con
 		};
 	}
 }
+#endif
 
 DBusMethod::DBusMethod(const DBusInterface *pOwner, const std::string &name, const char *pInArgs[], const char *pOutArgs, const Handler &handler)
 : pOwner(pOwner), name(name)

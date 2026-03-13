@@ -48,9 +48,11 @@ struct Server;
 class BluezAdapter
 {
 public:
+#if BZP_ENABLE_LEGACY_SINGLETON_COMPAT
 	// Legacy singleton access retained for compatibility.
 	[[deprecated("Use getActiveBluezAdapter() or getActiveBluezAdapterPtr() instead of BluezAdapter::getInstance()")]]
 	static BluezAdapter& getInstance();
+#endif
 
 	// Initialization and cleanup with adapter discovery
 	BluezResult<void> initialize(const std::string& preferredAdapter = "");
@@ -106,6 +108,9 @@ private:
 	BluezAdapter() = default;
 	~BluezAdapter();
 	static BluezAdapter& activeAdapterStorage() noexcept;
+	friend BluezAdapter* makeBluezAdapterForRuntime();
+	friend void destroyBluezAdapterForRuntime(BluezAdapter *adapter) noexcept;
+	friend void setActiveBluezAdapterForRuntime(BluezAdapter *adapter) noexcept;
 
 	friend BluezAdapter& getActiveBluezAdapter() noexcept;
 	friend BluezAdapter* getActiveBluezAdapterPtr() noexcept;

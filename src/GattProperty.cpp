@@ -96,15 +96,16 @@ GattProperty::SetterCallHandler makeSetterCallHandler(const GattProperty::Setter
 // In general, properties should not be constructed directly as properties are typically instanticated by adding them to to an
 // interface using one of the the interface's `addProperty` methods.
 GattProperty::GattProperty(const std::string &name, GVariant *pValue)
-: name(name), value_(retainVariantRef(pValue)), getterFunc(nullptr), setterFunc(nullptr)
+: name(name), value_(retainVariantRef(pValue))
 {
 }
 
 GattProperty::GattProperty(const std::string &name, DBusVariantRef value)
-: name(name), value_(retainVariantRef(value.get())), getterFunc(nullptr), setterFunc(nullptr)
+: name(name), value_(retainVariantRef(value.get()))
 {
 }
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 GattProperty::GattProperty(const std::string &name, GVariant *pValue, RawPropertyGetterCallback getter, RawPropertySetterCallback setter)
 : name(name), value_(retainVariantRef(pValue)), getterFunc(getter), setterFunc(setter)
 {
@@ -114,34 +115,37 @@ GattProperty::GattProperty(const std::string &name, DBusVariantRef value, RawPro
 : name(name), value_(retainVariantRef(value.get())), getterFunc(getter), setterFunc(setter)
 {
 }
+#endif
 
 GattProperty::GattProperty(const std::string &name, GVariant *pValue, const GetterHandler &getter, const SetterHandler &setter)
-: name(name), value_(retainVariantRef(pValue)), getterFunc(nullptr), setterFunc(nullptr), getterHandler(getter), setterHandler(setter),
+: name(name), value_(retainVariantRef(pValue)), getterHandler(getter), setterHandler(setter),
   getterCallHandler(makeGetterCallHandler(getter)), setterCallHandler(makeSetterCallHandler(setter))
 {
 }
 
 GattProperty::GattProperty(const std::string &name, DBusVariantRef value, const GetterHandler &getter, const SetterHandler &setter)
-: name(name), value_(retainVariantRef(value.get())), getterFunc(nullptr), setterFunc(nullptr), getterHandler(getter), setterHandler(setter),
+: name(name), value_(retainVariantRef(value.get())), getterHandler(getter), setterHandler(setter),
   getterCallHandler(makeGetterCallHandler(getter)), setterCallHandler(makeSetterCallHandler(setter))
 {
 }
 
 GattProperty::GattProperty(const std::string &name, GVariant *pValue, const GetterCallHandler &getter, const SetterCallHandler &setter)
-: name(name), value_(retainVariantRef(pValue)), getterFunc(nullptr), setterFunc(nullptr), getterCallHandler(getter), setterCallHandler(setter)
+: name(name), value_(retainVariantRef(pValue)), getterCallHandler(getter), setterCallHandler(setter)
 {
 }
 
 GattProperty::GattProperty(const std::string &name, DBusVariantRef value, const GetterCallHandler &getter, const SetterCallHandler &setter)
-: name(name), value_(retainVariantRef(value.get())), getterFunc(nullptr), setterFunc(nullptr), getterCallHandler(getter), setterCallHandler(setter)
+: name(name), value_(retainVariantRef(value.get())), getterCallHandler(getter), setterCallHandler(setter)
 {
 }
 
 GattProperty::GattProperty(const GattProperty &other)
 : name(other.name),
   value_(retainVariantRef(other.value_.get())),
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
   getterFunc(other.getterFunc),
   setterFunc(other.setterFunc),
+#endif
   getterHandler(other.getterHandler),
   setterHandler(other.setterHandler),
   getterCallHandler(other.getterCallHandler),
@@ -152,16 +156,20 @@ GattProperty::GattProperty(const GattProperty &other)
 GattProperty::GattProperty(GattProperty &&other) noexcept
 : name(std::move(other.name)),
   value_(other.value_),
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
   getterFunc(other.getterFunc),
   setterFunc(other.setterFunc),
+#endif
   getterHandler(std::move(other.getterHandler)),
   setterHandler(std::move(other.setterHandler)),
   getterCallHandler(std::move(other.getterCallHandler)),
   setterCallHandler(std::move(other.setterCallHandler))
 {
 	other.value_ = DBusVariantRef();
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	other.getterFunc = nullptr;
 	other.setterFunc = nullptr;
+#endif
 }
 
 GattProperty &GattProperty::operator=(const GattProperty &other)
@@ -174,8 +182,10 @@ GattProperty &GattProperty::operator=(const GattProperty &other)
 	releaseVariant(value_);
 	name = other.name;
 	value_ = retainVariantRef(other.value_.get());
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	getterFunc = other.getterFunc;
 	setterFunc = other.setterFunc;
+#endif
 	getterHandler = other.getterHandler;
 	setterHandler = other.setterHandler;
 	getterCallHandler = other.getterCallHandler;
@@ -193,16 +203,20 @@ GattProperty &GattProperty::operator=(GattProperty &&other) noexcept
 	releaseVariant(value_);
 	name = std::move(other.name);
 	value_ = other.value_;
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	getterFunc = other.getterFunc;
 	setterFunc = other.setterFunc;
+#endif
 	getterHandler = std::move(other.getterHandler);
 	setterHandler = std::move(other.setterHandler);
 	getterCallHandler = std::move(other.getterCallHandler);
 	setterCallHandler = std::move(other.setterCallHandler);
 
 	other.value_ = DBusVariantRef();
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	other.getterFunc = nullptr;
 	other.setterFunc = nullptr;
+#endif
 	return *this;
 }
 
@@ -269,10 +283,12 @@ GattProperty &GattProperty::setValue(DBusVariantRef value)
 //
 
 // Internal use method to retrieve the getter delegate method used to return custom values for a property
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 RawPropertyGetterCallback GattProperty::getGetterFunc() const
 {
 	return getterFunc;
 }
+#endif
 
 const GattProperty::GetterHandler &GattProperty::getGetterHandler() const
 {
@@ -288,6 +304,7 @@ const GattProperty::GetterCallHandler &GattProperty::getGetterCallHandler() cons
 //
 // In general, this method should not be called directly as properties are typically added to an interface using one of the the
 // interface's `addProperty` methods.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 GattProperty &GattProperty::setGetterFunc(RawPropertyGetterCallback func)
 {
 	getterFunc = func;
@@ -295,10 +312,13 @@ GattProperty &GattProperty::setGetterFunc(RawPropertyGetterCallback func)
 	getterCallHandler = {};
 	return *this;
 }
+#endif
 
 GattProperty &GattProperty::setGetterHandler(const GetterHandler &handler)
 {
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	getterFunc = nullptr;
+#endif
 	getterHandler = handler;
 	getterCallHandler = makeGetterCallHandler(handler);
 	return *this;
@@ -306,17 +326,21 @@ GattProperty &GattProperty::setGetterHandler(const GetterHandler &handler)
 
 GattProperty &GattProperty::setGetterCallHandler(const GetterCallHandler &handler)
 {
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	getterFunc = nullptr;
+#endif
 	getterHandler = {};
 	getterCallHandler = handler;
 	return *this;
 }
 
 // Internal use method to retrieve the setter delegate method used to return custom values for a property
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 RawPropertySetterCallback GattProperty::getSetterFunc() const
 {
 	return setterFunc;
 }
+#endif
 
 const GattProperty::SetterHandler &GattProperty::getSetterHandler() const
 {
@@ -332,6 +356,7 @@ const GattProperty::SetterCallHandler &GattProperty::getSetterCallHandler() cons
 //
 // In general, this method should not be called directly as properties are typically added to an interface using one of the the
 // interface's `addProperty` methods.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 GattProperty &GattProperty::setSetterFunc(RawPropertySetterCallback func)
 {
 	setterFunc = func;
@@ -339,10 +364,13 @@ GattProperty &GattProperty::setSetterFunc(RawPropertySetterCallback func)
 	setterCallHandler = {};
 	return *this;
 }
+#endif
 
 GattProperty &GattProperty::setSetterHandler(const SetterHandler &handler)
 {
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	setterFunc = nullptr;
+#endif
 	setterHandler = handler;
 	setterCallHandler = makeSetterCallHandler(handler);
 	return *this;
@@ -350,7 +378,9 @@ GattProperty &GattProperty::setSetterHandler(const SetterHandler &handler)
 
 GattProperty &GattProperty::setSetterCallHandler(const SetterCallHandler &handler)
 {
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	setterFunc = nullptr;
+#endif
 	setterHandler = {};
 	setterCallHandler = handler;
 	return *this;

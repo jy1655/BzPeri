@@ -48,8 +48,10 @@ struct DBusObject;
 
 namespace callbacks {
 	// Modern typed callback helpers - no more macro magic
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	using DescriptorMethodFunc BZP_DEPRECATED("Use callbacks::DescriptorMethodHandler instead") = LegacyMethodFunction<GattDescriptor>;
 	using DescriptorUpdateFunc BZP_DEPRECATED("Use callbacks::DescriptorUpdateHandler instead") = LegacyUpdateFunction<GattDescriptor>;
+#endif
 	using DescriptorMethodHandler = std::function<void(const GattDescriptor&, DBusConnectionRef, const std::string&, DBusVariantRef, DBusMethodInvocationRef, void*)>;
 	using DescriptorMethodCallHandler = std::function<void(const GattDescriptor&, const std::string&, DBusMethodCallRef)>;
 	using DescriptorUpdateHandler = std::function<bool(const GattDescriptor&, DBusConnectionRef, void*)>;
@@ -65,10 +67,12 @@ struct GattDescriptor : GattInterface
 	// Our interface type
 	static constexpr const char *kInterfaceType = "GattDescriptor";
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	using RawMethodCallback = bzp::RawMethodCallback<GattDescriptor>;
 	using MethodCallback BZP_DEPRECATED("Use callbacks::DescriptorMethodHandler instead of raw GDBus callback typedefs") = RawMethodCallback;
 	using RawUpdatedValueCallback = bzp::RawUpdateCallback<GattDescriptor>;
 	using UpdatedValueCallback BZP_DEPRECATED("Use callbacks::DescriptorUpdateHandler instead of raw GDBus callback typedefs") = RawUpdatedValueCallback;
+#endif
 
 	//
 	// Standard constructor
@@ -90,11 +94,15 @@ struct GattDescriptor : GattInterface
 	GattCharacteristic &gattDescriptorEnd();
 
 	// Locates a D-Bus method within this D-Bus interface and invokes the method
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattDescriptor::callMethod(..., DBusMethodCallRef)")
 	virtual bool callMethod(const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const;
+#endif
 	bool callMethod(const std::string &methodName, DBusMethodCallRef methodCall) const;
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattDescriptor::callMethod(..., DBusMethodCallRef)")
 	bool callMethod(const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const;
+#endif
 
 	// Modern periodic updates: Use GLib timers directly
 	// Example: g_timeout_add_seconds(interval, callback, userData)
@@ -107,8 +115,10 @@ struct GattDescriptor : GattInterface
 	//
 	//     Input args:  options - "a{sv}"
 	//     Output args: value   - "ay"
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattDescriptor::onReadValue() with callbacks::DescriptorMethodHandler")
 	GattDescriptor &onReadValue(RawMethodCallback callback);
+#endif
 	GattDescriptor &onReadValue(const callbacks::DescriptorMethodHandler &callback);
 	GattDescriptor &onReadValue(const callbacks::DescriptorMethodCallHandler &callback);
 
@@ -121,8 +131,10 @@ struct GattDescriptor : GattInterface
 	//     Input args:  value   - "ay"
 	//                  options - "a{sv}"
 	//     Output args: void
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattDescriptor::onWriteValue() with callbacks::DescriptorMethodHandler")
 	GattDescriptor &onWriteValue(RawMethodCallback callback);
+#endif
 	GattDescriptor &onWriteValue(const callbacks::DescriptorMethodHandler &callback);
 	GattDescriptor &onWriteValue(const callbacks::DescriptorMethodCallHandler &callback);
 
@@ -136,8 +148,10 @@ struct GattDescriptor : GattInterface
 	// If you need to perform the same action(s) when a value is updated from the client (via `onWriteValue`) or from this server,
 	// then it may be beneficial to call this method from within your onWriteValue callback to reduce duplicated code. See
 	// `callOnUpdatedValue` for more information.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattDescriptor::onUpdatedValue() with callbacks::DescriptorUpdateHandler")
 	GattDescriptor &onUpdatedValue(RawUpdatedValueCallback callback);
+#endif
 	GattDescriptor &onUpdatedValue(const callbacks::DescriptorUpdateHandler &callback);
 	GattDescriptor &onUpdatedValue(const callbacks::DescriptorUpdateCallHandler &callback);
 
@@ -158,8 +172,10 @@ struct GattDescriptor : GattInterface
 	//          // Call the onUpdateValue method that was set in the same Descriptor
 	//          self.callOnUpdatedValue(DBusUpdateRef(methodCall.connection(), methodCall.userData()));
 	//      })
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 	BZP_DEPRECATED("Use GattDescriptor::callOnUpdatedValue() wrapper overload with DBusConnectionRef")
 	bool callOnUpdatedValue(GDBusConnection *pConnection, void *pUserData) const;
+#endif
 	BZP_DEPRECATED("Use GattDescriptor::callOnUpdatedValue(DBusUpdateRef)")
 	bool callOnUpdatedValue(DBusConnectionRef connection, void *pUserData) const;
 	bool callOnUpdatedValue(DBusUpdateRef update) const;

@@ -51,6 +51,8 @@
 #include <mutex>
 #include <exception>
 
+#include "config.h"
+#include "BluezAdapterCompat.h"
 #include "Init.h"
 #include <bzp/BluezAdapter.h>
 #include <bzp/Logger.h>
@@ -77,6 +79,28 @@
 
 namespace bzp
 {
+	namespace {
+		constexpr int kConfiguredGLibLogCaptureMode = BZP_DEFAULT_GLIB_LOG_CAPTURE_MODE_VALUE;
+
+		RuntimeBluezAdapterPtr& runtimeBluezAdapterStorage()
+		{
+			static RuntimeBluezAdapterPtr runtimeAdapter(nullptr, destroyBluezAdapterForRuntime);
+			return runtimeAdapter;
+		}
+
+		BluezAdapter* ensureRuntimeBluezAdapter()
+		{
+			auto &runtimeAdapter = runtimeBluezAdapterStorage();
+			if (!runtimeAdapter)
+			{
+				runtimeAdapter = makeRuntimeBluezAdapterPtr();
+			}
+
+			setActiveBluezAdapterForRuntime(runtimeAdapter.get());
+			return runtimeAdapter.get();
+		}
+	}
+
 	// During initialization, we'll check for complation at this interval
 	static const int kMaxAsyncInitCheckIntervalMS = 10;
 
@@ -92,7 +116,7 @@ namespace bzp
 	// Condition variable for state transitions
 	static std::condition_variable stateChangedCV;
 	static std::mutex stateChangedMutex;
-	static std::atomic<int> glibLogCaptureMode{BZP_GLIB_LOG_CAPTURE_AUTOMATIC};
+	static std::atomic<int> glibLogCaptureMode{kConfiguredGLibLogCaptureMode};
 	static std::atomic<unsigned int> automaticGLibCaptureInstalls{0};
 
 	// RAII guard that saves and restores GLib global handlers
@@ -395,26 +419,45 @@ BZPGLibLogCaptureMode bzpGetGLibLogCaptureMode()
 	return static_cast<BZPGLibLogCaptureMode>(glibLogCaptureMode.load(std::memory_order_acquire));
 }
 
-int bzpInstallGLibLogCapture()
+BZPGLibLogCaptureMode bzpGetConfiguredGLibLogCaptureMode()
+{
+	return static_cast<BZPGLibLogCaptureMode>(kConfiguredGLibLogCaptureMode);
+}
+
+BZPGLibLogCaptureResult bzpInstallGLibLogCaptureEx()
 {
 	if (!shouldUseHostManagedGLibCapture())
 	{
 		Logger::warn("bzpInstallGLibLogCapture() requires BZP_GLIB_LOG_CAPTURE_HOST_MANAGED mode");
-		return 0;
+		return BZP_GLIB_LOG_CAPTURE_RESULT_WRONG_MODE;
 	}
 
-	return glibHandlerGuard.install() ? 1 : 0;
+	return glibHandlerGuard.install()
+		? BZP_GLIB_LOG_CAPTURE_RESULT_OK
+		: BZP_GLIB_LOG_CAPTURE_RESULT_FAILED;
 }
 
-int bzpRestoreGLibLogCapture()
+int bzpInstallGLibLogCapture()
+{
+	return bzpInstallGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_OK ? 1 : 0;
+}
+
+BZPGLibLogCaptureResult bzpRestoreGLibLogCaptureEx()
 {
 	if (!shouldUseHostManagedGLibCapture())
 	{
 		Logger::warn("bzpRestoreGLibLogCapture() requires BZP_GLIB_LOG_CAPTURE_HOST_MANAGED mode");
-		return 0;
+		return BZP_GLIB_LOG_CAPTURE_RESULT_WRONG_MODE;
 	}
 
-	return glibHandlerGuard.restore() ? 1 : 0;
+	return glibHandlerGuard.restore()
+		? BZP_GLIB_LOG_CAPTURE_RESULT_OK
+		: BZP_GLIB_LOG_CAPTURE_RESULT_NOT_INSTALLED;
+}
+
+int bzpRestoreGLibLogCapture()
+{
+	return bzpRestoreGLibLogCaptureEx() == BZP_GLIB_LOG_CAPTURE_RESULT_OK ? 1 : 0;
 }
 
 int bzpIsGLibLogCaptureInstalled()
@@ -841,7 +884,7 @@ enum class StartupMode
 	ManualIteration
 };
 
-int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+BZPStartResult startServerWithMode(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 	BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS, int enableBondable, StartupMode startupMode)
 {
 	try
@@ -849,43 +892,43 @@ int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, 
 		if (!pServiceName || strlen(pServiceName) == 0)
 		{
 			Logger::error("bzpStart: pServiceName cannot be null or empty");
-			return 0;
+			return BZP_START_INVALID_ARGUMENT;
 		}
 		if (!pAdvertisingName)
 		{
 			Logger::error("bzpStart: pAdvertisingName cannot be null");
-			return 0;
+			return BZP_START_INVALID_ARGUMENT;
 		}
 		if (!pAdvertisingShortName)
 		{
 			Logger::error("bzpStart: pAdvertisingShortName cannot be null");
-			return 0;
+			return BZP_START_INVALID_ARGUMENT;
 		}
 		if (!getter)
 		{
 			Logger::error("bzpStart: getter delegate cannot be null");
-			return 0;
+			return BZP_START_INVALID_ARGUMENT;
 		}
 		if (!setter)
 		{
 			Logger::error("bzpStart: setter delegate cannot be null");
-			return 0;
+			return BZP_START_INVALID_ARGUMENT;
 		}
 		if (startupMode == StartupMode::Threaded && maxAsyncInitTimeoutMS != 0 && (maxAsyncInitTimeoutMS < 100 || maxAsyncInitTimeoutMS > 60000))
 		{
 			Logger::error(SSTR << "bzpStart: maxAsyncInitTimeoutMS (" << maxAsyncInitTimeoutMS
 				<< ") must be 0 or between 100 and 60000 milliseconds");
-			return 0;
+			return BZP_START_INVALID_TIMEOUT;
 		}
 		if (startupMode == StartupMode::ManualIteration && maxAsyncInitTimeoutMS != 0)
 		{
 			Logger::error("bzpStartManual: maxAsyncInitTimeoutMS must be 0 in manual-iteration mode");
-			return 0;
+			return BZP_START_INVALID_TIMEOUT;
 		}
 		if (strlen(pServiceName) > 255)
 		{
 			Logger::error(SSTR << "bzpStart: pServiceName too long (" << strlen(pServiceName) << " > 255)");
-			return 0;
+			return BZP_START_SERVICE_NAME_TOO_LONG;
 		}
 
 		const bool autoInstalledGLibHandlers = installAutomaticGLibHandlers();
@@ -911,7 +954,7 @@ int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, 
 
 		setServerHealth(EOk);
 		setServerRunState(EInitializing);
-		auto *adapter = getActiveBluezAdapterPtr();
+		auto *adapter = ensureRuntimeBluezAdapter();
 
 		if (startupMode == StartupMode::ManualIteration)
 		{
@@ -920,7 +963,7 @@ int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, 
 				Logger::error("Unable to initialize the manual BzPeri run loop");
 				setServerHealth(EFailedInit);
 				setServerRunState(EStopped);
-				return 0;
+				return BZP_START_MANUAL_LOOP_INIT_FAILED;
 			}
 
 			Logger::trace("BzPeri manual run loop started; host must drive it with bzpRunLoopIteration()");
@@ -928,7 +971,7 @@ int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, 
 			{
 				restoreGLibHandlersOnFailure.release();
 			}
-			return 1;
+			return BZP_START_OK;
 		}
 
 		try
@@ -960,7 +1003,7 @@ int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, 
 
 			setServerHealth(EFailedInit);
 			setServerRunState(EStopped);
-			return 0;
+			return BZP_START_THREAD_START_FAILED;
 		}
 
 		if (maxAsyncInitTimeoutMS == 0)
@@ -970,7 +1013,7 @@ int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, 
 			{
 				restoreGLibHandlersOnFailure.release();
 			}
-			return 1;
+			return BZP_START_OK;
 		}
 
 		std::unique_lock<std::mutex> lock(stateChangedMutex);
@@ -992,7 +1035,7 @@ int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, 
 				Logger::warn(SSTR << "Unable to stop the server after an error in bzpStart()");
 			}
 
-			return 0;
+			return initCompleted ? BZP_START_INIT_FAILED : BZP_START_INIT_TIMEOUT;
 		}
 
 		Logger::trace("BzPeri server has started");
@@ -1000,12 +1043,12 @@ int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, 
 		{
 			restoreGLibHandlersOnFailure.release();
 		}
-		return 1;
+		return BZP_START_OK;
 	}
 	catch(...)
 	{
 		Logger::error(SSTR << "Unknown exception during server startup");
-		return 0;
+		return BZP_START_EXCEPTION;
 	}
 }
 
@@ -1074,6 +1117,68 @@ int startServerWithMode(const char *pServiceName, const char *pAdvertisingName, 
 int bzpStartWithBondable(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 	BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS, int enableBondable)
 {
+	return bzpStartWithBondableEx(
+		pServiceName,
+		pAdvertisingName,
+		pAdvertisingShortName,
+		getter,
+		setter,
+		maxAsyncInitTimeoutMS,
+		enableBondable) == BZP_START_OK;
+}
+
+// Backward compatibility wrapper - calls bzpStartWithBondable with enableBondable=1 (true)
+int bzpStart(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS)
+{
+	return bzpStartEx(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, maxAsyncInitTimeoutMS) == BZP_START_OK;
+}
+
+int bzpStartNoWait(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	BZPServerDataGetter getter, BZPServerDataSetter setter)
+{
+	return bzpStartNoWaitEx(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter) == BZP_START_OK;
+}
+
+int bzpStartWithBondableNoWait(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	BZPServerDataGetter getter, BZPServerDataSetter setter, int enableBondable)
+{
+	return bzpStartWithBondableNoWaitEx(
+		pServiceName,
+		pAdvertisingName,
+		pAdvertisingShortName,
+		getter,
+		setter,
+		enableBondable) == BZP_START_OK;
+}
+
+int bzpStartManual(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	BZPServerDataGetter getter, BZPServerDataSetter setter)
+{
+	return bzpStartManualEx(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter) == BZP_START_OK;
+}
+
+int bzpStartWithBondableManual(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	BZPServerDataGetter getter, BZPServerDataSetter setter, int enableBondable)
+{
+	return bzpStartWithBondableManualEx(
+		pServiceName,
+		pAdvertisingName,
+		pAdvertisingShortName,
+		getter,
+		setter,
+		enableBondable) == BZP_START_OK;
+}
+
+BZPStartResult bzpStartEx(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS)
+{
+	return bzpStartWithBondableEx(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, maxAsyncInitTimeoutMS, 1);
+}
+
+BZPStartResult bzpStartWithBondableEx(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+	BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS, int enableBondable)
+{
 	return startServerWithMode(
 		pServiceName,
 		pAdvertisingName,
@@ -1085,32 +1190,25 @@ int bzpStartWithBondable(const char *pServiceName, const char *pAdvertisingName,
 		StartupMode::Threaded);
 }
 
-// Backward compatibility wrapper - calls bzpStartWithBondable with enableBondable=1 (true)
-int bzpStart(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
-	BZPServerDataGetter getter, BZPServerDataSetter setter, int maxAsyncInitTimeoutMS)
-{
-	return bzpStartWithBondable(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, maxAsyncInitTimeoutMS, 1);
-}
-
-int bzpStartNoWait(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+BZPStartResult bzpStartNoWaitEx(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 	BZPServerDataGetter getter, BZPServerDataSetter setter)
 {
-	return bzpStart(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, 0);
+	return bzpStartEx(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, 0);
 }
 
-int bzpStartWithBondableNoWait(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+BZPStartResult bzpStartWithBondableNoWaitEx(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 	BZPServerDataGetter getter, BZPServerDataSetter setter, int enableBondable)
 {
-	return bzpStartWithBondable(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, 0, enableBondable);
+	return bzpStartWithBondableEx(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, 0, enableBondable);
 }
 
-int bzpStartManual(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+BZPStartResult bzpStartManualEx(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 	BZPServerDataGetter getter, BZPServerDataSetter setter)
 {
-	return bzpStartWithBondableManual(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, 1);
+	return bzpStartWithBondableManualEx(pServiceName, pAdvertisingName, pAdvertisingShortName, getter, setter, 1);
 }
 
-int bzpStartWithBondableManual(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
+BZPStartResult bzpStartWithBondableManualEx(const char *pServiceName, const char *pAdvertisingName, const char *pAdvertisingShortName,
 	BZPServerDataGetter getter, BZPServerDataSetter setter, int enableBondable)
 {
 	return startServerWithMode(

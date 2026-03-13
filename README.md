@@ -274,8 +274,15 @@ For host-to-server scheduling without exposing GLib types directly, `bzpRunLoopI
 For host event loops that already use `poll(2)`/`select(2)`-style integration, the hidden poll API `bzpRunLoopPollPrepare()` / `bzpRunLoopPollQuery()` / `bzpRunLoopPollCheck()` / `bzpRunLoopPollDispatch()` / `bzpRunLoopPollCancel()` exposes the dedicated run loop as plain poll descriptors instead of `GMainContext *`.
 For lifecycle control in manual mode, `bzpRunLoopDriveUntilState()` and `bzpRunLoopDriveUntilShutdown()` can pump the loop until a target state is reached.
 If the host needs to reason about ownership explicitly, `bzpRunLoopIsManualMode()`, `bzpRunLoopHasOwner()`, and `bzpRunLoopIsCurrentThreadOwner()` expose the current manual run-loop state.
-For embedded hosts that need tighter control over process-global GLib handlers, `bzpSetGLibLogCaptureMode()` can switch between automatic capture, fully disabled capture, and `HOST_MANAGED` capture with explicit `bzpInstallGLibLogCapture()` / `bzpRestoreGLibLogCapture()`.
-The bundled `bzp-standalone` sample can be launched in this mode with `--manual-loop`.
+For embedded hosts that need tighter control over process-global GLib handlers, `bzpSetGLibLogCaptureMode()` can switch between automatic capture, fully disabled capture, and `HOST_MANAGED` capture with explicit `bzpInstallGLibLogCapture()` / `bzpRestoreGLibLogCapture()`. If the host needs failure reasons instead of `0/1`, `bzpInstallGLibLogCaptureEx()` / `bzpRestoreGLibLogCaptureEx()` distinguish `WRONG_MODE` and `NOT_INSTALLED`.
+The build-time default can be changed with `-DBZP_DEFAULT_GLIB_LOG_CAPTURE_MODE=AUTOMATIC|DISABLED|HOST_MANAGED`, and `bzpGetConfiguredGLibLogCaptureMode()` exposes that compiled-in default at runtime.
+Builders that do not need deprecated singleton/global compatibility can configure CMake with `-DENABLE_LEGACY_SINGLETON_COMPAT=OFF`.
+Builders that do not need deprecated raw GLib callback/method APIs can configure CMake with `-DENABLE_LEGACY_RAW_GLIB_COMPAT=OFF`.
+The same `ENABLE_LEGACY_RAW_GLIB_COMPAT=OFF` setting now also removes deprecated raw property getter/setter registration helpers and their legacy alias names, so wrapper property call handlers become the only public property-extension path.
+If the host needs detailed startup failure reasons instead of the legacy `0/1` return, use `bzpStartEx()` / `bzpStartWithBondableEx()` / `bzpStartManualEx()` and inspect `BZPStartResult`.
+The bundled `bzp-standalone` sample can be launched in this mode with `--manual-loop`, and its GLib capture strategy can be exercised with `--glib-log-capture=auto|off|host`.
+When advertising starts, BzPeri now logs the selected payload mode (`legacy` vs `extended`), `MaxAdvLen`, and the UUIDs actually placed into the advertisement so Extended Advertising verification is visible at `INFO` level.
+Extended Advertising support is implemented in the payload selection path, but validation on an actually extended-capable controller is still pending because suitable test hardware was not available during this cycle.
 
 ## ⚙️ Configuration
 

@@ -372,10 +372,12 @@ std::shared_ptr<const DBusInterface> Server::findInterface(const DBusObjectPath 
 // Find and call a D-Bus method within the given D-Bus object on the given D-Bus interface
 //
 // If the method was called, this method returns true, otherwise false. There is no result from the method call itself.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view interfaceName, std::string_view methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const
 {
 	return callMethod(objectPath, interfaceName, methodName, DBusMethodCallRef(pConnection, pParameters, pInvocation, pUserData));
 }
+#endif
 
 bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view interfaceName, std::string_view methodName, DBusMethodCallRef methodCall) const
 {
@@ -390,10 +392,12 @@ bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view inter
 	return false;
 }
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 bool Server::callMethod(const DBusObjectPath &objectPath, std::string_view interfaceName, std::string_view methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const
 {
 	return callMethod(objectPath, interfaceName, methodName, DBusMethodCallRef(connection, parameters, invocation, pUserData));
 }
+#endif
 
 // Find a GATT Property within the given D-Bus object on the given D-Bus interface
 //

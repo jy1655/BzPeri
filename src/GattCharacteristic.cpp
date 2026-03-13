@@ -84,10 +84,12 @@ GattService &GattCharacteristic::gattCharacteristicEnd()
 }
 
 // Locates a D-Bus method within this D-Bus interface and invokes the method
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 bool GattCharacteristic::callMethod(const std::string &methodName, GDBusConnection *pConnection, GVariant *pParameters, GDBusMethodInvocation *pInvocation, gpointer pUserData) const
 {
 	return callMethod(methodName, DBusMethodCallRef(pConnection, pParameters, pInvocation, pUserData));
 }
+#endif
 
 bool GattCharacteristic::callMethod(const std::string &methodName, DBusMethodCallRef methodCall) const
 {
@@ -104,10 +106,12 @@ bool GattCharacteristic::callMethod(const std::string &methodName, DBusMethodCal
 	return false;
 }
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 bool GattCharacteristic::callMethod(const std::string &methodName, DBusConnectionRef connection, DBusVariantRef parameters, DBusMethodInvocationRef invocation, gpointer pUserData) const
 {
 	return callMethod(methodName, DBusMethodCallRef(connection, parameters, invocation, pUserData));
 }
+#endif
 
 // Modern approach: Use GLib timers directly for periodic updates
 // Applications should use g_timeout_add_seconds() or g_timeout_add() for periodic operations
@@ -120,6 +124,7 @@ bool GattCharacteristic::callMethod(const std::string &methodName, DBusConnectio
 //
 //     Input args:  options - "a{sv}"
 //     Output args: value   - "ay"
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 GattCharacteristic &GattCharacteristic::onReadValue(RawMethodCallback callback)
 {
 	callbacks::CharacteristicMethodCallHandler handler;
@@ -158,6 +163,7 @@ GattCharacteristic &GattCharacteristic::onReadValue(RawMethodCallback callback)
 		});
 	return *this;
 }
+#endif
 
 GattCharacteristic &GattCharacteristic::onReadValue(const callbacks::CharacteristicMethodHandler &callback)
 {
@@ -204,6 +210,7 @@ GattCharacteristic &GattCharacteristic::onReadValue(const callbacks::Characteris
 //     Input args:  value   - "ay"
 //                  options - "a{sv}"
 //     Output args: void
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 GattCharacteristic &GattCharacteristic::onWriteValue(RawMethodCallback callback)
 {
 	callbacks::CharacteristicMethodCallHandler handler;
@@ -242,6 +249,7 @@ GattCharacteristic &GattCharacteristic::onWriteValue(RawMethodCallback callback)
 		});
 	return *this;
 }
+#endif
 
 GattCharacteristic &GattCharacteristic::onWriteValue(const callbacks::CharacteristicMethodHandler &callback)
 {
@@ -289,6 +297,7 @@ GattCharacteristic &GattCharacteristic::onWriteValue(const callbacks::Characteri
 // If you need to perform the same action(s) when a value is updated from the client (via `onWriteValue`) or from this server,
 // then it may be beneficial to call this method from within your onWriteValue callback to reduce duplicated code. See
 // `callOnUpdatedValue` for more information.
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 GattCharacteristic &GattCharacteristic::onUpdatedValue(RawUpdatedValueCallback callback)
 {
 	if (callback == nullptr)
@@ -302,6 +311,7 @@ GattCharacteristic &GattCharacteristic::onUpdatedValue(RawUpdatedValueCallback c
 	};
 	return *this;
 }
+#endif
 
 GattCharacteristic &GattCharacteristic::onUpdatedValue(const callbacks::CharacteristicUpdateHandler &callback)
 {
@@ -332,10 +342,12 @@ GattCharacteristic &GattCharacteristic::onUpdatedValue(const callbacks::Characte
 //          // Call the onUpdateValue method that was set in the same Characteristic
 //          self.callOnUpdatedValue(pConnection, pUserData);
 //      })
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 bool GattCharacteristic::callOnUpdatedValue(GDBusConnection *pConnection, void *pUserData) const
 {
 	return callOnUpdatedValue(DBusUpdateRef(pConnection, pUserData));
 }
+#endif
 
 bool GattCharacteristic::callOnUpdatedValue(DBusConnectionRef connection, void *pUserData) const
 {

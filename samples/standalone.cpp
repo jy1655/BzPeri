@@ -257,6 +257,8 @@ int main(int argc, char **ppArgv)
 	std::string sampleNamespace = "samples";
 	bool includeSampleServices = true;
 	bool manualLoopMode = false;
+	BZPGLibLogCaptureMode glibCaptureMode = bzpGetConfiguredGLibLogCaptureMode();
+	bool installHostManagedCapture = false;
 
 	// A basic command-line parser
 	for (int i = 1; i < argc; ++i)
@@ -310,6 +312,30 @@ int main(int argc, char **ppArgv)
 		{
 			manualLoopMode = true;
 		}
+		else if (arg.rfind("--glib-log-capture=", 0) == 0)
+		{
+			std::string mode = arg.substr(19);
+			std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+			if (mode == "auto" || mode == "automatic")
+			{
+				glibCaptureMode = BZP_GLIB_LOG_CAPTURE_AUTOMATIC;
+			}
+			else if (mode == "off" || mode == "disabled" || mode == "disable")
+			{
+				glibCaptureMode = BZP_GLIB_LOG_CAPTURE_DISABLED;
+			}
+			else if (mode == "host" || mode == "host-managed")
+			{
+				glibCaptureMode = BZP_GLIB_LOG_CAPTURE_HOST_MANAGED;
+				installHostManagedCapture = true;
+			}
+			else
+			{
+				LogFatal((std::string("Unknown GLib log capture mode: '") + mode + "'").c_str());
+				LogFatal("Expected one of: auto, off, host");
+				return -1;
+			}
+		}
 		else if (arg.rfind("--sample-namespace=", 0) == 0)
 		{
 			sampleNamespace = arg.substr(19);
@@ -333,6 +359,7 @@ int main(int argc, char **ppArgv)
 			LogAlways("  --advertise-short=NAME   Set LE advertising short name (default BzPeri)");
 			LogAlways("  --sample-namespace=NODE  Namespace node for example services (default samples)");
 			LogAlways("  --manual-loop            Drive BzPeri via bzpRunLoopIteration() instead of the internal thread");
+			LogAlways("  --glib-log-capture=MODE Set GLib capture mode: auto, off, or host");
 			LogAlways("  --no-sample-services      Disable bundled example GATT services");
 			LogAlways("  --with-sample-services    Re-enable bundled example services after disabling");
 			LogAlways("  --help, -h                Show this help message");
@@ -422,6 +449,31 @@ int main(int argc, char **ppArgv)
 	bzpLogRegisterAlways(LogAlways);
 	bzpLogRegisterTrace(LogTrace);
 
+	bzpSetGLibLogCaptureMode(glibCaptureMode);
+	if (glibCaptureMode == BZP_GLIB_LOG_CAPTURE_AUTOMATIC)
+	{
+		LogStatus("GLib log capture mode: automatic");
+	}
+	else if (glibCaptureMode == BZP_GLIB_LOG_CAPTURE_DISABLED)
+	{
+		LogStatus("GLib log capture mode: disabled");
+	}
+	else
+	{
+		LogStatus("GLib log capture mode: host-managed");
+	}
+
+	bool hostManagedCaptureInstalled = false;
+	if (installHostManagedCapture)
+	{
+		hostManagedCaptureInstalled = bzpInstallGLibLogCapture() != 0;
+		if (!hostManagedCaptureInstalled)
+		{
+			LogFatal("Failed to install host-managed GLib log capture");
+			return -1;
+		}
+	}
+
 	if (manualLoopMode)
 	{
 		LogStatus("Using manual BzPeri run-loop mode");
@@ -444,6 +496,10 @@ int main(int argc, char **ppArgv)
 		: bzpStartWithBondable(serviceName.c_str(), advertisingName.c_str(), advertisingShortName.c_str(), dataGetter, dataSetter, kMaxAsyncInitTimeoutMS, 1);
 	if (!started)
 	{
+		if (hostManagedCaptureInstalled)
+		{
+			bzpRestoreGLibLogCapture();
+		}
 		return -1;
 	}
 
@@ -516,16 +572,33 @@ int main(int argc, char **ppArgv)
 
 		if (!bzpWaitForShutdown(0))
 		{
+			if (hostManagedCaptureInstalled)
+			{
+				bzpRestoreGLibLogCapture();
+			}
 			return -1;
 		}
 
+		if (hostManagedCaptureInstalled)
+		{
+			bzpRestoreGLibLogCapture();
+		}
 		return bzpGetServerHealth() == EOk ? 0 : 1;
 	}
 
 	// Wait for the server to come to a complete stop (CTRL-C from the command line)
 	if (!bzpWait())
 	{
+		if (hostManagedCaptureInstalled)
+		{
+			bzpRestoreGLibLogCapture();
+		}
 		return -1;
+	}
+
+	if (hostManagedCaptureInstalled)
+	{
+		bzpRestoreGLibLogCapture();
 	}
 
 	// Return the final server health status as a success (0) or error (-1)

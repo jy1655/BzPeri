@@ -13,6 +13,14 @@
 #define BZP_DEPRECATED(message)
 #endif
 
+#ifndef BZP_ENABLE_LEGACY_SINGLETON_COMPAT
+#define BZP_ENABLE_LEGACY_SINGLETON_COMPAT 1
+#endif
+
+#ifndef BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
+#define BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT 1
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -63,10 +71,12 @@ namespace bzp {
 
 class DBusVariantRef;
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 using RawPropertyGetterCallback = GDBusInterfaceGetPropertyFunc;
 using RawPropertySetterCallback = GDBusInterfaceSetPropertyFunc;
 using LegacyPropertyGetterCallback BZP_DEPRECATED("Use callbacks::PropertyGetterHandler instead of raw GDBus property callbacks") = RawPropertyGetterCallback;
 using LegacyPropertySetterCallback BZP_DEPRECATED("Use callbacks::PropertySetterHandler instead of raw GDBus property callbacks") = RawPropertySetterCallback;
+#endif
 
 template<typename TOwner>
 using RawMethodCallback = void (*)(const TOwner&, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation*, void*);
@@ -74,11 +84,13 @@ using RawMethodCallback = void (*)(const TOwner&, GDBusConnection*, const std::s
 template<typename TOwner>
 using RawUpdateCallback = bool (*)(const TOwner&, GDBusConnection*, void*);
 
+#if BZP_ENABLE_LEGACY_RAW_GLIB_COMPAT
 template<typename TOwner>
 using LegacyMethodFunction = std::function<void(const TOwner&, GDBusConnection*, const std::string&, GVariant*, GDBusMethodInvocation*, void*)>;
 
 template<typename TOwner>
 using LegacyUpdateFunction = std::function<bool(const TOwner&, GDBusConnection*, void*)>;
+#endif
 
 class DBusConnectionRef
 {
