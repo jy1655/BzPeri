@@ -52,8 +52,9 @@ mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Debug
 make -j$(nproc)
 
-# Run example (requires sudo for BlueZ access)
-sudo ./bzp-standalone -d
+# Check the host, then run the managed demo (requires sudo for BlueZ access)
+sudo ./bzp-standalone doctor
+sudo ./bzp-standalone demo -d
 ```
 
 ### Build Options
@@ -166,7 +167,9 @@ update
    cd build
    cmake .. -DCMAKE_BUILD_TYPE=Debug
    make -j$(nproc)
-   sudo ./bzp-standalone -d  # Manual testing
+   sudo ./bzp-standalone doctor
+   sudo ./bzp-standalone demo -d
+   sudo ./bzp-standalone inspect --live  # Optional second terminal
    ```
 
 4. **Commit your changes** with clear messages
@@ -199,7 +202,7 @@ Please include:
 - **Steps to reproduce**: Minimal steps to trigger the issue
 - **Expected behavior**: What should happen
 - **Actual behavior**: What actually happens
-- **Logs**: Debug output with `-d` flag if applicable
+- **Logs**: `doctor`, `demo -d`, or `inspect --live --verbose-events` output if applicable
 
 ### Feature Requests
 

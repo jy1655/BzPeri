@@ -31,15 +31,17 @@ sudo apt install bzperi bzperi-dev bzperi-tools
 export BZPERI_AUTO_EXPERIMENTAL=1
 sudo -E apt install --reinstall bzperi
 
-# Run example server
-sudo bzp-standalone -d
+# Check the host, start the managed demo, then inspect it from another terminal
+sudo bzp-standalone doctor
+sudo bzp-standalone demo -d
+sudo bzp-standalone inspect --live
 ```
 
 ### Build from Source
 ```bash
 # Clone and build
 git clone https://github.com/jy1655/BzPeri.git
-cd bzperi
+cd BzPeri
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
@@ -49,9 +51,13 @@ make -j$(nproc)
 sudo cp ../dbus/com.bzperi.conf /etc/dbus-1/system.d/
 sudo ../scripts/configure-bluez-experimental.sh enable
 
-# Run example server
-sudo ./bzp-standalone -d
+# Check the host, start the managed demo, then inspect it from another terminal
+sudo ./bzp-standalone doctor
+sudo ./bzp-standalone demo -d
+sudo ./bzp-standalone inspect --live
 ```
+
+For a full first-run workflow, including Raspberry Pi / Debian-over-SSH notes and a verification-client path, see [STANDALONE_USAGE.md](STANDALONE_USAGE.md).
 
 ## What is BzPeri?
 
@@ -171,11 +177,14 @@ int main() {
 ### For Developers & Contributors
 - **[Build Guide](BUILD.md)** - Detailed build instructions, dependencies, and CMake options
 - **[Contributing Guide](CONTRIBUTING.md)** - Contribution workflow and repository expectations
+- **[Code of Conduct](CODE_OF_CONDUCT.md)** - Community expectations for contributors
+- **[Security Policy](SECURITY.md)** - Responsible disclosure and supported security reporting path
 
 ### Technical Documentation
 - **[Packaging Guide](README-PACKAGING.md)** - Debian package building and APT repository setup
 - **[BlueZ Migration](BLUEZ_MIGRATION.md)** - HCI Management API → D-Bus migration details
 - **[Modernization Guide](MODERNIZATION.md)** - 2019→2025 upgrade overview and architecture changes
+- **[Project TODOs](TODOS.md)** - Deferred follow-up work beyond the current release slice
 
 ## Header Layout
 
@@ -374,21 +383,20 @@ The included policy file (`dbus/com.bzperi.conf`) provides comprehensive permiss
 <busconfig>
   <!-- Root user permissions -->
   <policy user="root">
-    <allow own="com.bzperi"/>
-    <allow send_destination="com.bzperi"/>
+    <allow own_prefix="com.bzperi"/>
+    <allow send_destination_prefix="com.bzperi"/>
     <allow send_destination="org.bluez"/>
     <allow receive_sender="org.bluez"/>
   </policy>
 
   <!-- Bluetooth group permissions -->
   <policy group="bluetooth">
-    <allow send_destination="com.bzperi"/>
-    <allow receive_sender="com.bzperi"/>
+    <allow send_destination_prefix="com.bzperi"/>
   </policy>
 
   <!-- Introspection for debugging -->
   <policy context="default">
-    <allow send_destination="com.bzperi"
+    <allow send_destination_prefix="com.bzperi"
            send_interface="org.freedesktop.DBus.Introspectable"/>
   </policy>
 </busconfig>
@@ -398,6 +406,8 @@ The included policy file (`dbus/com.bzperi.conf`) provides comprehensive permiss
 
 **Check if policy is installed:**
 ```bash
+ls -la /usr/share/dbus-1/system.d/com.bzperi.conf
+# Or, for source-build/manual installs:
 ls -la /etc/dbus-1/system.d/com.bzperi.conf
 # Should show: -rw-r--r-- root root
 ```
@@ -417,7 +427,7 @@ sudo journalctl -u dbus -f
 
 Common issues:
 - **"Connection refused"**: D-Bus policy not installed or incorrect permissions
-- **"Access denied"**: Service name does not start with `bzperi.`
+- **"Access denied"**: Service name is not `bzperi` and does not start with `bzperi.`
 - **"Name already in use"**: Another instance is running
 
 **Force D-Bus to reload policies:**
@@ -503,12 +513,12 @@ if (!result) {
 ```
 
 ### Modern Adapter Management
-```cpp
-// List available adapters
-sudo ./bzp-standalone --list-adapters
+```bash
+# List available adapters
+sudo ./bzp-standalone doctor --list-adapters
 
-// Use specific adapter
-sudo ./bzp-standalone --adapter=hci1
+# Use a specific adapter for the managed demo
+sudo ./bzp-standalone demo --adapter=hci1
 ```
 
 ## Acknowledgments
