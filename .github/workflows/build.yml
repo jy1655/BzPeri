@@ -135,10 +135,12 @@ jobs:
 
           rm -rf /tmp/bzperi-stage
           DESTDIR=/tmp/bzperi-stage cmake --install build
-          test -x /tmp/bzperi-stage/usr/local/bin/bzp-standalone
-          /tmp/bzperi-stage/usr/local/bin/bzp-standalone --help > /tmp/bzp-standalone-installed-help.txt 2>&1
+          export BZP_STAGE_ROOT=/tmp/bzperi-stage/usr/local
+          export LD_LIBRARY_PATH="$BZP_STAGE_ROOT/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          test -x "$BZP_STAGE_ROOT/bin/bzp-standalone"
+          "$BZP_STAGE_ROOT/bin/bzp-standalone" --help > /tmp/bzp-standalone-installed-help.txt 2>&1
           grep -q "Usage: bzp-standalone <command>" /tmp/bzp-standalone-installed-help.txt
-          /tmp/bzperi-stage/usr/local/bin/bzp-standalone inspect --help > /tmp/bzp-standalone-installed-inspect-help.txt 2>&1
+          "$BZP_STAGE_ROOT/bin/bzp-standalone" inspect --help > /tmp/bzp-standalone-installed-inspect-help.txt 2>&1
           grep -q "Usage: bzp-standalone inspect --live" /tmp/bzp-standalone-installed-inspect-help.txt
           grep -q -- "--show-tree" /tmp/bzp-standalone-installed-inspect-help.txt
 
