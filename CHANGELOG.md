@@ -5,6 +5,38 @@ All notable changes to BzPeri will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-04-09
+
+This release turns the bundled `bzp-standalone` sample into a terminal-first validation workflow for Linux hosts.
+Compared to `v0.2.0`, the focus here is getting from "the library built" to "the full host/demo/inspect path is working"
+with fewer manual steps and stronger packaged-install verification.
+
+### Added
+- Terminal-first `bzp-standalone` subcommands:
+  - `doctor` for host-readiness checks and adapter inventory
+  - `demo` for the managed sample BLE server path
+  - `inspect --live` for reading managed-session state without scraping stdout
+- Managed inspect-session persistence and reporting, including selected-object context, object-tree output, event history,
+  low-signal filtering, and stale-session guidance
+- Regression coverage for doctor evaluation, doctor probe collection, inspect-session persistence, event filtering, ring-buffer
+  truncation, and stale-session detection
+- `TODOS.md` follow-up tracking for inspector expansion, Raspberry Pi packaging, and terminal workflow design rules
+
+### Changed
+- The standalone sample, build docs, contributor docs, packaging docs, and usage guide now lead with the
+  `doctor -> demo -> inspect` workflow
+- Standalone build/test targets now compile the shared workflow implementation into both `bzp-standalone` and `bzperi-tests`
+- CI executable verification now checks subcommand help text, invalid-subcommand handling, no-session inspect behavior, and
+  installed-binary behavior
+- The BlueZ experimental helper now checks the running `bluetoothd` process first and resolves the effective `ExecStart` from
+  the active systemd unit before falling back to heuristics
+
+### Fixed
+- D-Bus policy rules now allow the `com.bzperi.*` service-prefix ownership and debug/introspection flow used by the managed
+  standalone workflow
+- Shutdown cleanup now removes GLib sources only when they are still registered with the active main context
+- Installed-binary CI verification now exports the staged library path before executing `bzp-standalone` from `DESTDIR`
+
 ## [0.2.0] - 2026-03-13
 
 This release is the first `0.2.x` line and is the largest functional update since `0.1.9`.
@@ -161,6 +193,7 @@ cmake -DENABLE_LEGACY_SINGLETON_COMPAT=OFF -DENABLE_LEGACY_RAW_GLIB_COMPAT=OFF
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.2.1 | 2026-04-09 | Terminal-first standalone workflow, live inspect session reports, CI/install verification hardening |
 | 0.2.0 | 2026-03-13 | Runtime hardening, manual run loop, Ex APIs, GLib capture/power controls |
 | 0.1.9 | 2025-11-14 | Debian 12 arm64 container builds |
 | 0.1.7 | 2025-11-14 | GLIBCXX/Debian 12 compatibility |

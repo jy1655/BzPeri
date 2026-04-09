@@ -72,16 +72,15 @@ BzPeri is a C++20 Bluetooth LE GATT server framework that makes creating BLE ser
 - **Robust error handling** - Detailed result codes and defensive runtime checks
 - **Secure by default** - Proper bonding/pairing support out of the box
 
-## New in v0.2.0
+## New in v0.2.1
 
-Compared to the `0.1.x` line, `v0.2.0` is primarily a runtime/API maturity release rather than a packaging-only update.
+Compared to `v0.2.0`, `v0.2.1` is about making first-run validation feel like a complete product path instead of a pile of flags.
 
-- **Manual run-loop support**: host applications can run BzPeri without the internal server thread and integrate it into an external event loop.
-- **Detailed `Ex` APIs**: startup, wait, shutdown, GLib capture, update queue, and run-loop helpers now have result-code variants instead of ambiguous `0/1` or `void` behavior.
-- **Compatibility isolation**: deprecated singleton/global and raw GLib callback layers can now be compiled out with CMake options.
-- **BlueZ runtime hardening**: better adapter recovery, reconnect behavior, advertising payload selection, and runtime state logging.
-- **Operational controls**: GLib capture modes/targets/domains, power-management hooks, and optional sleep inhibitor support were added for embedded hosts.
-- **Regression coverage**: the project now ships a `ctest` unit/regression target, and the sample/runtime paths have been exercised against real BLE clients.
+- **Terminal-first standalone workflow**: `bzp-standalone doctor`, `demo`, and `inspect --live` now form the primary validation path.
+- **Live inspect session reports**: the managed demo writes session state that `inspect --live` can read back as object metadata, recent events, and next-step guidance.
+- **Packaged-install verification**: CI now checks both the build-tree binary and the staged installed binary, so release packaging regressions get caught before tagging.
+- **Workflow-oriented docs**: README, build docs, packaging docs, and standalone usage docs now all walk through the same `doctor -> demo -> inspect` flow.
+- **Linux host hardening**: the BlueZ experimental helper and D-Bus policy now better match real packaged installs and multi-name service usage.
 
 ## Upgrading from v0.1.x
 
@@ -169,7 +168,7 @@ int main() {
 
 ### For Users
 - **[API Reference](include/BzPeri.h)** - Complete API documentation
-- **[Changelog](CHANGELOG.md)** - Release-by-release summary, including `v0.2.0` vs `v0.1.x`
+- **[Changelog](CHANGELOG.md)** - Release-by-release summary for the current `v0.2.1` line and earlier milestones
 - **[Configurator API](include/bzp/ConfiguratorSupport.h)** - Modern service configuration API
 - **[Compatibility Migration](COMPATIBILITY_MIGRATION.md)** - Deprecated API migration from Gobbledegook and legacy BzPeri shims
 - **[Standalone Usage](STANDALONE_USAGE.md)** - Command-line options and adapter selection guide
