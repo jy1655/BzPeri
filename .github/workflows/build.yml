@@ -94,7 +94,7 @@ jobs:
 
       - name: Verify executable
         run: |
-          # Verify the standalone binary exists, is executable, and prints its help text.
+          # Verify the standalone binary exists, is executable, and exposes the Phase 1 control-plane contract.
           test -x build/bzp-standalone
           echo "Executable exists"
           if command -v file >/dev/null 2>&1; then
@@ -102,8 +102,47 @@ jobs:
           else
             echo "Skipping 'file' inspection: utility not installed in this environment"
           fi
+
           build/bzp-standalone --help > /tmp/bzp-standalone-help.txt 2>&1
-          grep -q "Usage: standalone" /tmp/bzp-standalone-help.txt
+          grep -q "Usage: bzp-standalone <command>" /tmp/bzp-standalone-help.txt
+          grep -q "doctor" /tmp/bzp-standalone-help.txt
+          grep -q "inspect" /tmp/bzp-standalone-help.txt
+
+          build/bzp-standalone demo --help > /tmp/bzp-standalone-demo-help.txt 2>&1
+          grep -q "Usage: bzp-standalone demo" /tmp/bzp-standalone-demo-help.txt
+
+          build/bzp-standalone doctor --help > /tmp/bzp-standalone-doctor-help.txt 2>&1
+          grep -q "Usage: bzp-standalone doctor" /tmp/bzp-standalone-doctor-help.txt
+
+          build/bzp-standalone inspect --help > /tmp/bzp-standalone-inspect-help.txt 2>&1
+          grep -q "Usage: bzp-standalone inspect --live" /tmp/bzp-standalone-inspect-help.txt
+          grep -q -- "--show-tree" /tmp/bzp-standalone-inspect-help.txt
+
+          build/bzp-standalone --adapter=hci0 --help > /tmp/bzp-standalone-legacy-demo-help.txt 2>&1
+          grep -q "Usage: bzp-standalone demo" /tmp/bzp-standalone-legacy-demo-help.txt
+
+          if build/bzp-standalone nope > /tmp/bzp-standalone-invalid.txt 2>&1; then
+            echo "invalid subcommand unexpectedly succeeded"
+            exit 1
+          fi
+          grep -q "unknown subcommand" /tmp/bzp-standalone-invalid.txt
+
+          if build/bzp-standalone inspect --live > /tmp/bzp-standalone-no-session.txt 2>&1; then
+            echo "inspect --live unexpectedly succeeded without a managed session"
+            exit 1
+          fi
+          grep -q "No managed BzPeri session found" /tmp/bzp-standalone-no-session.txt
+
+          rm -rf /tmp/bzperi-stage
+          DESTDIR=/tmp/bzperi-stage cmake --install build
+          export BZP_STAGE_ROOT=/tmp/bzperi-stage/usr/local
+          export LD_LIBRARY_PATH="$BZP_STAGE_ROOT/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          test -x "$BZP_STAGE_ROOT/bin/bzp-standalone"
+          "$BZP_STAGE_ROOT/bin/bzp-standalone" --help > /tmp/bzp-standalone-installed-help.txt 2>&1
+          grep -q "Usage: bzp-standalone <command>" /tmp/bzp-standalone-installed-help.txt
+          "$BZP_STAGE_ROOT/bin/bzp-standalone" inspect --help > /tmp/bzp-standalone-installed-inspect-help.txt 2>&1
+          grep -q "Usage: bzp-standalone inspect --live" /tmp/bzp-standalone-installed-inspect-help.txt
+          grep -q -- "--show-tree" /tmp/bzp-standalone-installed-inspect-help.txt
 
   lint:
     name: Code Style Check

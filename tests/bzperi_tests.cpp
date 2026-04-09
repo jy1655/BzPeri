@@ -14,12 +14,14 @@
 #include "../src/BluezAdvertisingSupport.h"
 #include "../src/BluezAdapterCompat.h"
 #include "../src/ServerCompat.h"
+#include "../src/StandaloneWorkflow.h"
 #include "../src/ServerUtils.h"
 #include "../src/StructuredLogger.h"
 
 #include <cstdlib>
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <exception>
 #include <functional>
 #include <iostream>
@@ -165,6 +167,106 @@ struct LegacyRawCallbackState
 	bool methodCalled = false;
 	bool characteristicReadCalled = false;
 	bool characteristicUpdatedCalled = false;
+};
+
+struct FakeDoctorProbe final : bzp::standalone::DoctorProbe
+{
+	bool systemBusReachable = false;
+	std::string systemBusDetail;
+	bool bluezServiceReachable = false;
+	std::string bluezServiceDetail;
+	bool serviceNameAvailable = false;
+	std::string serviceNameDetail;
+	bool adapterProbeSucceeded = false;
+	bool poweredAdapterAvailable = false;
+	std::string adapterSummary;
+	std::string adapterDetail;
+	bool policyInstalled = false;
+	std::string policyPath;
+	bool helperAvailable = false;
+	bool experimentalModeEnabled = false;
+	std::string helperPath;
+	std::string helperDetail;
+	mutable std::string lastPreferredAdapter;
+
+	bool checkSystemBus(std::string *detailOut) const override
+	{
+		if (detailOut != nullptr)
+		{
+			*detailOut = systemBusDetail;
+		}
+		return systemBusReachable;
+	}
+
+	bool checkBluezService(std::string *detailOut) const override
+	{
+		if (detailOut != nullptr)
+		{
+			*detailOut = bluezServiceDetail;
+		}
+		return bluezServiceReachable;
+	}
+
+	bool checkServiceOwnership(const std::string &, std::string *detailOut) const override
+	{
+		if (detailOut != nullptr)
+		{
+			*detailOut = serviceNameDetail;
+		}
+		return serviceNameAvailable;
+	}
+
+	bool probeAdapter(const std::string &preferredAdapter,
+		bool *poweredAdapterAvailableOut,
+		std::string *summaryOut,
+		std::vector<std::string> *adapterLinesOut,
+		std::string *detailOut) const override
+	{
+		lastPreferredAdapter = preferredAdapter;
+		if (poweredAdapterAvailableOut != nullptr)
+		{
+			*poweredAdapterAvailableOut = poweredAdapterAvailable;
+		}
+		if (summaryOut != nullptr)
+		{
+			*summaryOut = adapterSummary;
+		}
+		if (adapterLinesOut != nullptr)
+		{
+			adapterLinesOut->assign({adapterSummary});
+		}
+		if (detailOut != nullptr)
+		{
+			*detailOut = adapterDetail;
+		}
+		return adapterProbeSucceeded;
+	}
+
+	bool checkPolicy(std::string *pathOut) const override
+	{
+		if (pathOut != nullptr)
+		{
+			*pathOut = policyPath;
+		}
+		return policyInstalled;
+	}
+
+	bool checkExperimentalHelper(std::string *pathOut, bool *modeEnabledOut, std::string *detailOut) const override
+	{
+		if (pathOut != nullptr)
+		{
+			*pathOut = helperPath;
+		}
+		if (modeEnabledOut != nullptr)
+		{
+			*modeEnabledOut = experimentalModeEnabled;
+		}
+		if (detailOut != nullptr)
+		{
+			*detailOut = helperDetail;
+		}
+		return helperAvailable;
+	}
 };
 
 std::vector<std::string> capturedInfoLogs;
@@ -2087,6 +2189,201 @@ void testStructuredLoggerLevelRouting()
 	}
 }
 
+void testStandaloneDoctorReportEvaluation()
+{
+	bzp::standalone::DoctorSnapshot snapshot;
+	snapshot.systemBusReachable = true;
+	snapshot.systemBusDetail = "Connected to the system D-Bus.";
+	snapshot.bluezServiceReachable = true;
+	snapshot.bluezServiceDetail = "org.bluez is present on the system bus.";
+	snapshot.serviceNameAvailable = true;
+	snapshot.serviceNameDetail = "Current process can own com.bzperi on the system bus.";
+	snapshot.adapterProbeSucceeded = true;
+	snapshot.poweredAdapterAvailable = true;
+	snapshot.adapterSummary = "/org/bluez/hci0 powered=yes";
+	snapshot.policyInstalled = true;
+	snapshot.policyPath = "/etc/dbus-1/system.d/com.bzperi.conf";
+	snapshot.experimentalHelperAvailable = true;
+	snapshot.experimentalModeEnabled = true;
+	snapshot.experimentalHelperPath = "/usr/share/bzperi/configure-bluez-experimental.sh";
+
+	const auto report = bzp::standalone::evaluateDoctorSnapshot(snapshot, "bzp-standalone");
+	require(report.overall == bzp::standalone::Verdict::Pass, "Healthy doctor snapshot should evaluate to PASS");
+	require(bzp::standalone::exitCodeForDoctorReport(report) == 0, "Passing doctor report should have exit code 0");
+	require(report.checks.size() == 6, "Doctor report should produce six core checks");
+	require(std::find(report.nextCommands.begin(), report.nextCommands.end(), "bzp-standalone demo") != report.nextCommands.end(),
+		"Passing doctor report should suggest the demo command");
+
+	const auto rendered = bzp::standalone::formatDoctorReport(report, "bzp-standalone");
+	require(rendered.find("STATUS  PASS") != std::string::npos, "Rendered doctor report should include PASS status");
+	require(rendered.find("PASS  Adapter readiness") != std::string::npos, "Rendered doctor report should list adapter readiness");
+}
+
+void testStandaloneDoctorReportWarnsWhenExperimentalModeIsDisabled()
+{
+	bzp::standalone::DoctorSnapshot snapshot;
+	snapshot.systemBusReachable = true;
+	snapshot.systemBusDetail = "Connected to the system D-Bus.";
+	snapshot.bluezServiceReachable = true;
+	snapshot.bluezServiceDetail = "org.bluez is present on the system bus.";
+	snapshot.serviceNameAvailable = true;
+	snapshot.serviceNameDetail = "Current process can own com.bzperi on the system bus.";
+	snapshot.adapterProbeSucceeded = true;
+	snapshot.poweredAdapterAvailable = true;
+	snapshot.adapterSummary = "/org/bluez/hci0 powered=yes";
+	snapshot.policyInstalled = true;
+	snapshot.policyPath = "/etc/dbus-1/system.d/com.bzperi.conf";
+	snapshot.experimentalHelperAvailable = true;
+	snapshot.experimentalModeEnabled = false;
+	snapshot.experimentalHelperPath = "/usr/share/bzperi/configure-bluez-experimental.sh";
+	snapshot.experimentalDetail = "Experimental mode is not enabled.";
+
+	const auto report = bzp::standalone::evaluateDoctorSnapshot(snapshot, "bzp-standalone");
+	require(report.overall == bzp::standalone::Verdict::Warn, "Experimental mode disabled should downgrade doctor to WARN");
+	require(std::find(report.nextCommands.begin(), report.nextCommands.end(),
+		"sudo /usr/share/bzperi/configure-bluez-experimental.sh enable") != report.nextCommands.end(),
+		"Doctor report should suggest enabling experimental mode when the helper says it is disabled");
+}
+
+void testStandaloneDoctorProbeCollection()
+{
+	FakeDoctorProbe probe;
+	probe.systemBusReachable = true;
+	probe.systemBusDetail = "Connected to system bus.";
+	probe.bluezServiceReachable = true;
+	probe.bluezServiceDetail = "org.bluez present.";
+	probe.serviceNameAvailable = false;
+	probe.serviceNameDetail = "Current user cannot own com.bzperi on the system bus.";
+	probe.adapterProbeSucceeded = true;
+	probe.poweredAdapterAvailable = false;
+	probe.adapterSummary = "/org/bluez/hci1 powered=no";
+	probe.adapterDetail = "Adapters found but none are powered.";
+	probe.policyInstalled = false;
+	probe.policyPath = "/etc/dbus-1/system.d/com.bzperi.conf";
+	probe.helperAvailable = true;
+	probe.experimentalModeEnabled = false;
+	probe.helperPath = "/usr/share/bzperi/configure-bluez-experimental.sh";
+	probe.helperDetail = "Experimental mode is not enabled.";
+
+	const auto snapshot = bzp::standalone::collectDoctorSnapshot(probe, "hci1");
+	require(snapshot.systemBusReachable, "Doctor probe collection should preserve the system bus result");
+	require(snapshot.bluezServiceReachable, "Doctor probe collection should preserve the BlueZ service result");
+	require(!snapshot.serviceNameAvailable, "Doctor probe collection should preserve owned-name availability");
+	require(snapshot.adapterProbeSucceeded, "Doctor probe collection should preserve the adapter probe result");
+	require(!snapshot.poweredAdapterAvailable, "Doctor probe collection should preserve powered adapter availability");
+	require(snapshot.adapterSummary == "/org/bluez/hci1 powered=no", "Doctor probe collection should preserve the adapter summary");
+	require(snapshot.adapterLines.size() == 1, "Doctor probe collection should preserve adapter inventory lines");
+	require(snapshot.policyPath == "/etc/dbus-1/system.d/com.bzperi.conf", "Doctor probe collection should preserve the policy path");
+	require(snapshot.experimentalHelperAvailable, "Doctor probe collection should preserve helper availability");
+	require(!snapshot.experimentalModeEnabled, "Doctor probe collection should preserve experimental mode state");
+	require(probe.lastPreferredAdapter == "hci1", "Doctor probe collection should pass the preferred adapter through the seam");
+}
+
+void testInspectSessionStoreRoundTrip()
+{
+	const auto sessionPath = (std::filesystem::temp_directory_path() / "bzperi-inspect-session-test.ini").string();
+	bzp::standalone::InspectSessionStore store(sessionPath, 3);
+
+	bzp::standalone::InspectSessionSnapshot snapshot;
+	snapshot.pid = 4242;
+	snapshot.updatedAtMs = 1000;
+	snapshot.serviceName = "bzperi";
+	snapshot.advertisingName = "BzPeri";
+	snapshot.advertisingShortName = "BzPeri";
+	snapshot.sampleNamespace = "samples";
+	snapshot.objectRoot = "/com/bzperi/samples";
+	snapshot.selectedObjectPath = "/com/bzperi/samples/battery/level";
+	snapshot.writeProbePath = "/com/bzperi/samples/text/string";
+	snapshot.selectedObjectSummary = "selected path: /com/bzperi/samples/battery/level";
+	snapshot.adapterPath = "/org/bluez/hci0";
+	snapshot.adapterAddress = "00:11:22:33:44:55";
+	snapshot.adapterPowered = true;
+	snapshot.objectCount = 4;
+	snapshot.objectTreeLines = {
+		"/com/bzperi/samples [org.bluez.GattService1]",
+		"  /com/bzperi/samples/battery [org.bluez.GattCharacteristic1]",
+	};
+	snapshot.selectedObjectLines = {
+		"interfaces: org.bluez.GattCharacteristic1",
+		"  UUID: '00002a19-0000-1000-8000-00805f9b34fb'",
+	};
+	snapshot.warnings = {"No client is currently connected."};
+
+	bzp::standalone::appendInspectEvent(snapshot, {1001, bzp::standalone::EventLevel::Status, "BluezAdapter", "op=Initialize result=Success"}, 3);
+	bzp::standalone::appendInspectEvent(snapshot, {1002, bzp::standalone::EventLevel::Warn, "BluezAdapter", "adapter powered=no"}, 3);
+	bzp::standalone::appendInspectEvent(snapshot, {1003, bzp::standalone::EventLevel::Info, "BluezAdapter", "op=Connection result=Connected"}, 3);
+	bzp::standalone::appendInspectEvent(snapshot, {1004, bzp::standalone::EventLevel::Debug, "BluezAdapter", "debug noise"}, 3);
+
+	std::string error;
+	require(store.save(snapshot, &error), "Inspect session should save without error: " + error);
+
+	const auto loaded = store.load(&error);
+	require(loaded.has_value(), "Inspect session should load after save");
+	require(loaded->events.size() == 3, "Inspect event buffer should truncate to the configured ring size");
+	require(loaded->events.front().timestampMs == 1002, "Inspect event ring buffer should discard the oldest event");
+	require(loaded->droppedEventCount == 1, "Inspect session should preserve the count of dropped ring-buffer events");
+	require(loaded->writeProbePath == "/com/bzperi/samples/text/string", "Inspect session should round-trip the write probe path");
+	require(loaded->selectedObjectLines.size() == 2, "Inspect selected object lines should round-trip through the session file");
+	require(loaded->objectTreeLines.size() == 2, "Inspect object tree should round-trip through the session file");
+	require(loaded->warnings.size() == 1, "Inspect warnings should round-trip through the session file");
+	require(bzp::standalone::shouldDisplayEvent(loaded->events[0], false), "WARN events should be visible in the default inspect view");
+	require(!bzp::standalone::shouldDisplayEvent(loaded->events.back(), false), "Debug chatter should stay hidden in the default inspect view");
+
+	const auto rendered = bzp::standalone::formatInspectReport(*loaded, "bzp-standalone", false, false);
+	require(rendered.find("BzPeri Inspect") != std::string::npos, "Rendered inspect report should include the inspect header");
+	require(rendered.find("selected object: /com/bzperi/samples/battery/level") != std::string::npos,
+		"Rendered inspect report should include the selected object path");
+	require(rendered.find("write probe: /com/bzperi/samples/text/string") != std::string::npos,
+		"Rendered inspect report should include the write-capable probe path");
+	require(rendered.find("tree: hidden by default") != std::string::npos,
+		"Default inspect report should disclose that the full tree is hidden");
+	require(rendered.find("low-signal events hidden") != std::string::npos,
+		"Default inspect report should disclose filtered low-signal events");
+	require(rendered.find("Event history truncated; 1 older events were dropped") != std::string::npos,
+		"Inspect report should disclose ring-buffer truncation");
+	require(rendered.find("inspect --live --show-tree") != std::string::npos,
+		"Default inspect report should suggest how to reveal the object tree");
+	require(rendered.find("inspect --live --verbose-events") != std::string::npos,
+		"Default inspect report should suggest how to reveal filtered events");
+
+	const auto verboseRendered = bzp::standalone::formatInspectReport(*loaded, "bzp-standalone", true, true);
+	require(verboseRendered.find("\nTREE\n") != std::string::npos,
+		"Inspect report should include the full tree when showTree is requested");
+	require(verboseRendered.find("debug noise") != std::string::npos,
+		"Verbose inspect report should include debug events");
+
+	require(store.clear(&error), "Inspect session store should clear without error: " + error);
+	const auto missing = store.load(&error);
+	require(!missing.has_value(), "Cleared inspect session should no longer load");
+}
+
+bool alwaysAliveForTest(int)
+{
+	return true;
+}
+
+bool neverAliveForTest(int)
+{
+	return false;
+}
+
+void testInspectSessionStaleDetection()
+{
+	bzp::standalone::InspectSessionSnapshot snapshot;
+	snapshot.pid = 99999;
+
+	require(!bzp::standalone::isInspectSessionStale(snapshot, alwaysAliveForTest),
+		"Inspect session should not be stale when the pid probe says it is alive");
+	require(bzp::standalone::isInspectSessionStale(snapshot, neverAliveForTest),
+		"Inspect session should be stale when the pid probe says it is gone");
+	require(bzp::standalone::isInspectSessionStale({}, alwaysAliveForTest),
+		"Inspect session without a pid should be treated as stale");
+
+	const auto rendered = bzp::standalone::formatStaleSessionReport(snapshot, "bzp-standalone");
+	require(rendered.find("stale managed session file") != std::string::npos,
+		"Rendered stale inspect report should explain the stale session");
+}
+
 void testUpdateEnqueueExHelpers()
 {
 	bzpUpdateQueueClear();
@@ -2174,6 +2471,11 @@ int main()
 		{"GLib log capture toggle", testGLibLogCaptureToggle},
 		{"GLib log startup-shutdown mode", testGLibLogCaptureStartupAndShutdownMode},
 		{"Structured logger level routing", testStructuredLoggerLevelRouting},
+		{"Standalone doctor report evaluation", testStandaloneDoctorReportEvaluation},
+		{"Standalone doctor report warns when experimental mode is disabled", testStandaloneDoctorReportWarnsWhenExperimentalModeIsDisabled},
+		{"Standalone doctor probe collection", testStandaloneDoctorProbeCollection},
+		{"Inspect session store round-trip", testInspectSessionStoreRoundTrip},
+		{"Inspect session stale detection", testInspectSessionStaleDetection},
 		{"Update enqueue Ex helpers", testUpdateEnqueueExHelpers},
 	};
 

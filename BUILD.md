@@ -54,7 +54,7 @@ Modern CMake-based build system with cross-platform support:
 ```bash
 # Clone and setup
 git clone <repository-url>
-cd bzperi
+cd BzPeri
 
 # Create build directory
 mkdir build && cd build
@@ -116,8 +116,9 @@ sudo dbus-send --system --print-reply \
     --dest=org.bluez /org/bluez \
     org.freedesktop.DBus.Introspectable.Introspect
 
-# Run bzp-standalone example (requires sudo)
-sudo ./build/bzp-standalone -d
+# Check the host, then run the managed demo
+sudo ./build/bzp-standalone doctor
+sudo ./build/bzp-standalone demo -d
 ```
 
 ## Development Setup
@@ -145,7 +146,7 @@ cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
 make -j$(nproc)
 
 # Run with debugging
-sudo gdb ./bzp-standalone
+sudo gdb --args ./bzp-standalone demo -d
 ```
 
 ## Platform-Specific Notes
@@ -157,6 +158,7 @@ sudo gdb ./bzp-standalone
   sudo cp dbus/com.bzperi.conf /etc/dbus-1/system.d/
   sudo systemctl reload dbus
   ```
+- Packaged installs place the same policy at `/usr/share/dbus-1/system.d/com.bzperi.conf`
 
 ### macOS
 - Bluetooth LE operations not supported (no BlueZ)
@@ -201,8 +203,8 @@ sudo apt install bluez bluez-tools
 sudo cp dbus/com.bzperi.conf /etc/dbus-1/system.d/
 sudo systemctl reload dbus
 
-# Or run with sudo
-sudo ./bzp-standalone
+# Then re-check the host
+sudo ./build/bzp-standalone doctor
 ```
 
 #### "std::format not available"

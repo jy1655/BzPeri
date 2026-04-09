@@ -216,7 +216,7 @@ bzp-standalone --help
 pkg-config --cflags --libs bzperi
 
 # Check D-Bus policy file
-ls /etc/dbus-1/system.d/com.bzperi.conf
+ls /usr/share/dbus-1/system.d/com.bzperi.conf
 
 # Check BlueZ configuration helper script
 ls /usr/share/bzperi/configure-bluez-experimental.sh
@@ -245,14 +245,17 @@ target_include_directories(your_app PRIVATE ${BZPERI_INCLUDE_DIRS})
 ### 5. Tools Usage
 
 ```bash
-# Check available BlueZ adapters
-sudo bzp-standalone --list-adapters
+# Check host readiness and available adapters
+sudo bzp-standalone doctor --list-adapters
 
-# Run demo server
-sudo bzp-standalone -d
+# Run the managed demo server
+sudo bzp-standalone demo -d
+
+# Inspect the managed session from another terminal
+sudo bzp-standalone inspect --live
 
 # Use specific adapter
-sudo bzp-standalone --adapter=hci1 -d
+sudo bzp-standalone demo --adapter=hci1 -d
 ```
 
 ## 🌐 Official Repository Distribution
@@ -348,7 +351,7 @@ Generally, D-Bus policies are automatically applied, but if there are issues:
 
 ```bash
 # Check D-Bus policy file
-ls -la /etc/dbus-1/system.d/com.bzperi.conf
+ls -la /usr/share/dbus-1/system.d/com.bzperi.conf
 
 # Manual D-Bus reload (for troubleshooting, generally unnecessary)
 sudo systemctl reload dbus
@@ -356,8 +359,8 @@ sudo systemctl reload dbus
 # Or full restart (last resort)
 sudo systemctl restart dbus
 
-# Test permissions
-sudo bzp-standalone --list-adapters
+# Re-check permissions and adapters
+sudo bzp-standalone doctor --list-adapters
 ```
 
 ### Repository Issues

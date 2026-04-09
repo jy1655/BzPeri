@@ -31,15 +31,17 @@ sudo apt install bzperi bzperi-dev bzperi-tools
 export BZPERI_AUTO_EXPERIMENTAL=1
 sudo -E apt install --reinstall bzperi
 
-# Run example server
-sudo bzp-standalone -d
+# Check the host, start the managed demo, then inspect it from another terminal
+sudo bzp-standalone doctor
+sudo bzp-standalone demo -d
+sudo bzp-standalone inspect --live
 ```
 
 ### Build from Source
 ```bash
 # Clone and build
 git clone https://github.com/jy1655/BzPeri.git
-cd bzperi
+cd BzPeri
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
@@ -49,9 +51,13 @@ make -j$(nproc)
 sudo cp ../dbus/com.bzperi.conf /etc/dbus-1/system.d/
 sudo ../scripts/configure-bluez-experimental.sh enable
 
-# Run example server
-sudo ./bzp-standalone -d
+# Check the host, start the managed demo, then inspect it from another terminal
+sudo ./bzp-standalone doctor
+sudo ./bzp-standalone demo -d
+sudo ./bzp-standalone inspect --live
 ```
+
+For a full first-run workflow, including Raspberry Pi / Debian-over-SSH notes and a verification-client path, see [STANDALONE_USAGE.md](STANDALONE_USAGE.md).
 
 ## What is BzPeri?
 
@@ -171,11 +177,14 @@ int main() {
 ### For Developers & Contributors
 - **[Build Guide](BUILD.md)** - Detailed build instructions, dependencies, and CMake options
 - **[Contributing Guide](CONTRIBUTING.md)** - Contribution workflow and repository expectations
+- **[Code of Conduct](CODE_OF_CONDUCT.md)** - Community expectations for contributors
+- **[Security Policy](SECURITY.md)** - Responsible disclosure and supported security reporting path
 
 ### Technical Documentation
 - **[Packaging Guide](README-PACKAGING.md)** - Debian package building and APT repository setup
 - **[BlueZ Migration](BLUEZ_MIGRATION.md)** - HCI Management API → D-Bus migration details
 - **[Modernization Guide](MODERNIZATION.md)** - 2019→2025 upgrade overview and architecture changes
+- **[Project TODOs](TODOS.md)** - Deferred follow-up work beyond the current release slice
 
 ## Header Layout
 
@@ -299,33 +308,89 @@ bzpStartWithBondable("bzperi.myapp", "name", "short", getter, setter, timeout, t
 
 ### Runtime Integration Modes
 
-BzPeri now supports two integration styles:
+BzPeri supports two integration styles. Pick the one that matches who owns the process lifecycle.
 
-- Thread-owned mode: `bzpStart*()` / `bzpStart*NoWait()` keep using the internal server thread.
-- Manual-iteration mode: `bzpStartManual()` / `bzpStartWithBondableManual()` create the dedicated GLib context without spawning the internal thread; the host then drives progress with `bzpRunLoopIteration()` or bounded waits via `bzpRunLoopIterationFor()`. The first iteration call becomes the owning thread for that manual run loop, or the host can claim/release ownership explicitly with `bzpRunLoopAttach()` / `bzpRunLoopDetach()`.
+| Mode | Main APIs | Best fit |
+|------|-----------|----------|
+| Thread-owned | `bzpStart*()` / `bzpStart*NoWait()` | Normal applications that are happy to let BzPeri run its own server thread |
+| Manual iteration | `bzpStartManual()` / `bzpStartWithBondableManual()` + `bzpRunLoopIteration*()` | Embedded hosts, existing event loops, or processes that want explicit control over startup, callbacks, and shutdown |
 
-Manual mode is the better fit when the host already owns its lifecycle and wants explicit control over when BLE initialization, D-Bus callbacks, and shutdown cleanup are pumped.
-For host-to-server scheduling without exposing GLib types directly, `bzpRunLoopInvoke()` can queue a callback onto the same dedicated run loop.
-For host event loops that already use `poll(2)`/`select(2)`-style integration, the hidden poll API `bzpRunLoopPollPrepare()` / `bzpRunLoopPollQuery()` / `bzpRunLoopPollCheck()` / `bzpRunLoopPollDispatch()` / `bzpRunLoopPollCancel()` exposes the dedicated run loop as plain poll descriptors instead of `GMainContext *`.
-For lifecycle control in manual mode, `bzpRunLoopDriveUntilState()` and `bzpRunLoopDriveUntilShutdown()` can pump the loop until a target state is reached.
-If the host needs to reason about ownership explicitly, `bzpRunLoopIsManualMode()`, `bzpRunLoopHasOwner()`, and `bzpRunLoopIsCurrentThreadOwner()` expose the current manual run-loop state.
-If the host needs failure-aware queries instead of legacy `0/1` predicates, `bzpRunLoopIsManualModeEx()`, `bzpRunLoopHasOwnerEx()`, `bzpRunLoopIsCurrentThreadOwnerEx()`, `bzpGetGLibLogCaptureEnabledEx()`, `bzpIsGLibLogCaptureInstalledEx()`, `bzpUpdateQueueIsEmptyEx()`, `bzpUpdateQueueSizeEx()`, and `bzpIsServerRunningEx()` return `BZPQueryResult` and write their answers through output pointers.
-For embedded hosts that need tighter control over process-global GLib handlers, `bzpSetGLibLogCaptureMode()` can switch between automatic capture, fully disabled capture, `HOST_MANAGED` capture with explicit `bzpInstallGLibLogCapture()` / `bzpRestoreGLibLogCapture()`, and `STARTUP_AND_SHUTDOWN` capture that automatically releases the process-global override once the server reaches `ERunning`. Mode changes are now applied against the current runtime state immediately, so switching from `DISABLED` to `AUTOMATIC` while the server is already active installs capture right away, and switching back to `DISABLED` or `HOST_MANAGED` fully restores any automatic capture depth. Hosts can also temporarily yield automatic capture without changing the configured mode by using `bzpPauseGLibLogCapture()` / `bzpResumeGLibLogCapture()`. The capture scope can also be narrowed with `bzpSetGLibLogCaptureTargets()` so hosts can intercept just `g_log` traffic or include `g_print` / `g_printerr` explicitly, and `bzpSetGLibLogCaptureDomains()` can further limit `g_log` interception to the default domain, `GLib`, `GIO`, BlueZ, or other application domains. `bzpGetConfiguredGLibLogCaptureDomains()` exposes the compiled-in default domain mask alongside the existing mode/target getters. If an external component replaces one of those process-global handlers while BzPeri capture is active, BzPeri now preserves that external handler during restore instead of blindly overwriting it; hosts can inspect and clear the sticky contention mask with `bzpGetGLibLogCaptureContentionTargetsEx()` / `bzpClearGLibLogCaptureContention()`. If the host needs failure reasons instead of `0/1`, `bzpSetGLibLogCaptureModeEx()` distinguishes invalid modes, `bzpSetGLibLogCaptureTargetsEx()` distinguishes invalid target masks, `bzpSetGLibLogCaptureDomainsEx()` distinguishes invalid domain masks, `bzpPauseGLibLogCaptureEx()` / `bzpResumeGLibLogCaptureEx()` distinguish wrong-mode vs not-paused cases, and `bzpInstallGLibLogCaptureEx()` / `bzpRestoreGLibLogCaptureEx()` distinguish `WRONG_MODE` and `NOT_INSTALLED`.
-On systemd-based systems, BzPeri can subscribe to `org.freedesktop.login1.Manager.PrepareForSleep` so active advertising is paused before suspend and restored after resume. Hosts can toggle this at runtime with `bzpSetPrepareForSleepIntegrationEnabled()` / `bzpGetPrepareForSleepIntegrationEnabledEx()`. Optional login1 `Inhibit("sleep", ..., "delay")` integration can also be enabled with `bzpSetSleepInhibitorEnabled()` / `bzpGetSleepInhibitorEnabledEx()` so the process keeps a delay inhibitor fd open while the server is active, releases it when suspend is actually beginning, and reacquires it after resume. When the inhibitor is enabled, BzPeri keeps the `PrepareForSleep` subscription active even if BLE advertising pause/resume integration itself is disabled, because the inhibitor lifecycle depends on that signal.
-The same detailed-result pattern is now available for wait helpers via `bzpWaitEx()` / `bzpWaitForStateEx()` / `bzpWaitForShutdownEx()` / `bzpShutdownAndWaitEx()`, which distinguish pre-start `NOT_RUNNING`, invalid state/timeout, timeouts, and join failures. Shutdown triggering now also has `bzpTriggerShutdownEx()`, which distinguishes `NOT_RUNNING` from repeated `ALREADY_STOPPING` requests.
-Update queue maintenance also has a detailed helper now: `bzpUpdateQueueClearEx()` reports how many queued entries were cleared instead of silently dropping them through the legacy `void` wrapper.
-At this point the remaining `0/1` and `void` forms are retained primarily as compatibility shims; new integration code should prefer the corresponding `Ex` and query-result APIs when failure reasons matter.
-Manual run-loop helpers follow the same pattern: `bzpRunLoopIterationEx()`, `bzpRunLoopAttachEx()`, `bzpRunLoopPollPrepareEx()`, `bzpRunLoopDriveUntilStateEx()` and related APIs distinguish `NOT_MANUAL_MODE`, `WRONG_THREAD`, `NO_POLL_CYCLE`, `BUFFER_TOO_SMALL`, and timeout/idle outcomes without exposing raw GLib types.
-The build-time defaults can be changed with `-DBZP_DEFAULT_GLIB_LOG_CAPTURE_MODE=AUTOMATIC|DISABLED|HOST_MANAGED|STARTUP_AND_SHUTDOWN`, `-DBZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS=ALL|LOG|LOG,PRINTERR|...`, `-DBZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS=ALL|BLUEZ|GLIB,GIO|...`, `-DBZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION=ON|OFF`, and `-DBZP_DEFAULT_SLEEP_INHIBITOR=ON|OFF`; `bzpGetConfiguredGLibLogCaptureMode()`, `bzpGetConfiguredGLibLogCaptureTargets()`, `bzpGetConfiguredGLibLogCaptureDomains()`, `bzpGetConfiguredPrepareForSleepIntegrationEnabled()`, and `bzpGetConfiguredSleepInhibitorEnabled()` expose those compiled-in defaults at runtime.
-Production-oriented builds can also compile out lower-severity log paths with `-DBZP_COMPILED_LOG_LEVEL=TRACE|DEBUG|INFO|STATUS|WARN|ERROR|FATAL|ALWAYS`; `bzpGetConfiguredCompiledLogLevel()` reports that compiled-in minimum level at runtime.
-Builders that do not need deprecated singleton/global compatibility can configure CMake with `-DENABLE_LEGACY_SINGLETON_COMPAT=OFF`.
-With `ENABLE_LEGACY_SINGLETON_COMPAT=OFF`, the deprecated singleton/global implementation units are omitted from the build entirely. New C++ code that wants to avoid compatibility mirrors entirely can consult `getRuntimeServer()` / `getRuntimeServerPtr()` and `getRuntimeBluezAdapterPtr()` to see only the runtime-owned instances created by BzPeri itself.
-Builders that do not need deprecated raw GLib callback/method APIs can configure CMake with `-DENABLE_LEGACY_RAW_GLIB_COMPAT=OFF`.
-The same `ENABLE_LEGACY_RAW_GLIB_COMPAT=OFF` setting now also removes deprecated raw property getter/setter registration helpers, raw signal/reply/notification helpers, raw `GVariant*` property convenience overloads, raw `Utils::gvariantFrom*()` helpers, and their legacy alias names, so wrapper request-object paths become the only public extension surface.
-If the host needs detailed startup failure reasons instead of the legacy `0/1` return, use `bzpStartEx()` / `bzpStartWithBondableEx()` / `bzpStartManualEx()` and inspect `BZPStartResult`.
-The bundled `bzp-standalone` sample can be launched in this mode with `--manual-loop`, and its GLib capture strategy can be exercised with `--glib-log-capture=auto|off|host|startup-shutdown`, `--glib-log-targets=all|log|log,printerr`, and `--glib-log-domains=all|bluez|glib,gio`.
-When advertising starts, BzPeri now logs the selected payload mode (`legacy` vs `extended`), `MaxAdvLen`, and the UUIDs actually placed into the advertisement so Extended Advertising verification is visible at `INFO` level.
-Extended Advertising support is implemented in the payload selection path, but validation on an actually extended-capable controller is still pending because suitable test hardware was not available during this cycle.
+#### Manual Mode Tools
+
+Use manual mode when the host wants to decide exactly when BLE initialization, D-Bus callbacks, and cleanup are pumped.
+
+- `bzpRunLoopIteration()` / `bzpRunLoopIterationFor()`: drive progress directly
+- `bzpRunLoopAttach()` / `bzpRunLoopDetach()`: explicitly claim or release run-loop ownership
+- `bzpRunLoopInvoke()`: queue host work onto the same dedicated run loop
+- `bzpRunLoopDriveUntilState()` / `bzpRunLoopDriveUntilShutdown()`: pump until a lifecycle milestone is reached
+- `bzpRunLoopPollPrepare()` / `bzpRunLoopPollQuery()` / `bzpRunLoopPollCheck()` / `bzpRunLoopPollDispatch()` / `bzpRunLoopPollCancel()`: expose the run loop as plain poll descriptors for hosts that already use `poll(2)` or `select(2)`
+- `bzpRunLoopIsManualMode()`, `bzpRunLoopHasOwner()`, and `bzpRunLoopIsCurrentThreadOwner()`: inspect current ownership state
+
+If you want failure-aware results instead of legacy `0/1` behavior, use the `Ex` variants such as `bzpRunLoopIterationEx()`, `bzpRunLoopAttachEx()`, `bzpRunLoopPollPrepareEx()`, and `bzpRunLoopDriveUntilStateEx()`. These distinguish cases like `NOT_MANUAL_MODE`, `WRONG_THREAD`, `NO_POLL_CYCLE`, `BUFFER_TOO_SMALL`, and timeout or idle outcomes.
+
+#### GLib Log Capture
+
+For hosts that need tighter control over process-global GLib handlers, BzPeri exposes four capture modes through `bzpSetGLibLogCaptureMode()`:
+
+- `AUTOMATIC`: install capture while the runtime is active
+- `DISABLED`: never install capture automatically
+- `HOST_MANAGED`: the host explicitly calls `bzpInstallGLibLogCapture()` / `bzpRestoreGLibLogCapture()`
+- `STARTUP_AND_SHUTDOWN`: capture during lifecycle transitions, then release once the server reaches `ERunning`
+
+You can narrow the capture scope with:
+
+- `bzpSetGLibLogCaptureTargets()`: choose `g_log` only, or include `g_print` / `g_printerr`
+- `bzpSetGLibLogCaptureDomains()`: limit capture to default, `GLib`, `GIO`, BlueZ, or other application domains
+- `bzpPauseGLibLogCapture()` / `bzpResumeGLibLogCapture()`: temporarily yield capture without changing the configured mode
+
+Mode changes apply immediately against the current runtime state. If another component replaces one of the process-global handlers while capture is active, BzPeri preserves that external handler during restore instead of blindly overwriting it. Hosts can inspect and clear that contention state with `bzpGetGLibLogCaptureContentionTargetsEx()` / `bzpClearGLibLogCaptureContention()`.
+
+If you need structured failure reasons, prefer `bzpSetGLibLogCaptureModeEx()`, `bzpSetGLibLogCaptureTargetsEx()`, `bzpSetGLibLogCaptureDomainsEx()`, `bzpPauseGLibLogCaptureEx()`, `bzpResumeGLibLogCaptureEx()`, `bzpInstallGLibLogCaptureEx()`, and `bzpRestoreGLibLogCaptureEx()`.
+
+#### Power Management
+
+On systemd-based systems, BzPeri can subscribe to `org.freedesktop.login1.Manager.PrepareForSleep` so advertising pauses before suspend and resumes afterward.
+
+- `bzpSetPrepareForSleepIntegrationEnabled()` / `bzpGetPrepareForSleepIntegrationEnabledEx()`: toggle suspend/resume advertising integration
+- `bzpSetSleepInhibitorEnabled()` / `bzpGetSleepInhibitorEnabledEx()`: hold a login1 delay inhibitor fd while the server is active
+
+When the sleep inhibitor is enabled, BzPeri keeps the `PrepareForSleep` subscription active even if advertising pause/resume integration itself is disabled, because the inhibitor lifecycle depends on the same signal.
+
+#### Failure-Aware Control APIs
+
+The same detailed-result pattern now exists across the runtime control surface:
+
+- `bzpStartEx()` / `bzpStartWithBondableEx()` / `bzpStartManualEx()`: startup failure reasons via `BZPStartResult`
+- `bzpWaitEx()` / `bzpWaitForStateEx()` / `bzpWaitForShutdownEx()` / `bzpShutdownAndWaitEx()`: distinguish `NOT_RUNNING`, invalid state, timeout, and join failures
+- `bzpTriggerShutdownEx()`: distinguishes `NOT_RUNNING` from repeated `ALREADY_STOPPING`
+- `bzpUpdateQueueClearEx()`: reports how many queued entries were removed
+- `bzpRunLoopIsManualModeEx()`, `bzpRunLoopHasOwnerEx()`, `bzpRunLoopIsCurrentThreadOwnerEx()`, `bzpGetGLibLogCaptureEnabledEx()`, `bzpIsGLibLogCaptureInstalledEx()`, `bzpUpdateQueueIsEmptyEx()`, `bzpUpdateQueueSizeEx()`, and `bzpIsServerRunningEx()`: query APIs that return `BZPQueryResult` instead of plain `0/1`
+
+The older `0/1` and `void` forms still exist as compatibility shims, but new integration code should prefer the `Ex` and query-result variants when failure reasons matter.
+
+#### Build-Time Defaults
+
+You can change the compiled defaults with:
+
+- `-DBZP_DEFAULT_GLIB_LOG_CAPTURE_MODE=AUTOMATIC|DISABLED|HOST_MANAGED|STARTUP_AND_SHUTDOWN`
+- `-DBZP_DEFAULT_GLIB_LOG_CAPTURE_TARGETS=ALL|LOG|LOG,PRINTERR|...`
+- `-DBZP_DEFAULT_GLIB_LOG_CAPTURE_DOMAINS=ALL|BLUEZ|GLIB,GIO|...`
+- `-DBZP_DEFAULT_PREPARE_FOR_SLEEP_INTEGRATION=ON|OFF`
+- `-DBZP_DEFAULT_SLEEP_INHIBITOR=ON|OFF`
+- `-DBZP_COMPILED_LOG_LEVEL=TRACE|DEBUG|INFO|STATUS|WARN|ERROR|FATAL|ALWAYS`
+
+At runtime, the compiled defaults are visible through `bzpGetConfiguredGLibLogCaptureMode()`, `bzpGetConfiguredGLibLogCaptureTargets()`, `bzpGetConfiguredGLibLogCaptureDomains()`, `bzpGetConfiguredPrepareForSleepIntegrationEnabled()`, `bzpGetConfiguredSleepInhibitorEnabled()`, and `bzpGetConfiguredCompiledLogLevel()`.
+
+#### Compatibility Toggles
+
+If you do not need legacy compatibility layers, you can compile them out:
+
+- `-DENABLE_LEGACY_SINGLETON_COMPAT=OFF`: removes deprecated singleton/global implementation units, and new C++ code can rely on `getRuntimeServer()` / `getRuntimeServerPtr()` / `getRuntimeBluezAdapterPtr()`
+- `-DENABLE_LEGACY_RAW_GLIB_COMPAT=OFF`: removes deprecated raw property getter/setter registration helpers, raw signal/reply/notification helpers, raw `GVariant*` convenience overloads, raw `Utils::gvariantFrom*()` helpers, and their legacy alias names
+
+If you want to exercise these runtime options quickly, the bundled `bzp-standalone` sample supports `--manual-loop`, `--glib-log-capture=auto|off|host|startup-shutdown`, `--glib-log-targets=all|log|log,printerr`, and `--glib-log-domains=all|bluez|glib,gio`.
+
+When advertising starts, BzPeri now logs the selected payload mode (`legacy` vs `extended`), `MaxAdvLen`, and the UUIDs actually placed into the advertisement so extended-advertising verification is visible at `INFO` level. The payload path is implemented, but validation on actually extended-capable hardware is still pending.
 
 ## Configuration
 
@@ -350,11 +415,13 @@ sudo chmod 644 /etc/dbus-1/system.d/com.bzperi.conf
 sudo systemctl reload dbus
 ```
 
-**Alternative method** - Install via CMake:
+**Alternative method** - Install the runtime assets via CMake:
 ```bash
 cd build
-sudo cmake --install . --component dbus-policy
+sudo cmake --install . --component libraries
 ```
+
+This installs the runtime library, `bzp-standalone`, the D-Bus policy file, and the BlueZ helper script.
 
 #### Service Name Requirements
 
@@ -374,21 +441,20 @@ The included policy file (`dbus/com.bzperi.conf`) provides comprehensive permiss
 <busconfig>
   <!-- Root user permissions -->
   <policy user="root">
-    <allow own="com.bzperi"/>
-    <allow send_destination="com.bzperi"/>
+    <allow own_prefix="com.bzperi"/>
+    <allow send_destination_prefix="com.bzperi"/>
     <allow send_destination="org.bluez"/>
     <allow receive_sender="org.bluez"/>
   </policy>
 
   <!-- Bluetooth group permissions -->
   <policy group="bluetooth">
-    <allow send_destination="com.bzperi"/>
-    <allow receive_sender="com.bzperi"/>
+    <allow send_destination_prefix="com.bzperi"/>
   </policy>
 
   <!-- Introspection for debugging -->
   <policy context="default">
-    <allow send_destination="com.bzperi"
+    <allow send_destination_prefix="com.bzperi"
            send_interface="org.freedesktop.DBus.Introspectable"/>
   </policy>
 </busconfig>
@@ -398,6 +464,8 @@ The included policy file (`dbus/com.bzperi.conf`) provides comprehensive permiss
 
 **Check if policy is installed:**
 ```bash
+ls -la /usr/share/dbus-1/system.d/com.bzperi.conf
+# Or, for source-build/manual installs:
 ls -la /etc/dbus-1/system.d/com.bzperi.conf
 # Should show: -rw-r--r-- root root
 ```
@@ -417,7 +485,7 @@ sudo journalctl -u dbus -f
 
 Common issues:
 - **"Connection refused"**: D-Bus policy not installed or incorrect permissions
-- **"Access denied"**: Service name does not start with `bzperi.`
+- **"Access denied"**: Service name is not `bzperi` and does not start with `bzperi.`
 - **"Name already in use"**: Another instance is running
 
 **Force D-Bus to reload policies:**
@@ -503,12 +571,12 @@ if (!result) {
 ```
 
 ### Modern Adapter Management
-```cpp
-// List available adapters
-sudo ./bzp-standalone --list-adapters
+```bash
+# List available adapters
+sudo ./bzp-standalone doctor --list-adapters
 
-// Use specific adapter
-sudo ./bzp-standalone --adapter=hci1
+# Use a specific adapter for the managed demo
+sudo ./bzp-standalone demo --adapter=hci1
 ```
 
 ## Acknowledgments

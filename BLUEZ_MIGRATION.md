@@ -72,7 +72,8 @@ if (result.hasError()) {
 ### Root Access
 The application works with `sudo` out of the box:
 ```bash
-sudo ./build/bzp-standalone -d
+sudo ./build/bzp-standalone doctor
+sudo ./build/bzp-standalone demo -d
 ```
 
 ### Polkit Configuration
@@ -90,7 +91,7 @@ polkit.addRule(function(action, subject) {
 ```
 
 ### D-Bus Policy
-Ensure your existing `/etc/dbus-1/system.d/com.bzperi.conf` remains for service name ownership. BlueZ access is handled by polkit.
+Ensure the BzPeri D-Bus policy is installed for service-name ownership. Packaged installs place it at `/usr/share/dbus-1/system.d/com.bzperi.conf`; source builds can copy `dbus/com.bzperi.conf` into `/etc/dbus-1/system.d/`. BlueZ access is still handled by polkit.
 
 ## Feature Detection and Fallbacks
 
@@ -129,7 +130,7 @@ for (const auto& adapter : adapters.value()) {
 ```bash
 # Environment variable
 export BLUEZ_ADAPTER=hci1
-./build/bzp-standalone
+sudo ./build/bzp-standalone demo
 
 # Or programmatically
 adapter.initialize("hci1");  // or "/org/bluez/hci1"
@@ -222,7 +223,8 @@ busctl tree org.bluez
 ### Debug Information
 Enable debug logging to see detailed D-Bus operations:
 ```bash
-sudo ./build/bzp-standalone -d -v
+sudo ./build/bzp-standalone demo -d
+sudo ./build/bzp-standalone inspect --live --verbose-events
 ```
 
 Monitor D-Bus traffic:

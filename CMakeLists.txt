@@ -321,8 +321,26 @@ endif()
 
 # Standalone executable
 if(BUILD_STANDALONE AND LINUX)
-    add_executable(standalone samples/standalone.cpp)
-    target_link_libraries(standalone bzperi)
+    add_executable(standalone
+        samples/standalone.cpp
+        src/StandaloneWorkflow.cpp
+    )
+    target_link_libraries(standalone
+        bzperi
+        ${GLIB_LIBRARIES}
+        ${GIO_LIBRARIES}
+        ${GOBJECT_LIBRARIES}
+    )
+    target_include_directories(standalone PRIVATE
+        ${GLIB_INCLUDE_DIRS}
+        ${GIO_INCLUDE_DIRS}
+        ${GOBJECT_INCLUDE_DIRS}
+    )
+    target_compile_options(standalone PRIVATE
+        ${GLIB_CFLAGS_OTHER}
+        ${GIO_CFLAGS_OTHER}
+        ${GOBJECT_CFLAGS_OTHER}
+    )
     set_target_properties(standalone PROPERTIES
         OUTPUT_NAME bzp-standalone
     )
@@ -335,6 +353,7 @@ if(BUILD_TESTING)
     if(LINUX)
         add_executable(bzperi-tests
             tests/bzperi_tests.cpp
+            src/StandaloneWorkflow.cpp
         )
         target_link_libraries(bzperi-tests PRIVATE
             bzperi

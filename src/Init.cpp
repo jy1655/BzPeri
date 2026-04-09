@@ -106,6 +106,21 @@ static std::string bluezGattManagerInterfaceName = "";
 static Server* pServerContext = nullptr;
 static BluezAdapter* pAdapterContext = nullptr;
 
+static void removeSourceIfPresent(guint *sourceId)
+{
+	if (sourceId == nullptr || *sourceId == 0)
+	{
+		return;
+	}
+
+	GMainContext *context = pMainContext != nullptr ? pMainContext : g_main_context_default();
+	if (g_main_context_find_source_by_id(context, *sourceId) != nullptr)
+	{
+		g_source_remove(*sourceId);
+	}
+	*sourceId = 0;
+}
+
 //
 // Externs
 //
@@ -804,26 +819,22 @@ void uninit()
 
 	if (0 != periodicTimeoutId)
 	{
-		g_source_remove(periodicTimeoutId);
-		periodicTimeoutId = 0;
+		removeSourceIfPresent(&periodicTimeoutId);
 	}
 
 	if (0 != updateProcessorSourceId)
 	{
-		g_source_remove(updateProcessorSourceId);
-		updateProcessorSourceId = 0;
+		removeSourceIfPresent(&updateProcessorSourceId);
 	}
 
 	if (0 != sigtermSourceId)
 	{
-		g_source_remove(sigtermSourceId);
-		sigtermSourceId = 0;
+		removeSourceIfPresent(&sigtermSourceId);
 	}
 
 	if (0 != sigintSourceId)
 	{
-		g_source_remove(sigintSourceId);
-		sigintSourceId = 0;
+		removeSourceIfPresent(&sigintSourceId);
 	}
 
 	if (0 != sleepSignalSubscriptionId)

@@ -41,6 +41,16 @@ check_bluez() {
 check_current_status() {
     print_info "Checking current BlueZ configuration..."
 
+    local running_process
+    running_process=$(get_running_bluetoothd_command 2>/dev/null)
+    if [ -n "$running_process" ]; then
+        print_info "Running process: $running_process"
+        if has_experimental_flag "$running_process"; then
+            print_success "BlueZ experimental mode is enabled"
+            return 0
+        fi
+    fi
+
     # Get current command
     local current_command
     current_command=$(get_current_execstart 2>/dev/null)
@@ -61,6 +71,11 @@ check_current_status() {
     fi
 }
 
+# Function to get the currently running bluetoothd command line
+get_running_bluetoothd_command() {
+    ps -eo args= | grep '[b]luetoothd' | head -1
+}
+
 # Function to backup current configuration
 backup_config() {
     local backup_dir="/etc/systemd/system/bluetooth.service.d"
@@ -79,7 +94,14 @@ backup_config() {
 get_current_execstart() {
     local full_command=""
 
-    # Method 1: Get from systemctl show (most reliable)
+    # Method 1: Parse the effective ExecStart from systemctl cat output so drop-ins win.
+    local unit_command=$(systemctl cat bluetooth.service 2>/dev/null | grep "^ExecStart=" | tail -1 | sed 's/ExecStart=//')
+    if [ -n "$unit_command" ]; then
+        echo "$unit_command"
+        return 0
+    fi
+
+    # Method 2: Get from systemctl show
     local show_output=$(systemctl show bluetooth.service -p ExecStart --value 2>/dev/null)
     if [ -n "$show_output" ]; then
         # Extract the actual command from systemctl show output
@@ -90,13 +112,6 @@ get_current_execstart() {
             echo "$full_command"
             return 0
         fi
-    fi
-
-    # Method 2: Parse unit file directly
-    local unit_command=$(systemctl cat bluetooth.service 2>/dev/null | grep "^ExecStart=" | head -1 | sed 's/ExecStart=//')
-    if [ -n "$unit_command" ]; then
-        echo "$unit_command"
-        return 0
     fi
 
     # Method 3: Find common bluetoothd paths
